@@ -1,8 +1,9 @@
 package httpserver
 
 import (
-	"html/template"
+	"fmt"
 	"net/http"
+	"net/url"
 
 	_ "github.com/eswan18/fcast-auth/docs"
 	"github.com/go-chi/chi/v5"
@@ -79,12 +80,29 @@ func (s *Server) handleLoginGet(w http.ResponseWriter, r *http.Request) {
 	codeChallenge := r.URL.Query().Get("code_challenge")
 	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
 	if codeChallengeMethod != "S256" {
-		http.Error(w, "Only S256 code challenge method is supported", http.StatusBadRequest)
+		if redirectURI != "" {
+			// OAuth error: redirect back to client with error parameters
+			errorDesc := "Only S256 code challenge method is supported"
+			redirectURL := fmt.Sprintf("%s?error=invalid_request&error_description=%s&state=%s",
+				redirectURI,
+				url.QueryEscape(errorDesc),
+				url.QueryEscape(state))
+			http.Redirect(w, r, redirectURL, http.StatusFound)
+			return
+		}
+		// No redirect_uri: show error page
+		s.renderLoginError(w, http.StatusBadRequest, "Only S256 code challenge method is supported", LoginPageData{
+			ClientID:            clientID,
+			RedirectURI:         redirectURI,
+			State:               state,
+			Scope:               scope,
+			CodeChallenge:       codeChallenge,
+			CodeChallengeMethod: codeChallengeMethod,
+		})
 		return
 	}
 
-	tmpl := template.Must(template.ParseFiles("templates/login.html"))
-	tmpl.Execute(w, LoginPageData{
+	s.loginTemplate.Execute(w, LoginPageData{
 		ClientID:            clientID,
 		RedirectURI:         redirectURI,
 		State:               state,
@@ -122,50 +140,27 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	codeChallenge := r.FormValue("code_challenge")
 	codeChallengeMethod := r.FormValue("code_challenge_method")
 
-	// Parse and cache template
-	tmpl := template.Must(template.ParseFiles("templates/login.html"))
-
+	// Extract OAuth parameters into a struct for reuse.
+	oauthParams := LoginPageData{
+		ClientID:            clientID,
+		RedirectURI:         redirectURI,
+		State:               state,
+		Scope:               scope,
+		CodeChallenge:       codeChallenge,
+		CodeChallengeMethod: codeChallengeMethod,
+	}
 	// Validate required fields and re-render login page with error if missing
 	if username == "" || password == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		tmpl.Execute(w, LoginPageData{
-			Error:               "Username and password are required",
-			ClientID:            clientID,
-			RedirectURI:         redirectURI,
-			State:               state,
-			Scope:               scope,
-			CodeChallenge:       codeChallenge,
-			CodeChallengeMethod: codeChallengeMethod,
-		})
+		s.renderLoginError(w, http.StatusBadRequest, "Username and password are required", oauthParams)
 		return
 	}
-
 	if redirectURI == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		tmpl.Execute(w, LoginPageData{
-			Error:               "Redirect URI is required",
-			ClientID:            clientID,
-			RedirectURI:         redirectURI,
-			State:               state,
-			Scope:               scope,
-			CodeChallenge:       codeChallenge,
-			CodeChallengeMethod: codeChallengeMethod,
-		})
+		s.renderLoginError(w, http.StatusBadRequest, "Redirect URI is required", oauthParams)
 		return
 	}
-
 	// Fake validation for now
 	if username != "admin" || password != "password" {
-		w.WriteHeader(http.StatusUnauthorized)
-		tmpl.Execute(w, LoginPageData{
-			Error:               "Invalid username or password",
-			ClientID:            clientID,
-			RedirectURI:         redirectURI,
-			State:               state,
-			Scope:               scope,
-			CodeChallenge:       codeChallenge,
-			CodeChallengeMethod: codeChallengeMethod,
-		})
+		s.renderLoginError(w, http.StatusUnauthorized, "Invalid username or password", oauthParams)
 		return
 	}
 
@@ -300,4 +295,33 @@ func (s *Server) handleIntrospect(w http.ResponseWriter, r *http.Request) {
 // @Router       /oauth/revoke [post]
 func (s *Server) handleRevoke(w http.ResponseWriter, r *http.Request) {
 	// temporary no-op
+}
+
+// renderLoginError renders the login page with an error message, preserving OAuth parameters.
+// It handles template execution errors gracefully by falling back to the error template.
+func (s *Server) renderLoginError(w http.ResponseWriter, statusCode int, errorMsg string, oauthParams LoginPageData) {
+	w.WriteHeader(statusCode)
+	err := s.loginTemplate.Execute(w, LoginPageData{
+		Error:               errorMsg,
+		ClientID:            oauthParams.ClientID,
+		RedirectURI:         oauthParams.RedirectURI,
+		State:               oauthParams.State,
+		Scope:               oauthParams.Scope,
+		CodeChallenge:       oauthParams.CodeChallenge,
+		CodeChallengeMethod: oauthParams.CodeChallengeMethod,
+	})
+	if err != nil {
+		// Fallback to error template if login template fails
+		err = s.errorTemplate.Execute(w, ErrorPageData{
+			Title:       "Internal Server Error",
+			Message:     "An error occurred while rendering the login page",
+			Details:     err.Error(),
+			ErrorCode:   "500",
+			RedirectURI: oauthParams.RedirectURI,
+		})
+		if err != nil {
+			// Last resort: plain text error
+			http.Error(w, "An error occurred while rendering the error page", http.StatusInternalServerError)
+		}
+	}
 }
