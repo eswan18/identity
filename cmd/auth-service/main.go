@@ -1,10 +1,19 @@
+// Package main Forecasting Authentication Service.
+//
+// @title           Forecasting Authentication Service
+// @version         1.0
+//
+// @contact.name    Ethan Swan
+//
+// @host      localhost:8080
+// @BasePath  /
 package main
 
 import (
 	"log"
 
-	"github.com/eswan18/fcast-service/internal/config"
-	"github.com/eswan18/fcast-service/internal/httpserver"
+	"github.com/eswan18/fcast-auth/internal/config"
+	"github.com/eswan18/fcast-auth/internal/httpserver"
 )
 
 func main() {

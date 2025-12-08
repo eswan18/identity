@@ -3,7 +3,9 @@ package httpserver
 import (
 	"net/http"
 
+	_ "github.com/eswan18/fcast-auth/docs"
 	"github.com/go-chi/chi/v5"
+	httpSwagger "github.com/swaggo/http-swagger"
 )
 
 func (s *Server) registerRoutes() {
@@ -23,8 +25,24 @@ func (s *Server) registerRoutes() {
 		r.Post("/introspect", s.handleIntrospect)
 		r.Post("/revoke", s.handleRevoke)
 	})
+
+	// Swagger
+	r.Get("/openapi/*", httpSwagger.Handler(
+		httpSwagger.URL("http://localhost:8080/openapi.json"),
+	))
+	r.Get("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		http.ServeFile(w, r, "docs/swagger.json")
+	})
 }
 
+// handleHealth godoc
+// @Summary      Health check
+// @Description  Returns OK if the service is up and running.
+// @Tags         health
+// @Produce      plain
+// @Success      200 {string} string "OK"
+// @Router      /health [get]
 func (s *Server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
