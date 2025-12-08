@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error - Forecasting App</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f7fafc;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .error-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 48px;
+            width: 100%;
+            max-width: 500px;
+            text-align: center;
+        }
+
+        .error-icon {
+            font-size: 64px;
+            margin-bottom: 24px;
+        }
+
+        .error-title {
+            color: #1a202c;
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+
+        .error-message {
+            color: #4a5568;
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 32px;
+        }
+
+        .error-details {
+            background-color: #fed7d7;
+            border: 1px solid #fc8181;
+            color: #c53030;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 32px;
+            font-size: 14px;
+            text-align: left;
+            word-break: break-word;
+        }
+
+        .error-code {
+            color: #718096;
+            font-size: 12px;
+            margin-top: 8px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .action-button {
+            display: inline-block;
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s;
+        }
+
+        .action-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+            background-color: #5568d3;
+        }
+
+        .action-button:active {
+            transform: translateY(0);
+        }
+
+        .footer-text {
+            margin-top: 32px;
+            color: #718096;
+            font-size: 12px;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            body {
+                background: #1a202c;
+            }
+
+            .error-container {
+                background: #2d3748;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            }
+
+            .error-title {
+                color: #f7fafc;
+            }
+
+            .error-message {
+                color: #e2e8f0;
+            }
+
+            .error-details {
+                background-color: #742a2a;
+                border-color: #e53e3e;
+                color: #fc8181;
+            }
+
+            .error-code {
+                color: #a0aec0;
+            }
+
+            .footer-text {
+                color: #a0aec0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <div class="error-icon">⚠️</div>
+        <h1 class="error-title">{{if .Title}}{{.Title}}{{else}}An Error Occurred{{end}}</h1>
+        
+        {{if .Message}}
+        <div class="error-message">{{.Message}}</div>
+        {{end}}
+
+        {{if .Details}}
+        <div class="error-details">
+            <strong>Details:</strong><br>
+            {{.Details}}
+            {{if .ErrorCode}}
+            <div class="error-code">Error Code: {{.ErrorCode}}</div>
+            {{end}}
+        </div>
+        {{end}}
+
+        {{if .RedirectURI}}
+        <a href="{{.RedirectURI}}" class="action-button">Go Back</a>
+        {{else}}
+        <a href="/login" class="action-button">Return to Login</a>
+        {{end}}
+
+        <div class="footer-text">
+            Forecasting Authentication Service
+        </div>
+    </div>
+</body>
+</html>
+

@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"html/template"
 	"net/http"
 
 	_ "github.com/eswan18/fcast-auth/docs"
@@ -69,7 +70,28 @@ func (s *Server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 // @Success      200 {string} string "HTML login page"
 // @Router       /login [get]
 func (s *Server) handleLoginGet(w http.ResponseWriter, r *http.Request) {
-	// temporary no-op
+	// For now, don't validate client_id
+	clientID := r.URL.Query().Get("client_id")
+	// TODO: Validate redirect_uri and state
+	redirectURI := r.URL.Query().Get("redirect_uri")
+	state := r.URL.Query().Get("state")
+	scope := r.URL.Query().Get("scope")
+	codeChallenge := r.URL.Query().Get("code_challenge")
+	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
+	if codeChallengeMethod != "S256" {
+		http.Error(w, "Only S256 code challenge method is supported", http.StatusBadRequest)
+		return
+	}
+
+	tmpl := template.Must(template.ParseFiles("templates/login.html"))
+	tmpl.Execute(w, LoginPageData{
+		ClientID:            clientID,
+		RedirectURI:         redirectURI,
+		State:               state,
+		Scope:               scope,
+		CodeChallenge:       codeChallenge,
+		CodeChallengeMethod: codeChallengeMethod,
+	})
 }
 
 // handleLoginPost godoc
@@ -91,7 +113,67 @@ func (s *Server) handleLoginGet(w http.ResponseWriter, r *http.Request) {
 // @Failure      401 {string} string "Invalid credentials"
 // @Router       /login [post]
 func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
-	// temporary no-op
+	username := r.FormValue("username")
+	password := r.FormValue("password")
+	clientID := r.FormValue("client_id")
+	redirectURI := r.FormValue("redirect_uri")
+	state := r.FormValue("state")
+	scope := r.FormValue("scope")
+	codeChallenge := r.FormValue("code_challenge")
+	codeChallengeMethod := r.FormValue("code_challenge_method")
+
+	// Parse and cache template
+	tmpl := template.Must(template.ParseFiles("templates/login.html"))
+
+	// Validate required fields and re-render login page with error if missing
+	if username == "" || password == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		tmpl.Execute(w, LoginPageData{
+			Error:               "Username and password are required",
+			ClientID:            clientID,
+			RedirectURI:         redirectURI,
+			State:               state,
+			Scope:               scope,
+			CodeChallenge:       codeChallenge,
+			CodeChallengeMethod: codeChallengeMethod,
+		})
+		return
+	}
+
+	if redirectURI == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		tmpl.Execute(w, LoginPageData{
+			Error:               "Redirect URI is required",
+			ClientID:            clientID,
+			RedirectURI:         redirectURI,
+			State:               state,
+			Scope:               scope,
+			CodeChallenge:       codeChallenge,
+			CodeChallengeMethod: codeChallengeMethod,
+		})
+		return
+	}
+
+	// Fake validation for now
+	if username != "admin" || password != "password" {
+		w.WriteHeader(http.StatusUnauthorized)
+		tmpl.Execute(w, LoginPageData{
+			Error:               "Invalid username or password",
+			ClientID:            clientID,
+			RedirectURI:         redirectURI,
+			State:               state,
+			Scope:               scope,
+			CodeChallenge:       codeChallenge,
+			CodeChallengeMethod: codeChallengeMethod,
+		})
+		return
+	}
+
+	// TODO: Validate username and password against database
+	// TODO: Create authenticated session
+	// TODO: Generate authorization code
+	// TODO: Redirect to redirect_uri with authorization code
+	http.Redirect(w, r, redirectURI, http.StatusFound)
 }
 
 // handleLogout godoc
