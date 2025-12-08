@@ -11,3 +11,20 @@ run: docs
 
 build: docs
 	go build -o fcast-auth cmd/auth-service/main.go
+
+migrate-new:
+	migrate create -ext sql -dir db/migrations -seq $(name)
+
+migrate-up:
+	@if [ -z "$(DATABASE_URL)" ]; then \
+		echo "Error: DATABASE_URL is not set"; \
+		exit 1; \
+	fi
+	migrate -database $(DATABASE_URL) -path db/migrations up
+
+migrate-down:
+	@if [ -z "$(DATABASE_URL)" ]; then \
+		echo "Error: DATABASE_URL is not set"; \
+		exit 1; \
+	fi
+	migrate -database $(DATABASE_URL) -path db/migrations down
