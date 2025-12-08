@@ -2,6 +2,7 @@ SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 GO_SOURCES := $(shell find . -name '*.go' -not -path './docs/*' -not -path './vendor/*')
 MIGRATIONS := $(wildcard db/migrations/*.up.sql)
+ENV ?= local
 
 docs: docs/docs.go docs/swagger.json docs/swagger.yaml
 
@@ -9,6 +10,7 @@ docs/docs.go docs/swagger.json docs/swagger.yaml: $(GO_SOURCES)
 	swag init -g cmd/auth-service/main.go
 
 run: docs
+	@echo "Running with ENV=$(ENV)"
 	go run cmd/auth-service/main.go
 
 build: docs

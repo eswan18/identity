@@ -44,5 +44,5 @@ func New(config *config.Config, datastore *store.Store) *Server {
 }
 
 func (s *Server) Run() error {
-	return http.ListenAndServe(":"+s.config.Port, s.router)
+	return http.ListenAndServe(s.config.HTTPAddress, s.router)
 }
