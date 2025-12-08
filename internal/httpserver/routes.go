@@ -1,11 +1,14 @@
 package httpserver
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"net/url"
 
 	_ "github.com/eswan18/fcast-auth/docs"
+	"github.com/eswan18/fcast-auth/internal/auth"
 	"github.com/go-chi/chi/v5"
 	httpSwagger "github.com/swaggo/http-swagger"
 )
@@ -158,13 +161,28 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		s.renderLoginError(w, http.StatusBadRequest, "Redirect URI is required", oauthParams)
 		return
 	}
-	// Fake validation for now
-	if username != "admin" || password != "password" {
+
+	// Validate username and password against database
+	user, err := s.datastore.Q.GetUserByUsername(context.Background(), username)
+	if err == sql.ErrNoRows {
 		s.renderLoginError(w, http.StatusUnauthorized, "Invalid username or password", oauthParams)
 		return
 	}
+	if err != nil {
+		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
+		return
+	}
 
-	// TODO: Validate username and password against database
+	valid, err := auth.VerifyPassword(password, user.PasswordHash)
+	if !valid {
+		s.renderLoginError(w, http.StatusUnauthorized, "Invalid username or password", oauthParams)
+		return
+	}
+	if err != nil {
+		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
+		return
+	}
+
 	// TODO: Create authenticated session
 	// TODO: Generate authorization code
 	// TODO: Redirect to redirect_uri with authorization code

@@ -7,14 +7,14 @@ CREATE EXTENSION IF NOT EXISTS citext;
 -- ============================
 CREATE TABLE auth_users (
     id              uuid            PRIMARY KEY DEFAULT gen_random_uuid(),
-    email           citext          NOT NULL UNIQUE,
+    username        text            NOT NULL UNIQUE,
     password_hash   text            NOT NULL,
+    email           citext          NOT NULL UNIQUE,
     is_active       boolean         NOT NULL DEFAULT true,
     created_at      timestamptz     NOT NULL DEFAULT now(),
     updated_at      timestamptz     NOT NULL DEFAULT now()
 );
 
--- You can add indexes later if you query by other fields (e.g., username)
 
 -- ============================
 -- OAuth Clients

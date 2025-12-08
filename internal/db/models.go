@@ -13,8 +13,9 @@ import (
 
 type AuthUser struct {
 	ID           uuid.UUID   `json:"id"`
-	Email        interface{} `json:"email"`
+	Username     string      `json:"username"`
 	PasswordHash string      `json:"password_hash"`
+	Email        interface{} `json:"email"`
 	IsActive     bool        `json:"is_active"`
 	CreatedAt    time.Time   `json:"created_at"`
 	UpdatedAt    time.Time   `json:"updated_at"`

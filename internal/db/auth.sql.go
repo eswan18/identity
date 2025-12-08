@@ -72,23 +72,25 @@ func (q *Queries) CreateOAuthClient(ctx context.Context, arg CreateOAuthClientPa
 }
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO auth_users (email, password_hash)
-VALUES ($1, $2)
-RETURNING id, email, password_hash, is_active, created_at, updated_at
+INSERT INTO auth_users (username, email, password_hash)
+VALUES ($1, $2, $3)
+RETURNING id, username, password_hash, email, is_active, created_at, updated_at
 `
 
 type CreateUserParams struct {
+	Username     string      `json:"username"`
 	Email        interface{} `json:"email"`
 	PasswordHash string      `json:"password_hash"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (AuthUser, error) {
-	row := q.db.QueryRowContext(ctx, createUser, arg.Email, arg.PasswordHash)
+	row := q.db.QueryRowContext(ctx, createUser, arg.Username, arg.Email, arg.PasswordHash)
 	var i AuthUser
 	err := row.Scan(
 		&i.ID,
-		&i.Email,
+		&i.Username,
 		&i.PasswordHash,
+		&i.Email,
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -171,7 +173,7 @@ func (q *Queries) GetTokenByAccessToken(ctx context.Context, accessToken sql.Nul
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, password_hash, is_active, created_at, updated_at
+SELECT id, username, password_hash, email, is_active, created_at, updated_at
 FROM auth_users
 WHERE email = $1
   AND is_active = true
@@ -182,8 +184,31 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email interface{}) (AuthUs
 	var i AuthUser
 	err := row.Scan(
 		&i.ID,
-		&i.Email,
+		&i.Username,
 		&i.PasswordHash,
+		&i.Email,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserByUsername = `-- name: GetUserByUsername :one
+SELECT id, username, password_hash, email, is_active, created_at, updated_at
+FROM auth_users
+WHERE username = $1
+  AND is_active = true
+`
+
+func (q *Queries) GetUserByUsername(ctx context.Context, username string) (AuthUser, error) {
+	row := q.db.QueryRowContext(ctx, getUserByUsername, username)
+	var i AuthUser
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.Email,
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,

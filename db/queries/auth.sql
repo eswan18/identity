@@ -1,7 +1,13 @@
 -- name: CreateUser :one
-INSERT INTO auth_users (email, password_hash)
-VALUES ($1, $2)
+INSERT INTO auth_users (username, email, password_hash)
+VALUES ($1, $2, $3)
 RETURNING *;
+
+-- name: GetUserByUsername :one
+SELECT *
+FROM auth_users
+WHERE username = $1
+  AND is_active = true;
 
 -- name: GetUserByEmail :one
 SELECT *
