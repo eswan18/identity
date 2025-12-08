@@ -18,9 +18,8 @@ import (
 
 func main() {
 
-	server := httpserver.New(&config.Config{
-		Port: "8080",
-	})
+	config := config.NewFromEnv()
+	server := httpserver.New(config)
 
 	err := server.Run()
 	if err != nil {

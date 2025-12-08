@@ -6,17 +6,425 @@ info:
   title: Forecasting Authentication Service
   version: "1.0"
 paths:
-  /health:
+  /.well-known/jwks.json:
     get:
-      description: Returns OK if the service is up and running.
+      description: Returns public RSA keys for JWT signature verification
       produces:
-      - text/plain
+      - application/json
       responses:
         "200":
-          description: OK
+          description: JWKS containing public keys with kty, use, kid, n, e fields
           schema:
-            type: string
+            additionalProperties: true
+            type: object
+      summary: JSON Web Key Set
+      tags:
+      - oidc
+  /.well-known/openid-configuration:
+    get:
+      description: Returns OpenID Connect discovery document with endpoints and supported
+        features
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OIDC configuration including issuer, endpoints, supported response
+            types, scopes, etc.
+          schema:
+            additionalProperties: true
+            type: object
+      summary: OIDC discovery document
+      tags:
+      - oidc
+  /health:
+    get:
+      description: Returns service health status including database connectivity
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Service is healthy
+          schema:
+            additionalProperties:
+              type: string
+            type: object
       summary: Health check
       tags:
       - health
+  /login:
+    get:
+      description: Displays the login form with OAuth parameters preserved in hidden
+        fields
+      parameters:
+      - description: Registered client identifier
+        in: query
+        name: client_id
+        required: true
+        type: string
+      - description: Where to send the user after auth
+        in: query
+        name: redirect_uri
+        required: true
+        type: string
+      - description: CSRF protection token
+        in: query
+        name: state
+        required: true
+        type: string
+      - description: Requested scopes (e.g., 'openid profile email')
+        in: query
+        name: scope
+        required: true
+        type: string
+      - description: PKCE code challenge (SHA256 hash)
+        in: query
+        name: code_challenge
+        required: true
+        type: string
+      - description: PKCE challenge method (must be 'S256')
+        in: query
+        name: code_challenge_method
+        required: true
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML login page
+          schema:
+            type: string
+      summary: Show login page
+      tags:
+      - authentication
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Validates username/password, creates authenticated session, generates
+        authorization code, and redirects to client
+      parameters:
+      - description: User username
+        in: formData
+        name: username
+        required: true
+        type: string
+      - description: User password
+        in: formData
+        name: password
+        required: true
+        type: string
+      - description: OAuth client ID
+        in: formData
+        name: client_id
+        required: true
+        type: string
+      - description: OAuth redirect URI
+        in: formData
+        name: redirect_uri
+        required: true
+        type: string
+      - description: CSRF protection token
+        in: formData
+        name: state
+        required: true
+        type: string
+      - description: Requested scopes
+        in: formData
+        name: scope
+        required: true
+        type: string
+      - description: PKCE code challenge
+        in: formData
+        name: code_challenge
+        required: true
+        type: string
+      - description: PKCE challenge method
+        in: formData
+        name: code_challenge_method
+        required: true
+        type: string
+      produces:
+      - text/html
+      responses:
+        "302":
+          description: Redirect to redirect_uri with authorization code
+          schema:
+            type: string
+        "400":
+          description: Invalid request parameters
+          schema:
+            type: string
+        "401":
+          description: Invalid credentials
+          schema:
+            type: string
+      summary: Process login
+      tags:
+      - authentication
+  /logout:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Invalidates user session and refresh tokens, then redirects to
+        logout URI or default page
+      parameters:
+      - description: Where to redirect after logout
+        in: query
+        name: post_logout_redirect_uri
+        type: string
+      - description: State to include in redirect
+        in: query
+        name: state
+        type: string
+      produces:
+      - text/html
+      responses:
+        "302":
+          description: Redirect to logout URI or default page
+          schema:
+            type: string
+        "400":
+          description: Invalid request
+          schema:
+            type: string
+      summary: Logout user
+      tags:
+      - authentication
+  /oauth/authorize:
+    get:
+      description: Validates OAuth2 parameters, checks if user is authenticated (via
+        session cookie), renders login page if not authenticated, or generates authorization
+        code and redirects to redirect_uri if authenticated
+      parameters:
+      - description: Must be 'code'
+        in: query
+        name: response_type
+        required: true
+        type: string
+      - description: Registered client identifier
+        in: query
+        name: client_id
+        required: true
+        type: string
+      - description: Where to send the user after auth
+        in: query
+        name: redirect_uri
+        required: true
+        type: string
+      - description: Requested scopes (e.g., 'openid profile email')
+        in: query
+        name: scope
+        required: true
+        type: string
+      - description: CSRF protection token
+        in: query
+        name: state
+        required: true
+        type: string
+      - description: PKCE code challenge (SHA256 hash)
+        in: query
+        name: code_challenge
+        required: true
+        type: string
+      - description: Must be 'S256'
+        in: query
+        name: code_challenge_method
+        required: true
+        type: string
+      produces:
+      - text/html
+      responses:
+        "302":
+          description: Redirect to redirect_uri with error parameters
+          schema:
+            type: string
+      summary: OAuth2 authorization endpoint
+      tags:
+      - oauth2
+  /oauth/introspect:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Returns metadata about a token (validity, scopes, expiration, etc.)
+        per RFC 7662. This is different from /userinfo which returns user identity
+        - introspect returns token information.
+      parameters:
+      - description: The token to introspect (access token or refresh token)
+        in: formData
+        name: token
+        required: true
+        type: string
+      - description: 'Hint about the token type: ''access_token'' or ''refresh_token'''
+        in: formData
+        name: token_type_hint
+        type: string
+      - description: OAuth client ID
+        in: formData
+        name: client_id
+        required: true
+        type: string
+      - description: OAuth client secret
+        in: formData
+        name: client_secret
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Token introspection response with 'active' (boolean), 'scope',
+            'exp', 'iat', 'sub', etc.
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized - invalid client credentials
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Token introspection endpoint
+      tags:
+      - oauth2
+  /oauth/revoke:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Revokes a specific access token or refresh token per RFC 7009.
+        This is more granular than /logout which invalidates all user tokens - revoke
+        can invalidate individual tokens.
+      parameters:
+      - description: The token to revoke (access token or refresh token)
+        in: formData
+        name: token
+        required: true
+        type: string
+      - description: 'Hint about the token type: ''access_token'' or ''refresh_token'''
+        in: formData
+        name: token_type_hint
+        type: string
+      - description: OAuth client ID
+        in: formData
+        name: client_id
+        required: true
+        type: string
+      - description: OAuth client secret
+        in: formData
+        name: client_secret
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Token revoked successfully
+          schema:
+            type: string
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized - invalid client credentials
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Token revocation endpoint
+      tags:
+      - oauth2
+  /oauth/token:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Exchanges authorization code for access/refresh/ID tokens (with
+        PKCE verification) or refreshes access token using refresh token
+      parameters:
+      - description: 'Grant type: ''authorization_code'' or ''refresh_token'''
+        in: formData
+        name: grant_type
+        required: true
+        type: string
+      - description: Authorization code (required for authorization_code grant)
+        in: formData
+        name: code
+        type: string
+      - description: Redirect URI (required for authorization_code grant)
+        in: formData
+        name: redirect_uri
+        type: string
+      - description: OAuth client ID
+        in: formData
+        name: client_id
+        required: true
+        type: string
+      - description: OAuth client secret
+        in: formData
+        name: client_secret
+        required: true
+        type: string
+      - description: PKCE code verifier (required for authorization_code grant)
+        in: formData
+        name: code_verifier
+        type: string
+      - description: Refresh token (required for refresh_token grant)
+        in: formData
+        name: refresh_token
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Token response with access_token, token_type, expires_in, refresh_token,
+            id_token, and scope
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: OAuth2 error response (invalid_request, invalid_grant, invalid_client,
+            etc.)
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: OAuth2 token endpoint
+      tags:
+      - oauth2
+  /oauth/userinfo:
+    get:
+      description: Returns user profile claims (sub, username, email, email_verified)
+        for the authenticated user. This endpoint provides user identity information,
+        not token metadata.
+      parameters:
+      - description: Bearer access token
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: User profile claims (sub, username, email, email_verified)
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized - invalid or missing access token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: OIDC UserInfo endpoint
+      tags:
+      - oidc
 swagger: "2.0"
