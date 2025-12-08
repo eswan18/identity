@@ -2,11 +2,10 @@ This project requires a few CLI tools...
 ```shell
 # swaggo/swag for generating openapi docs
 go install github.com/swaggo/swag/cmd/swag@latest
-
 # sqlc-dev/sqlc for ... something
 go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 # golang-migrate/migrate for migrations
-go install github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
 ```
 
 ## Commands
@@ -31,4 +30,9 @@ Run migrations:
 ```shell
 DATABASE_URL="postgresql://..." make migrate-up
 DATABASE_URL="postgresql://..." make migrate-down
+```
+
+Regenerate sqlc queries and types.
+```shell
+make sqlc
 ```
