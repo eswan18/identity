@@ -6,18 +6,20 @@ import (
 	"time"
 
 	"github.com/eswan18/fcast-auth/internal/config"
+	"github.com/eswan18/fcast-auth/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
 type Server struct {
 	config        *config.Config
+	datastore     *store.Store
 	router        chi.Router
 	loginTemplate *template.Template
 	errorTemplate *template.Template
 }
 
-func New(config *config.Config) *Server {
+func New(config *config.Config, datastore *store.Store) *Server {
 	r := chi.NewRouter()
 	loginTemplate := template.Must(template.ParseFiles("templates/login.html"))
 	errorTemplate := template.Must(template.ParseFiles("templates/error.html"))
@@ -31,6 +33,7 @@ func New(config *config.Config) *Server {
 
 	s := &Server{
 		config:        config,
+		datastore:     datastore,
 		router:        r,
 		loginTemplate: loginTemplate,
 		errorTemplate: errorTemplate,

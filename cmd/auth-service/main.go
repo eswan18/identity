@@ -12,17 +12,23 @@ package main
 import (
 	"log"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
+
 	"github.com/eswan18/fcast-auth/internal/config"
 	"github.com/eswan18/fcast-auth/internal/httpserver"
+	"github.com/eswan18/fcast-auth/internal/store"
 )
 
 func main() {
 
 	config := config.NewFromEnv()
-	server := httpserver.New(config)
-
-	err := server.Run()
+	datastore, err := store.New(config.DatabaseURL)
 	if err != nil {
+		log.Fatalf("Failed to create datastore: %v", err)
+	}
+	server := httpserver.New(config, datastore)
+
+	if err := server.Run(); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
