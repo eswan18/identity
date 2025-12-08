@@ -235,18 +235,21 @@ Health check endpoint.
 
 ## Database Requirements
 
-### Shared Database Access
+### Dedicated Database
 
-The auth service will connect to the same PostgreSQL database as the main Next.js app.
+The auth service has its own PostgreSQL database. This service handles all authentication and identity management, including user creation, authentication, and OAuth/OIDC flows.
 
 ### Required Tables
 
-#### `users` (existing table)
-No changes needed. Auth service will read:
-- `id`: User identifier
-- `username`: For login
-- `password_hash`: Argon2 hash for verification
-- `email`: For OIDC claims
+#### `users` (or `auth_users`)
+Auth service manages this table for user accounts:
+- `id`: User identifier (UUID)
+- `username`: Unique username for login
+- `password_hash`: Argon2id hash for password verification
+- `email`: User email address (for OIDC claims and account management)
+- `is_active`: Account status flag
+- `created_at`: Account creation timestamp
+- `updated_at`: Last update timestamp
 
 #### `oauth_clients` (new table)
 Store registered OAuth2 clients.
@@ -456,6 +459,13 @@ ENVIRONMENT=development
 
 ## Integration with Next.js App
 
+### User Management
+
+The Next.js app should use the auth service's API endpoints for:
+- User registration (POST /register)
+- User authentication (via OAuth2 flow)
+- User profile management (via OIDC UserInfo endpoint)
+
 ### Client Registration
 
 The Next.js app must be registered as an OAuth client:
@@ -472,22 +482,26 @@ VALUES (
 
 ### Next.js Changes Required
 
-1. **New API route:** `/app/api/auth/callback/route.ts`
+1. **User Registration:** `/app/api/auth/register/route.ts`
+   - Call auth service `/register` endpoint
+   - Handle registration response
+
+2. **New API route:** `/app/api/auth/callback/route.ts`
    - Handle OAuth callback
    - Exchange authorization code for tokens
    - Store tokens in session
    - Redirect to app
 
-2. **New login flow:** `/app/login/page.tsx`
+3. **New login flow:** `/app/login/page.tsx`
    - Redirect to auth service `/authorize` endpoint
    - Include PKCE parameters
 
-3. **Token validation:**
+4. **Token validation:**
    - Fetch JWKS from auth service
    - Validate JWT signature on each request
    - Extract user_id from `sub` claim
 
-4. **Session mapping:**
+5. **Session mapping:**
    - Map OAuth `sub` to local user ID
    - Could add `oauth_sub` column to users table, or use user.id as sub
 
@@ -632,15 +646,12 @@ For `/authorize` endpoint (redirect):
 
 These features are not required for the initial learning implementation:
 
-- User registration (handled by main app)
 - Password reset flow
 - Email verification
 - Multi-factor authentication (MFA)
 - Social login (Google, GitHub, etc.)
 - Client credentials grant type
 - Implicit flow (deprecated, don't implement)
-- Token introspection endpoint
-- Token revocation endpoint (beyond logout)
 - Admin API for managing clients
 - Account management (password change, etc.)
 - Consent screen (assume user consents to own app)

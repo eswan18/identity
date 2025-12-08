@@ -615,6 +615,89 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/register": {
+            "get": {
+                "description": "Displays the registration form for creating a new user account",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "authentication"
+                ],
+                "summary": "Show registration page",
+                "responses": {
+                    "200": {
+                        "description": "HTML registration page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Creates a new user account with username, email, and password",
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "authentication"
+                ],
+                "summary": "Register new user",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Desired username",
+                        "name": "username",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "User email address",
+                        "name": "email",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "User password (min 8 characters)",
+                        "name": "password",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Password confirmation",
+                        "name": "confirm_password",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Redirect to login page on success",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request parameters or validation error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "409": {
+                        "description": "Username or email already exists",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
         }
     }
 }`

@@ -12,16 +12,18 @@ import (
 )
 
 type Server struct {
-	config        *config.Config
-	datastore     *store.Store
-	router        chi.Router
-	loginTemplate *template.Template
-	errorTemplate *template.Template
+	config           *config.Config
+	datastore        *store.Store
+	router           chi.Router
+	loginTemplate    *template.Template
+	registerTemplate *template.Template
+	errorTemplate    *template.Template
 }
 
 func New(config *config.Config, datastore *store.Store) *Server {
 	r := chi.NewRouter()
 	loginTemplate := template.Must(template.ParseFiles("templates/login.html"))
+	registerTemplate := template.Must(template.ParseFiles("templates/register.html"))
 	errorTemplate := template.Must(template.ParseFiles("templates/error.html"))
 
 	r.Use(middleware.RequestID)
@@ -32,11 +34,12 @@ func New(config *config.Config, datastore *store.Store) *Server {
 	r.Use(middleware.Timeout(60 * time.Second))
 
 	s := &Server{
-		config:        config,
-		datastore:     datastore,
-		router:        r,
-		loginTemplate: loginTemplate,
-		errorTemplate: errorTemplate,
+		config:           config,
+		datastore:        datastore,
+		router:           r,
+		loginTemplate:    loginTemplate,
+		registerTemplate: registerTemplate,
+		errorTemplate:    errorTemplate,
 	}
 	s.registerRoutes()
 

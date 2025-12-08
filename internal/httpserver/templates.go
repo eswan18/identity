@@ -11,6 +11,19 @@ type LoginPageData struct {
 	CodeChallengeMethod string
 }
 
+// RegisterPageData holds the data needed to render the registration page template.
+type RegisterPageData struct {
+	Error               string
+	Username            string
+	Email               string
+	ClientID            string
+	RedirectURI         string
+	State               string
+	Scope               string
+	CodeChallenge       string
+	CodeChallengeMethod string
+}
+
 // ErrorPageData holds the data needed to render the error page template.
 type ErrorPageData struct {
 	Title       string
