@@ -24,15 +24,17 @@ import (
 // @Success      200 {string} string "HTML login page"
 // @Router       /login [get]
 func (s *Server) handleLoginGet(w http.ResponseWriter, r *http.Request) {
-	// For now, don't validate client_id
+	// Extract OAuth parameters (all optional - /login can be accessed standalone or via OAuth flow)
+	// Note: /oauth/authorize should validate required OAuth params before redirecting here
 	clientID := r.URL.Query().Get("client_id")
-	// TODO: Validate redirect_uri and state
 	redirectURI := r.URL.Query().Get("redirect_uri")
 	state := r.URL.Query().Get("state")
 	scope := r.URL.Query().Get("scope")
 	codeChallenge := r.URL.Query().Get("code_challenge")
 	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
-	if codeChallengeMethod != "S256" {
+
+	// If code_challenge_method is provided, it must be S256
+	if codeChallengeMethod != "" && codeChallengeMethod != "S256" {
 		if redirectURI != "" {
 			// OAuth error: redirect back to client with error parameters
 			errorDesc := "Only S256 code challenge method is supported"
