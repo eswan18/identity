@@ -1,6 +1,10 @@
 package httpserver
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/google/uuid"
+)
 
 // handleOauthAuthorize godoc
 // @Summary      OAuth2 authorization endpoint
@@ -52,11 +56,11 @@ func (s *Server) handleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// todo -- actually check if the user is authenticated
-	authenticated := false
+	// Check if user is authenticated via session cookie
+	_, authenticated := s.getAuthenticatedUser(r)
 	if authenticated {
 		// generate authorization code and redirect to redirect_uri
-		// TODO: Generate authorization code
+		// TODO: Generate authorization code (will need userID from getAuthenticatedUser)
 		// TODO: Redirect to redirect_uri with authorization code
 		http.Redirect(w, r, redirectURI, http.StatusFound)
 		return
@@ -135,4 +139,20 @@ func (s *Server) handleIntrospect(w http.ResponseWriter, r *http.Request) {
 // @Router       /oauth/revoke [post]
 func (s *Server) handleOauthRevoke(w http.ResponseWriter, r *http.Request) {
 	// temporary no-op
+}
+
+// getAuthenticatedUser checks if the user is authenticated via session cookie.
+// Returns (userID, true) if authenticated, (nil UUID, false) otherwise.
+func (s *Server) getAuthenticatedUser(r *http.Request) (uuid.UUID, bool) {
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		return uuid.Nil, false
+	}
+
+	// TODO: Validate session against database (check auth_sessions table)
+	// For now, just check if cookie exists - you'll need to implement session validation
+	// Example: query auth_sessions table where id = cookie.Value and expires_at > now()
+	_ = cookie.Value
+
+	return uuid.Nil, false
 }
