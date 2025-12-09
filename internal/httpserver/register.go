@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/eswan18/fcast-auth/internal/auth"
-	"github.com/eswan18/fcast-auth/internal/db"
+	"github.com/eswan18/identity/internal/auth"
+	"github.com/eswan18/identity/internal/db"
 )
 
 // handleRegisterGet godoc

@@ -14,7 +14,7 @@ run: docs
 	go run cmd/auth-service/main.go
 
 build: docs
-	go build -o fcast-auth cmd/auth-service/main.go
+	go build -o identity cmd/auth-service/main.go
 
 migrate-new:
 	migrate create -ext sql -dir db/migrations -seq "${name}"

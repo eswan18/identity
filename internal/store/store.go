@@ -6,7 +6,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/eswan18/fcast-auth/internal/db"
+	"github.com/eswan18/identity/internal/db"
 )
 
 type Store struct {

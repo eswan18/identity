@@ -3,7 +3,7 @@ host: localhost:8080
 info:
   contact:
     name: Ethan Swan
-  title: Forecasting Authentication Service
+  title: Identity Service
   version: "1.0"
 paths:
   /.well-known/jwks.json:

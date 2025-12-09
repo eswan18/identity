@@ -1,4 +1,4 @@
-module github.com/eswan18/fcast-auth
+module github.com/eswan18/identity
 
 go 1.25.5
 

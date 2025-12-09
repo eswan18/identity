@@ -1,7 +1,7 @@
 {
     "swagger": "2.0",
     "info": {
-        "title": "Forecasting Authentication Service",
+        "title": "Identity Service",
         "contact": {
             "name": "Ethan Swan"
         },

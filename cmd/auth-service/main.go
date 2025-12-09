@@ -1,6 +1,6 @@
-// Package main Forecasting Authentication Service.
+// Package main Identity Service.
 //
-// @title           Forecasting Authentication Service
+// @title           Identity Service
 // @version         1.0
 //
 // @contact.name    Ethan Swan
@@ -14,9 +14,9 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/eswan18/fcast-auth/internal/config"
-	"github.com/eswan18/fcast-auth/internal/httpserver"
-	"github.com/eswan18/fcast-auth/internal/store"
+	"github.com/eswan18/identity/internal/config"
+	"github.com/eswan18/identity/internal/httpserver"
+	"github.com/eswan18/identity/internal/store"
 )
 
 func main() {
