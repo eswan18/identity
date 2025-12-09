@@ -49,6 +49,8 @@ Add OIDC on top of OAuth2 to provide identity information (RFC 7519).
 
 ### Authentication Endpoints
 
+**Design Decision:** The auth service supports both OAuth flow login (via `/oauth/authorize`) and direct login (via `/login`). Direct login allows users to authenticate without OAuth parameters, useful for testing, debugging, and future account management features. After direct login, users are redirected to `/success` which explains how to access applications via OAuth.
+
 #### `GET /authorize`
 OAuth2 authorization endpoint (user-facing).
 
@@ -122,8 +124,27 @@ client_secret={client_secret}
 }
 ```
 
+#### `GET /login`
+Display login page. Can be accessed directly (standalone) or as part of an OAuth flow.
+
+**Query Parameters (all optional, but required for OAuth flow):**
+- `client_id`: OAuth client identifier
+- `redirect_uri`: Where to send the user after auth (required for OAuth flow)
+- `state`: CSRF protection token (required for OAuth flow)
+- `scope`: Requested scopes (required for OAuth flow)
+- `code_challenge`: PKCE code challenge (required for OAuth flow)
+- `code_challenge_method`: PKCE challenge method (must be 'S256' if provided)
+
+**Behavior:**
+1. If accessed as part of OAuth flow (with `redirect_uri`), validate PKCE parameters
+2. Render login form with OAuth parameters preserved in hidden fields
+3. If accessed directly (without OAuth params), render login form for standalone authentication
+
+**Response:**
+- `200 OK`: HTML login page
+
 #### `POST /login`
-Process login form submission (called from login page).
+Process login form submission. Supports both OAuth flow and direct login.
 
 **Request Body (application/x-www-form-urlencoded):**
 ```
@@ -131,7 +152,7 @@ username={username}
 password={password}
 ```
 
-**Plus original OAuth parameters from hidden form fields:**
+**Optional OAuth parameters from hidden form fields:**
 ```
 client_id, redirect_uri, state, scope, code_challenge, code_challenge_method
 ```
@@ -139,8 +160,72 @@ client_id, redirect_uri, state, scope, code_challenge, code_challenge_method
 **Behavior:**
 1. Validate username/password against database
 2. Create authenticated session (secure HTTP-only cookie)
-3. Generate authorization code
-4. Redirect to client with authorization code
+3. **If `redirect_uri` is provided (OAuth flow):**
+   - Generate authorization code
+   - Redirect to `redirect_uri` with authorization code
+4. **If `redirect_uri` is NOT provided (direct login):**
+   - Redirect to `/success` page explaining how to access applications via OAuth
+
+**Success Response:**
+- OAuth flow: `302 Found` → `{redirect_uri}?code={auth_code}&state={state}`
+- Direct login: `302 Found` → `/success`
+
+**Error Response:**
+- `400 Bad Request`: Invalid request parameters (re-renders login page with error)
+- `401 Unauthorized`: Invalid credentials (re-renders login page with error)
+
+#### `GET /register`
+Display registration page for creating a new user account. Accepts optional OAuth parameters to preserve them through the registration flow.
+
+**Query Parameters (all optional):**
+- `client_id`: OAuth client identifier (preserved through flow)
+- `redirect_uri`: OAuth redirect URI (preserved through flow)
+- `state`: OAuth state parameter (preserved through flow)
+- `scope`: OAuth scope (preserved through flow)
+- `code_challenge`: PKCE code challenge (preserved through flow)
+- `code_challenge_method`: PKCE challenge method (preserved through flow)
+
+**Response:**
+- `200 OK`: HTML registration page
+
+#### `POST /register`
+Create a new user account. OAuth parameters are preserved and passed to the login page after successful registration.
+
+**Request Body (application/x-www-form-urlencoded):**
+```
+username={username}
+email={email}
+password={password}
+confirm_password={password_confirmation}
+```
+
+**Optional OAuth parameters from hidden form fields:**
+```
+client_id, redirect_uri, state, scope, code_challenge, code_challenge_method
+```
+
+**Behavior:**
+1. Validate all required fields (username, email, password)
+2. Validate password matches confirmation
+3. Validate password meets minimum requirements (8+ characters)
+4. Hash password using Argon2id
+5. Create user account in database
+6. Redirect to `/login?registered=true` with OAuth parameters preserved
+
+**Success Response:**
+- `302 Found` → `/login?registered=true&[OAuth params]`
+
+**Error Response:**
+- `400 Bad Request`: Validation error (re-renders registration page with error)
+- `409 Conflict`: Username or email already exists (re-renders registration page with error)
+
+#### `GET /success`
+Display success page after direct login (without OAuth redirect_uri). Explains that this is an identity provider and how to access applications through OAuth flow.
+
+**Response:**
+- `200 OK`: HTML success page with information about OAuth flow
+
+**Note:** This endpoint should verify the user is authenticated before displaying the success page.
 
 #### `POST /logout`
 Invalidate user session and tokens.
@@ -462,8 +547,8 @@ ENVIRONMENT=development
 ### User Management
 
 The Next.js app should use the auth service's API endpoints for:
-- User registration (POST /register)
-- User authentication (via OAuth2 flow)
+- User registration (`GET /register`, `POST /register`) - handled by auth service
+- User authentication (via OAuth2 flow and direct login)
 - User profile management (via OIDC UserInfo endpoint)
 
 ### Client Registration
@@ -482,9 +567,7 @@ VALUES (
 
 ### Next.js Changes Required
 
-1. **User Registration:** `/app/api/auth/register/route.ts`
-   - Call auth service `/register` endpoint
-   - Handle registration response
+1. **User Registration:** Users register directly at the auth service (`GET /register`, `POST /register`). The Next.js app does not need a separate registration endpoint - users are redirected to the auth service for registration.
 
 2. **New API route:** `/app/api/auth/callback/route.ts`
    - Handle OAuth callback

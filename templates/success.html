@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login Successful - Auth Service</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #ffffff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .success-container {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 48px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .success-header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .success-header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            color: #1a202c;
+            margin-bottom: 8px;
+        }
+
+        .success-header p {
+            font-size: 16px;
+            color: #4a5568;
+        }
+
+        .success-icon {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 24px;
+            background-color: #c6f6d5;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+        }
+
+        .success-message {
+            background-color: #f0fff4;
+            border: 1px solid #9ae6b4;
+            color: #22543d;
+            padding: 16px 20px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .info-section {
+            background-color: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+
+        .info-section h2 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 12px;
+        }
+
+        .info-section p {
+            font-size: 14px;
+            color: #4a5568;
+            line-height: 1.6;
+            margin-bottom: 8px;
+        }
+
+        .info-section code {
+            background-color: #edf2f7;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            color: #2d3748;
+        }
+
+        .actions {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            text-decoration: none;
+            text-align: center;
+            transition: all 0.2s;
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn-primary {
+            background-color: #667eea;
+            color: #ffffff;
+        }
+
+        .btn-primary:hover {
+            background-color: #5568d3;
+        }
+
+        .btn-secondary {
+            background-color: #edf2f7;
+            color: #4a5568;
+        }
+
+        .btn-secondary:hover {
+            background-color: #e2e8f0;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            body {
+                background: #1a202c;
+            }
+
+            .success-container {
+                background: #2d3748;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            }
+
+            .success-header h1 {
+                color: #f7fafc;
+            }
+
+            .success-header p {
+                color: #a0aec0;
+            }
+
+            .success-icon {
+                background-color: #22543d;
+            }
+
+            .success-message {
+                background-color: #22543d;
+                border-color: #38a169;
+                color: #9ae6b4;
+            }
+
+            .info-section {
+                background-color: #4a5568;
+                border-color: #4a5568;
+            }
+
+            .info-section h2 {
+                color: #e2e8f0;
+            }
+
+            .info-section p {
+                color: #a0aec0;
+            }
+
+            .info-section code {
+                background-color: #2d3748;
+                color: #cbd5e0;
+            }
+
+            .btn-secondary {
+                background-color: #4a5568;
+                color: #e2e8f0;
+            }
+
+            .btn-secondary:hover {
+                background-color: #5a6578;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="success-container">
+        <div class="success-icon">✓</div>
+        <div class="success-header">
+            <h1>Login Successful</h1>
+            <p>You are now authenticated</p>
+        </div>
+
+        <div class="success-message">
+            You have successfully logged in to the authentication service.
+        </div>
+
+        <div class="info-section">
+            <h2>What's Next?</h2>
+            <p>
+                This is an identity provider service. To access applications, you need to log in through a client application that uses OAuth2/OIDC.
+            </p>
+            <p>
+                Client applications will redirect you to <code>/oauth/authorize</code> with the necessary parameters to complete the authentication flow.
+            </p>
+        </div>
+
+        <div class="actions">
+            <form method="POST" action="/logout" style="margin: 0;">
+                <button type="submit" class="btn btn-primary">Log Out</button>
+            </form>
+            <a href="/login" class="btn btn-secondary">Back to Login</a>
+        </div>
+    </div>
+</body>
+</html>
+

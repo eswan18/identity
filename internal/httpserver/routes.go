@@ -19,6 +19,7 @@ func (s *Server) registerRoutes() {
 	r.Post("/login", s.handleLoginPost)
 	r.Get("/register", s.handleRegisterGet)
 	r.Post("/register", s.handleRegisterPost)
+	r.Get("/success", s.handleSuccess)
 	r.Post("/logout", s.handleLogout)
 
 	// OAuth2/OIDC endpoints
@@ -55,6 +56,20 @@ func (s *Server) registerRoutes() {
 func (s *Server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
+}
+
+// handleSuccess godoc
+// @Summary      Login success page
+// @Description  Displays a success page after direct login (without OAuth redirect_uri), explaining how to access applications through OAuth flow
+// @Tags         authentication
+// @Produce      html
+// @Success      200 {string} string "HTML success page"
+// @Router       /success [get]
+func (s *Server) handleSuccess(w http.ResponseWriter, r *http.Request) {
+	// TODO: Verify user is actually authenticated (check session)
+	if err := s.successTemplate.Execute(w, nil); err != nil {
+		http.Error(w, "An error occurred while rendering the success page", http.StatusInternalServerError)
+	}
 }
 
 // handleLogout godoc

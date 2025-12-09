@@ -736,6 +736,26 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/success": {
+            "get": {
+                "description": "Displays a success page after direct login (without OAuth redirect_uri), explaining how to access applications through OAuth flow",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "authentication"
+                ],
+                "summary": "Login success page",
+                "responses": {
+                    "200": {
+                        "description": "HTML success page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
         }
     }
 }`

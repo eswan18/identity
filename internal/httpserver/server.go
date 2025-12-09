@@ -18,6 +18,7 @@ type Server struct {
 	loginTemplate    *template.Template
 	registerTemplate *template.Template
 	errorTemplate    *template.Template
+	successTemplate  *template.Template
 }
 
 func New(config *config.Config, datastore *store.Store) *Server {
@@ -25,6 +26,7 @@ func New(config *config.Config, datastore *store.Store) *Server {
 	loginTemplate := template.Must(template.ParseFiles("templates/login.html"))
 	registerTemplate := template.Must(template.ParseFiles("templates/register.html"))
 	errorTemplate := template.Must(template.ParseFiles("templates/error.html"))
+	successTemplate := template.Must(template.ParseFiles("templates/success.html"))
 
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -40,6 +42,7 @@ func New(config *config.Config, datastore *store.Store) *Server {
 		loginTemplate:    loginTemplate,
 		registerTemplate: registerTemplate,
 		errorTemplate:    errorTemplate,
+		successTemplate:  successTemplate,
 	}
 	s.registerRoutes()
 

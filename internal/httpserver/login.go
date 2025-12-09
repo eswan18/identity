@@ -115,10 +115,6 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		s.renderLoginError(w, http.StatusBadRequest, "Username and password are required", oauthParams)
 		return
 	}
-	if redirectURI == "" {
-		s.renderLoginError(w, http.StatusBadRequest, "Redirect URI is required", oauthParams)
-		return
-	}
 
 	// Validate username and password against database
 	user, err := s.datastore.Q.GetUserByUsername(context.Background(), username)
@@ -142,9 +138,18 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO: Create authenticated session
-	// TODO: Generate authorization code
-	// TODO: Redirect to redirect_uri with authorization code
-	http.Redirect(w, r, redirectURI, http.StatusFound)
+
+	// Handle OAuth flow vs direct login
+	if redirectURI != "" {
+		// OAuth flow: Generate authorization code and redirect to redirect_uri
+		// TODO: Generate authorization code
+		// TODO: Redirect to redirect_uri with authorization code
+		http.Redirect(w, r, redirectURI, http.StatusFound)
+		return
+	}
+
+	// Direct login (no OAuth): Show success page explaining how to access applications
+	http.Redirect(w, r, "/success", http.StatusFound)
 }
 
 // renderLoginError renders the login page with an error message, preserving OAuth parameters.

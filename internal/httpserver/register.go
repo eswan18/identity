@@ -177,4 +177,3 @@ func (s *Server) renderRegisterError(w http.ResponseWriter, statusCode int, erro
 		}
 	}
 }
-
