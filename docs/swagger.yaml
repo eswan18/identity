@@ -429,7 +429,33 @@ paths:
       - oidc
   /register:
     get:
-      description: Displays the registration form for creating a new user account
+      description: Displays the registration form for creating a new user account.
+        Accepts OAuth parameters to preserve them through the registration flow.
+      parameters:
+      - description: OAuth client identifier (preserved through flow)
+        in: query
+        name: client_id
+        type: string
+      - description: OAuth redirect URI (preserved through flow)
+        in: query
+        name: redirect_uri
+        type: string
+      - description: OAuth state parameter (preserved through flow)
+        in: query
+        name: state
+        type: string
+      - description: OAuth scope (preserved through flow)
+        in: query
+        name: scope
+        type: string
+      - description: PKCE code challenge (preserved through flow)
+        in: query
+        name: code_challenge
+        type: string
+      - description: PKCE challenge method (preserved through flow)
+        in: query
+        name: code_challenge_method
+        type: string
       produces:
       - text/html
       responses:

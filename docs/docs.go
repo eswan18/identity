@@ -618,7 +618,7 @@ const docTemplate = `{
         },
         "/register": {
             "get": {
-                "description": "Displays the registration form for creating a new user account",
+                "description": "Displays the registration form for creating a new user account. Accepts OAuth parameters to preserve them through the registration flow.",
                 "produces": [
                     "text/html"
                 ],
@@ -626,6 +626,44 @@ const docTemplate = `{
                     "authentication"
                 ],
                 "summary": "Show registration page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "OAuth client identifier (preserved through flow)",
+                        "name": "client_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "OAuth redirect URI (preserved through flow)",
+                        "name": "redirect_uri",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "OAuth state parameter (preserved through flow)",
+                        "name": "state",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "OAuth scope (preserved through flow)",
+                        "name": "scope",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "PKCE code challenge (preserved through flow)",
+                        "name": "code_challenge",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "PKCE challenge method (preserved through flow)",
+                        "name": "code_challenge_method",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "HTML registration page",
