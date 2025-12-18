@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -34,7 +35,7 @@ func (s *Server) handleLoginGet(w http.ResponseWriter, r *http.Request) {
 	clientID := r.URL.Query().Get("client_id")
 	redirectURI := r.URL.Query().Get("redirect_uri")
 	state := r.URL.Query().Get("state")
-	scope := r.URL.Query().Get("scope")
+	scope := strings.Split(r.URL.Query().Get("scope"), " ")
 	codeChallenge := r.URL.Query().Get("code_challenge")
 	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
 
@@ -104,7 +105,7 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	clientID := r.FormValue("client_id")
 	redirectURI := r.FormValue("redirect_uri")
 	state := r.FormValue("state")
-	scope := r.FormValue("scope")
+	scope := strings.Split(r.FormValue("scope"), " ")
 	codeChallenge := r.FormValue("code_challenge")
 	codeChallengeMethod := r.FormValue("code_challenge_method")
 
@@ -175,18 +176,69 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		Secure:   isSecure,
 		SameSite: http.SameSiteLaxMode,
 	})
-
-	// Handle OAuth flow vs direct login
-	if redirectURI != "" {
-		// OAuth flow: Generate authorization code and redirect to redirect_uri
-		// TODO: Generate authorization code
-		// TODO: Redirect to redirect_uri with authorization code
-		http.Redirect(w, r, redirectURI, http.StatusFound)
+	if redirectURI == "" {
+		// Direct login (no OAuth):
+		// There's no real reason to log in without a redirect except to check your password, but maybe someday.
+		// For now, we'll just show a success page explaining how to access applications.
+		http.Redirect(w, r, "/success", http.StatusFound)
 		return
 	}
 
-	// Direct login (no OAuth): Show success page explaining how to access applications
-	http.Redirect(w, r, "/success", http.StatusFound)
+	// Validations.
+	// Is this a real client?
+	// Are the redirect URI and requested scopes valid for that client?
+	client, err := s.datastore.Q.GetOAuthClientByClientID(context.Background(), clientID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			s.renderLoginError(w, http.StatusBadRequest, "Invalid client ID", oauthParams)
+			return
+		}
+		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
+		return
+	}
+	if !slices.Contains(client.RedirectUris, redirectURI) {
+		s.renderLoginError(w, http.StatusBadRequest, "Invalid redirect URI", oauthParams)
+		return
+	}
+	if !containsAll(client.AllowedScopes, scope) {
+		s.renderLoginError(w, http.StatusBadRequest, "Invalid scope", oauthParams)
+		return
+	}
+
+	authorizationCode, err := generateAuthorizationCode()
+	if err != nil {
+		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
+		return
+	}
+	err = s.datastore.Q.InsertAuthorizationCode(context.Background(), db.InsertAuthorizationCodeParams{
+		Code:        authorizationCode,
+		UserID:      user.ID,
+		ClientID:    client.ID,
+		RedirectUri: redirectURI,
+		Scope:       scope,
+	})
+	if err != nil {
+		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
+		return
+	}
+	// OAuth flow: Generate authorization code and redirect to redirect_uri
+	// TODO: Redirect to redirect_uri with authorization code
+	// TODO: Only accept redirect_uri that is in the client's allowed redirect URIs
+	redirectURL, err := url.Parse(redirectURI)
+	if err != nil {
+		s.renderLoginError(w, http.StatusBadRequest, "Invalid redirect URI", oauthParams)
+		return
+	}
+
+	// Add query params
+	q := redirectURL.Query()
+	q.Set("state", state)
+	q.Set("code", authorizationCode)
+	redirectURL.RawQuery = q.Encode()
+
+	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+	return
+
 }
 
 // renderLoginError renders the login page with an error message, preserving OAuth parameters.
@@ -220,6 +272,14 @@ func (s *Server) renderLoginError(w http.ResponseWriter, statusCode int, errorMs
 
 // generateSessionID generates a cryptographically secure random session ID
 func generateSessionID() (string, error) {
+	bytes := make([]byte, 32) // 256 bits
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return base64.URLEncoding.EncodeToString(bytes), nil
+}
+
+func generateAuthorizationCode() (string, error) {
 	bytes := make([]byte, 32) // 256 bits
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err

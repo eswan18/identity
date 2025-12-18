@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/eswan18/identity/internal/auth"
 	"github.com/eswan18/identity/internal/db"
@@ -29,7 +30,7 @@ func (s *Server) handleRegisterGet(w http.ResponseWriter, r *http.Request) {
 		ClientID:            r.URL.Query().Get("client_id"),
 		RedirectURI:         r.URL.Query().Get("redirect_uri"),
 		State:               r.URL.Query().Get("state"),
-		Scope:               r.URL.Query().Get("scope"),
+		Scope:               strings.Split(r.URL.Query().Get("scope"), " "),
 		CodeChallenge:       r.URL.Query().Get("code_challenge"),
 		CodeChallengeMethod: r.URL.Query().Get("code_challenge_method"),
 	}
@@ -117,7 +118,7 @@ func (s *Server) handleRegisterPost(w http.ResponseWriter, r *http.Request) {
 			ClientID:            clientID,
 			RedirectURI:         redirectURI,
 			State:               state,
-			Scope:               scope,
+			Scope:               strings.Split(scope, " "),
 			CodeChallenge:       codeChallenge,
 			CodeChallengeMethod: codeChallengeMethod,
 		})

@@ -6,7 +6,7 @@ type LoginPageData struct {
 	ClientID            string
 	RedirectURI         string
 	State               string
-	Scope               string
+	Scope               []string
 	CodeChallenge       string
 	CodeChallengeMethod string
 }
@@ -19,7 +19,7 @@ type RegisterPageData struct {
 	ClientID            string
 	RedirectURI         string
 	State               string
-	Scope               string
+	Scope               []string
 	CodeChallenge       string
 	CodeChallengeMethod string
 }
