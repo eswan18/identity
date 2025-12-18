@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -23,30 +24,31 @@ import (
 // @Router       /oauth/authorize [get]
 func (s *Server) handleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	responseType := r.URL.Query().Get("response_type")
+	clientID := r.URL.Query().Get("client_id")
+	redirectURI := r.URL.Query().Get("redirect_uri")
+	scope := strings.Split(r.URL.Query().Get("scope"), " ")
+	codeChallenge := r.URL.Query().Get("code_challenge")
+	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
+
 	if responseType != "code" {
 		http.Error(w, "Invalid response type", http.StatusBadRequest)
 		return
 	}
-	clientID := r.URL.Query().Get("client_id")
 	if clientID == "" {
 		http.Error(w, "Client ID is required", http.StatusBadRequest)
 		return
 	}
-	redirectURI := r.URL.Query().Get("redirect_uri")
 	if redirectURI == "" {
 		http.Error(w, "Redirect URI is required", http.StatusBadRequest)
 		return
 	}
-	scope := r.URL.Query().Get("scope")
-	if scope == "" {
-		scope = "openid"
+	if len(scope) == 0 {
+		scope = []string{"openid"}
 	}
-	codeChallenge := r.URL.Query().Get("code_challenge")
 	if codeChallenge == "" {
 		http.Error(w, "Code challenge is required", http.StatusBadRequest)
 		return
 	}
-	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
 	if codeChallengeMethod == "" {
 		http.Error(w, "Code challenge method is required", http.StatusBadRequest)
 		return
@@ -67,7 +69,7 @@ func (s *Server) handleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If not authenticated, redirect to login page with OAuth parameters preserved -- just pull the whole query string
-	loginURL := "/login?" + r.URL.RawQuery
+	loginURL := "/oauth/login?" + r.URL.RawQuery
 	http.Redirect(w, r, loginURL, http.StatusFound)
 }
 

@@ -1,23 +1,15 @@
 package httpserver
 
 import (
-	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/eswan18/identity/internal/auth"
-	"github.com/eswan18/identity/internal/db"
-	"github.com/google/uuid"
 )
-
-const authorizationCodeExpiresIn = 10 * time.Minute
 
 // handleLoginGet godoc
 // @Summary      Show login page
@@ -149,19 +141,7 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create authenticated session
-	sessionID, err := generateSessionID()
-	if err != nil {
-		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
-		return
-	}
-
-	// Session expires in 24 hours
-	expiresAt := time.Now().Add(24 * time.Hour)
-	err = s.datastore.Q.CreateSession(r.Context(), db.CreateSessionParams{
-		ID:        sessionID,
-		UserID:    user.ID,
-		ExpiresAt: expiresAt,
-	})
+	session, err := s.createSession(r.Context(), user.ID)
 	if err != nil {
 		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
 		return
@@ -172,9 +152,9 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	isSecure := strings.HasPrefix(s.config.HTTPAddress, "https://") || strings.Contains(s.config.HTTPAddress, ":443")
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session_id",
-		Value:    sessionID,
+		Value:    session.ID,
 		Path:     "/",
-		Expires:  expiresAt,
+		Expires:  session.ExpiresAt,
 		HttpOnly: true,
 		Secure:   isSecure,
 		SameSite: http.SameSiteLaxMode,
@@ -210,7 +190,7 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate and store authorization code
-	authorizationCode, err := s.createNewAuthorizationCode(r.Context(), user.ID, client.ID, redirectURI, scope, codeChallenge, codeChallengeMethod)
+	authorizationCode, err := s.generateAuthorizationCode(r.Context(), user.ID, client.ID, redirectURI, scope, codeChallenge, codeChallengeMethod)
 	if err != nil {
 		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
 		return
@@ -228,27 +208,6 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	redirectURL.RawQuery = q.Encode()
 
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
-}
-
-func (s *Server) createNewAuthorizationCode(ctx context.Context, userID uuid.UUID, clientID uuid.UUID, redirectURI string, scope []string, codeChallenge string, codeChallengeMethod string) (string, error) {
-	code, err := generateAuthorizationCode()
-	if err != nil {
-		return "", err
-	}
-	err = s.datastore.Q.InsertAuthorizationCode(ctx, db.InsertAuthorizationCodeParams{
-		Code:                code,
-		UserID:              userID,
-		ClientID:            clientID,
-		RedirectUri:         redirectURI,
-		Scope:               scope,
-		CodeChallenge:       sql.NullString{String: codeChallenge, Valid: codeChallenge != ""},
-		CodeChallengeMethod: sql.NullString{String: codeChallengeMethod, Valid: codeChallengeMethod != ""},
-		ExpiresAt:           time.Now().Add(authorizationCodeExpiresIn),
-	})
-	if err != nil {
-		return "", err
-	}
-	return code, nil
 }
 
 // renderLoginError renders the login page with an error message, preserving OAuth parameters.
@@ -278,22 +237,4 @@ func (s *Server) renderLoginError(w http.ResponseWriter, statusCode int, errorMs
 			http.Error(w, "An error occurred while rendering the error page", http.StatusInternalServerError)
 		}
 	}
-}
-
-// generateSessionID generates a cryptographically secure random session ID
-func generateSessionID() (string, error) {
-	bytes := make([]byte, 32) // 256 bits
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return base64.URLEncoding.EncodeToString(bytes), nil
-}
-
-// generateAuthorizationCode generates a cryptographically secure random authorization code
-func generateAuthorizationCode() (string, error) {
-	bytes := make([]byte, 32) // 256 bits
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return base64.URLEncoding.EncodeToString(bytes), nil
 }
