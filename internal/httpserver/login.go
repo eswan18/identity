@@ -1,12 +1,10 @@
 package httpserver
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 )
 
@@ -152,25 +150,10 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validations...
-	// Is this a real client?
-	client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
+	// Validate OAuth client, redirect URI, and scopes
+	client, err := s.validateOAuthClient(r.Context(), clientID, redirectURI, scope)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			s.renderLoginError(w, http.StatusBadRequest, "Invalid client ID", oauthParams)
-			return
-		}
-		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
-		return
-	}
-	// Is the redirect URI valid for this client?
-	if !slices.Contains(client.RedirectUris, redirectURI) {
-		s.renderLoginError(w, http.StatusBadRequest, "Invalid redirect URI", oauthParams)
-		return
-	}
-	// Are the requested scopes valid for this client?
-	if !containsAll(client.AllowedScopes, scope) {
-		s.renderLoginError(w, http.StatusBadRequest, "Invalid scope", oauthParams)
+		s.renderLoginError(w, http.StatusBadRequest, err.Error(), oauthParams)
 		return
 	}
 

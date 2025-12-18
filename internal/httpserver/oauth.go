@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 )
 
@@ -69,19 +68,10 @@ func (s *Server) handleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
+	client, err := s.validateOAuthClient(r.Context(), clientID, redirectURI, scope)
 	if err != nil {
-		http.Error(w, "Invalid client ID", http.StatusBadRequest)
-		return
-	}
-	// Validate the redirect URI is valid for this client
-	if !slices.Contains(client.RedirectUris, redirectURI) {
-		http.Error(w, "Invalid redirect URI", http.StatusBadRequest)
-		return
-	}
-	// Validate the scopes are valid for this client
-	if !containsAll(client.AllowedScopes, scope) {
-		http.Error(w, "Requested scopes are not allowed by the client", http.StatusBadRequest)
+		// All OAuth client validation errors are 400 Bad Request
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 

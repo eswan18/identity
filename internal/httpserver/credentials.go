@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/eswan18/identity/internal/auth"
@@ -22,6 +23,32 @@ var (
 	ErrInvalidCredentials = errors.New("invalid username or password")
 	ErrInternal           = errors.New("an error occurred")
 )
+
+// Sentinel errors for OAuth client validation
+var (
+	ErrInvalidClient      = errors.New("invalid client")
+	ErrInvalidRedirectURI = errors.New("invalid redirect URI")
+	ErrInvalidScope       = errors.New("invalid scope")
+)
+
+// validateOAuthClient validates that the client exists and the redirect URI and scopes are allowed.
+// Returns the client on success. On failure, returns one of:
+//   - ErrInvalidClient (client doesn't exist)
+//   - ErrInvalidRedirectURI (redirect URI not in allowlist)
+//   - ErrInvalidScope (requested scopes not allowed)
+func (s *Server) validateOAuthClient(ctx context.Context, clientID, redirectURI string, scopes []string) (db.OauthClient, error) {
+	client, err := s.datastore.Q.GetOAuthClientByClientID(ctx, clientID)
+	if err != nil {
+		return db.OauthClient{}, ErrInvalidClient
+	}
+	if !slices.Contains(client.RedirectUris, redirectURI) {
+		return db.OauthClient{}, ErrInvalidRedirectURI
+	}
+	if !containsAll(client.AllowedScopes, scopes) {
+		return db.OauthClient{}, ErrInvalidScope
+	}
+	return client, nil
+}
 
 // validateCredentials validates a username and password against the database.
 // Returns the user on success. On failure, returns one of:
