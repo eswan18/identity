@@ -126,14 +126,14 @@ func (s *Server) handleOauthToken(w http.ResponseWriter, r *http.Request) {
 	// Validate client credentials
 	client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
 	if err != nil {
-		s.tokenError(w, "invalid_client", "Invalid client credentials")
+		s.writeTokenError(w, "invalid_client", "Invalid client credentials")
 		return
 	}
 
 	// For confidential clients, verify client secret
 	if client.IsConfidential {
 		if !client.ClientSecret.Valid || subtle.ConstantTimeCompare([]byte(client.ClientSecret.String), []byte(clientSecret)) != 1 {
-			s.tokenError(w, "invalid_client", "Invalid client credentials")
+			s.writeTokenError(w, "invalid_client", "Invalid client credentials")
 			return
 		}
 	}
@@ -144,7 +144,7 @@ func (s *Server) handleOauthToken(w http.ResponseWriter, r *http.Request) {
 	case "refresh_token":
 		s.handleRefreshTokenGrant(w, r, client)
 	default:
-		s.tokenError(w, "unsupported_grant_type", "Grant type must be 'authorization_code' or 'refresh_token'")
+		s.writeTokenError(w, "unsupported_grant_type", "Grant type must be 'authorization_code' or 'refresh_token'")
 	}
 }
 
@@ -155,45 +155,45 @@ func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Req
 	codeVerifier := r.FormValue("code_verifier")
 
 	if code == "" {
-		s.tokenError(w, "invalid_request", "Authorization code is required")
+		s.writeTokenError(w, "invalid_request", "Authorization code is required")
 		return
 	}
 
 	// Look up the authorization code
 	authCode, err := s.datastore.Q.GetAuthorizationCode(r.Context(), code)
 	if err != nil {
-		s.tokenError(w, "invalid_grant", "Invalid authorization code")
+		s.writeTokenError(w, "invalid_grant", "Invalid authorization code")
 		return
 	}
 
 	// Validate the code hasn't been consumed
 	if authCode.ConsumedAt.Valid {
-		s.tokenError(w, "invalid_grant", "Authorization code has already been used")
+		s.writeTokenError(w, "invalid_grant", "Authorization code has already been used")
 		return
 	}
 
 	// Validate the code hasn't expired
 	if authCode.ExpiresAt.Before(time.Now()) {
-		s.tokenError(w, "invalid_grant", "Authorization code has expired")
+		s.writeTokenError(w, "invalid_grant", "Authorization code has expired")
 		return
 	}
 
 	// Validate the client ID matches
 	if authCode.ClientID != client.ID {
-		s.tokenError(w, "invalid_grant", "Authorization code was not issued to this client")
+		s.writeTokenError(w, "invalid_grant", "Authorization code was not issued to this client")
 		return
 	}
 
 	// Validate the redirect URI matches
 	if authCode.RedirectUri != redirectURI {
-		s.tokenError(w, "invalid_grant", "Redirect URI does not match")
+		s.writeTokenError(w, "invalid_grant", "Redirect URI does not match")
 		return
 	}
 
 	// Verify PKCE code_verifier
 	if authCode.CodeChallenge.Valid {
 		if codeVerifier == "" {
-			s.tokenError(w, "invalid_request", "Code verifier is required")
+			s.writeTokenError(w, "invalid_request", "Code verifier is required")
 			return
 		}
 		// Compute SHA256 hash of the verifier
@@ -201,7 +201,7 @@ func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Req
 		computedChallenge := base64.RawURLEncoding.EncodeToString(hash[:])
 
 		if computedChallenge != authCode.CodeChallenge.String {
-			s.tokenError(w, "invalid_grant", "Invalid code verifier")
+			s.writeTokenError(w, "invalid_grant", "Invalid code verifier")
 			return
 		}
 	}
@@ -209,12 +209,12 @@ func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Req
 	// Mark the authorization code as consumed
 	err = s.datastore.Q.ConsumeAuthorizationCode(r.Context(), code)
 	if err != nil {
-		s.tokenError(w, "server_error", "Failed to consume authorization code")
+		s.writeTokenError(w, "server_error", "Failed to consume authorization code")
 		return
 	}
 
 	// Generate tokens
-	s.issueTokens(w, r, client, authCode.UserID, authCode.Scope)
+	s.writeTokenResponse(w, r, client.ID, authCode.UserID, authCode.Scope)
 }
 
 // handleRefreshTokenGrant exchanges a refresh token for new tokens
@@ -222,33 +222,33 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 	refreshToken := r.FormValue("refresh_token")
 
 	if refreshToken == "" {
-		s.tokenError(w, "invalid_request", "Refresh token is required")
+		s.writeTokenError(w, "invalid_request", "Refresh token is required")
 		return
 	}
 
 	// Look up the token by refresh token
 	token, err := s.datastore.Q.GetTokenByRefreshToken(r.Context(), sql.NullString{String: refreshToken, Valid: true})
 	if err != nil {
-		s.tokenError(w, "invalid_grant", "Invalid refresh token")
+		s.writeTokenError(w, "invalid_grant", "Invalid refresh token")
 		return
 	}
 
 	// Validate the client ID matches
 	if token.ClientID != client.ID {
-		s.tokenError(w, "invalid_grant", "Refresh token was not issued to this client")
+		s.writeTokenError(w, "invalid_grant", "Refresh token was not issued to this client")
 		return
 	}
 
 	// Check if refresh token has expired
 	if token.RefreshExpiresAt.Valid && token.RefreshExpiresAt.Time.Before(time.Now()) {
-		s.tokenError(w, "invalid_grant", "Refresh token has expired")
+		s.writeTokenError(w, "invalid_grant", "Refresh token has expired")
 		return
 	}
 
 	// Revoke the old token
 	err = s.datastore.Q.RevokeTokenByRefreshToken(r.Context(), sql.NullString{String: refreshToken, Valid: true})
 	if err != nil {
-		s.tokenError(w, "server_error", "Failed to revoke old token")
+		s.writeTokenError(w, "server_error", "Failed to revoke old token")
 		return
 	}
 
@@ -257,49 +257,23 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 	if token.UserID.Valid {
 		userID = token.UserID.UUID
 	}
-	s.issueTokens(w, r, client, userID, token.Scope)
+	s.writeTokenResponse(w, r, client.ID, userID, token.Scope)
 }
 
-// issueTokens generates and stores new access and refresh tokens, then writes the JSON response
-func (s *Server) issueTokens(w http.ResponseWriter, r *http.Request, client db.OauthClient, userID uuid.UUID, scope []string) {
-	accessToken, err := generateRandomString(32)
+// writeTokenResponse generates tokens and writes the JSON response
+func (s *Server) writeTokenResponse(w http.ResponseWriter, r *http.Request, clientID uuid.UUID, userID uuid.UUID, scope []string) {
+	tokens, err := s.generateTokens(r.Context(), clientID, userID, scope)
 	if err != nil {
-		s.tokenError(w, "server_error", "Failed to generate access token")
+		s.writeTokenError(w, "server_error", "Failed to generate tokens")
 		return
 	}
 
-	refreshToken, err := generateRandomString(32)
-	if err != nil {
-		s.tokenError(w, "server_error", "Failed to generate refresh token")
-		return
-	}
-
-	// Access token expires in 1 hour, refresh token in 30 days
-	accessExpiresAt := time.Now().Add(1 * time.Hour)
-	refreshExpiresAt := time.Now().Add(30 * 24 * time.Hour)
-
-	_, err = s.datastore.Q.InsertToken(r.Context(), db.InsertTokenParams{
-		AccessToken:      sql.NullString{String: accessToken, Valid: true},
-		RefreshToken:     sql.NullString{String: refreshToken, Valid: true},
-		UserID:           uuid.NullUUID{UUID: userID, Valid: userID != uuid.Nil},
-		ClientID:         client.ID,
-		Scope:            scope,
-		Column6:          "Bearer",
-		ExpiresAt:        accessExpiresAt,
-		RefreshExpiresAt: sql.NullTime{Time: refreshExpiresAt, Valid: true},
-	})
-	if err != nil {
-		s.tokenError(w, "server_error", "Failed to store token")
-		return
-	}
-
-	// Build response
 	response := map[string]any{
-		"access_token":  accessToken,
+		"access_token":  tokens.AccessToken,
 		"token_type":    "Bearer",
-		"expires_in":    3600, // 1 hour in seconds
-		"refresh_token": refreshToken,
-		"scope":         strings.Join(scope, " "),
+		"expires_in":    tokens.ExpiresIn,
+		"refresh_token": tokens.RefreshToken,
+		"scope":         strings.Join(tokens.Scope, " "),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -308,8 +282,8 @@ func (s *Server) issueTokens(w http.ResponseWriter, r *http.Request, client db.O
 	json.NewEncoder(w).Encode(response)
 }
 
-// tokenError writes an OAuth2 error response
-func (s *Server) tokenError(w http.ResponseWriter, errorCode, description string) {
+// writeTokenError writes an OAuth2 error response
+func (s *Server) writeTokenError(w http.ResponseWriter, errorCode, description string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusBadRequest)
 	json.NewEncoder(w).Encode(map[string]string{

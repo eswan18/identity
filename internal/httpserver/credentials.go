@@ -16,6 +16,8 @@ import (
 
 const authorizationCodeExpiresIn = 10 * time.Minute
 const sessionExpiresIn = 24 * time.Hour
+const accessTokenExpiresIn = 1 * time.Hour
+const refreshTokenExpiresIn = 30 * 24 * time.Hour
 
 // Sentinel errors for credential validation
 var (
@@ -85,6 +87,13 @@ type Session struct {
 	ExpiresAt time.Time
 }
 
+type TokenPair struct {
+	AccessToken  string
+	RefreshToken string
+	ExpiresIn    int // seconds until access token expires
+	Scope        []string
+}
+
 // generateAuthorizationCode generates a new authorization code and stores it in the database
 func (s *Server) generateAuthorizationCode(ctx context.Context, userID uuid.UUID, clientID uuid.UUID, redirectURI string, scope []string, codeChallenge string, codeChallengeMethod string) (string, error) {
 	code, err := generateRandomString(32)
@@ -134,5 +143,43 @@ func (s *Server) createSession(ctx context.Context, userID uuid.UUID) (Session, 
 		ID:        sessionId,
 		UserID:    userID,
 		ExpiresAt: time.Now().Add(sessionExpiresIn),
+	}, nil
+}
+
+// generateTokens creates new access and refresh tokens and stores them in the database.
+// Returns the token pair on success.
+func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID uuid.UUID, scope []string) (TokenPair, error) {
+	accessToken, err := generateRandomString(32)
+	if err != nil {
+		return TokenPair{}, err
+	}
+
+	refreshToken, err := generateRandomString(32)
+	if err != nil {
+		return TokenPair{}, err
+	}
+
+	accessExpiresAt := time.Now().Add(accessTokenExpiresIn)
+	refreshExpiresAt := time.Now().Add(refreshTokenExpiresIn)
+
+	_, err = s.datastore.Q.InsertToken(ctx, db.InsertTokenParams{
+		AccessToken:      sql.NullString{String: accessToken, Valid: true},
+		RefreshToken:     sql.NullString{String: refreshToken, Valid: true},
+		UserID:           uuid.NullUUID{UUID: userID, Valid: userID != uuid.Nil},
+		ClientID:         clientID,
+		Scope:            scope,
+		Column6:          "Bearer",
+		ExpiresAt:        accessExpiresAt,
+		RefreshExpiresAt: sql.NullTime{Time: refreshExpiresAt, Valid: true},
+	})
+	if err != nil {
+		return TokenPair{}, err
+	}
+
+	return TokenPair{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ExpiresIn:    int(accessTokenExpiresIn.Seconds()),
+		Scope:        scope,
 	}, nil
 }
