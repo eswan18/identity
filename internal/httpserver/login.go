@@ -14,7 +14,10 @@ import (
 
 	"github.com/eswan18/identity/internal/auth"
 	"github.com/eswan18/identity/internal/db"
+	"github.com/google/uuid"
 )
+
+const authorizationCodeExpiresIn = 10 * time.Minute
 
 // handleLoginGet godoc
 // @Summary      Show login page
@@ -125,7 +128,7 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate username and password against database
-	user, err := s.datastore.Q.GetUserByUsername(context.Background(), username)
+	user, err := s.datastore.Q.GetUserByUsername(r.Context(), username)
 	if err == sql.ErrNoRows {
 		s.renderLoginError(w, http.StatusUnauthorized, "Invalid username or password", oauthParams)
 		return
@@ -154,7 +157,7 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 
 	// Session expires in 24 hours
 	expiresAt := time.Now().Add(24 * time.Hour)
-	err = s.datastore.Q.CreateSession(context.Background(), db.CreateSessionParams{
+	err = s.datastore.Q.CreateSession(r.Context(), db.CreateSessionParams{
 		ID:        sessionID,
 		UserID:    user.ID,
 		ExpiresAt: expiresAt,
@@ -184,10 +187,9 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validations.
+	// Validations...
 	// Is this a real client?
-	// Are the redirect URI and requested scopes valid for that client?
-	client, err := s.datastore.Q.GetOAuthClientByClientID(context.Background(), clientID)
+	client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			s.renderLoginError(w, http.StatusBadRequest, "Invalid client ID", oauthParams)
@@ -196,49 +198,57 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
 		return
 	}
+	// Is the redirect URI valid for this client?
 	if !slices.Contains(client.RedirectUris, redirectURI) {
 		s.renderLoginError(w, http.StatusBadRequest, "Invalid redirect URI", oauthParams)
 		return
 	}
+	// Are the requested scopes valid for this client?
 	if !containsAll(client.AllowedScopes, scope) {
 		s.renderLoginError(w, http.StatusBadRequest, "Invalid scope", oauthParams)
 		return
 	}
 
-	authorizationCode, err := generateAuthorizationCode()
+	// Generate and store authorization code
+	authorizationCode, err := s.createNewAuthorizationCode(r.Context(), user.ID, client.ID, redirectURI, scope, codeChallenge, codeChallengeMethod)
 	if err != nil {
 		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
 		return
 	}
-	err = s.datastore.Q.InsertAuthorizationCode(context.Background(), db.InsertAuthorizationCodeParams{
-		Code:        authorizationCode,
-		UserID:      user.ID,
-		ClientID:    client.ID,
-		RedirectUri: redirectURI,
-		Scope:       scope,
-	})
-	if err != nil {
-		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
-		return
-	}
-	// OAuth flow: Generate authorization code and redirect to redirect_uri
-	// TODO: Redirect to redirect_uri with authorization code
-	// TODO: Only accept redirect_uri that is in the client's allowed redirect URIs
+
+	// Build the final redirect URL with the authorization code and other OAuth parameters.
 	redirectURL, err := url.Parse(redirectURI)
 	if err != nil {
 		s.renderLoginError(w, http.StatusBadRequest, "Invalid redirect URI", oauthParams)
 		return
 	}
-
-	// Add query params
 	q := redirectURL.Query()
 	q.Set("state", state)
 	q.Set("code", authorizationCode)
 	redirectURL.RawQuery = q.Encode()
 
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
-	return
+}
 
+func (s *Server) createNewAuthorizationCode(ctx context.Context, userID uuid.UUID, clientID uuid.UUID, redirectURI string, scope []string, codeChallenge string, codeChallengeMethod string) (string, error) {
+	code, err := generateAuthorizationCode()
+	if err != nil {
+		return "", err
+	}
+	err = s.datastore.Q.InsertAuthorizationCode(ctx, db.InsertAuthorizationCodeParams{
+		Code:                code,
+		UserID:              userID,
+		ClientID:            clientID,
+		RedirectUri:         redirectURI,
+		Scope:               scope,
+		CodeChallenge:       sql.NullString{String: codeChallenge, Valid: codeChallenge != ""},
+		CodeChallengeMethod: sql.NullString{String: codeChallengeMethod, Valid: codeChallengeMethod != ""},
+		ExpiresAt:           time.Now().Add(authorizationCodeExpiresIn),
+	})
+	if err != nil {
+		return "", err
+	}
+	return code, nil
 }
 
 // renderLoginError renders the login page with an error message, preserving OAuth parameters.
@@ -279,6 +289,7 @@ func generateSessionID() (string, error) {
 	return base64.URLEncoding.EncodeToString(bytes), nil
 }
 
+// generateAuthorizationCode generates a cryptographically secure random authorization code
 func generateAuthorizationCode() (string, error) {
 	bytes := make([]byte, 32) // 256 bits
 	if _, err := rand.Read(bytes); err != nil {

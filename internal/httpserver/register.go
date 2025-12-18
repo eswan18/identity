@@ -126,6 +126,7 @@ func (s *Server) handleRegisterPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build redirect URL to login with OAuth params preserved
+	// TODO: use the URL library for this.
 	loginURL := "/login?registered=true"
 	if redirectURI != "" {
 		loginURL += "&redirect_uri=" + url.QueryEscape(redirectURI)
