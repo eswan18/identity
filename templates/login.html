@@ -252,7 +252,7 @@
         {{end}}
         {{end}}
 
-        <form method="POST" action="/login">
+        <form method="POST" action="/oauth/login">
             <div class="form-group">
                 <label for="username">Username</label>
                 <input 
@@ -290,7 +290,7 @@
         </form>
 
         <div class="login-link">
-            Don't have an account? <a href="/register?redirect_uri={{.RedirectURI}}&client_id={{.ClientID}}&state={{.State}}&scope={{.Scope}}&code_challenge={{.CodeChallenge}}&code_challenge_method={{.CodeChallengeMethod}}">Sign up</a>
+            Don't have an account? <a href="/oauth/register?redirect_uri={{.RedirectURI}}&client_id={{.ClientID}}&state={{.State}}&scope={{.Scope}}&code_challenge={{.CodeChallenge}}&code_challenge_method={{.CodeChallengeMethod}}">Sign up</a>
         </div>
 
         <div class="footer-text">

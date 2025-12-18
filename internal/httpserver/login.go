@@ -42,7 +42,7 @@ func (s *Server) handleLoginGet(w http.ResponseWriter, r *http.Request) {
 	codeChallenge := r.URL.Query().Get("code_challenge")
 	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
 
-	// If code_challenge_method is provided, it must be S256
+	// If code_challenge_method is provided, it must be S256 -- meaning a sha256 hash of the code verifier.
 	if codeChallengeMethod != "" && codeChallengeMethod != "S256" {
 		if redirectURI != "" {
 			// OAuth error: redirect back to client with error parameters
@@ -183,7 +183,7 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		// Direct login (no OAuth):
 		// There's no real reason to log in without a redirect except to check your password, but maybe someday.
 		// For now, we'll just show a success page explaining how to access applications.
-		http.Redirect(w, r, "/success", http.StatusFound)
+		http.Redirect(w, r, "/oauth/success", http.StatusFound)
 		return
 	}
 
