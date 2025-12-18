@@ -71,6 +71,22 @@ func (q *Queries) CreateOAuthClient(ctx context.Context, arg CreateOAuthClientPa
 	return i, err
 }
 
+const createSession = `-- name: CreateSession :exec
+INSERT INTO auth_sessions (id, user_id, expires_at)
+VALUES ($1, $2, $3)
+`
+
+type CreateSessionParams struct {
+	ID        string    `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) error {
+	_, err := q.db.ExecContext(ctx, createSession, arg.ID, arg.UserID, arg.ExpiresAt)
+	return err
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO auth_users (username, email, password_hash)
 VALUES ($1, $2, $3)
@@ -96,6 +112,16 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (AuthUse
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const deleteSession = `-- name: DeleteSession :exec
+DELETE FROM auth_sessions
+WHERE id = $1
+`
+
+func (q *Queries) DeleteSession(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteSession, id)
+	return err
 }
 
 const getAuthorizationCode = `-- name: GetAuthorizationCode :one
@@ -141,6 +167,25 @@ func (q *Queries) GetOAuthClientByClientID(ctx context.Context, clientID string)
 		&i.IsConfidential,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getSession = `-- name: GetSession :one
+SELECT id, user_id, expires_at, created_at
+FROM auth_sessions
+WHERE id = $1
+  AND expires_at > now()
+`
+
+func (q *Queries) GetSession(ctx context.Context, id string) (AuthSession, error) {
+	row := q.db.QueryRowContext(ctx, getSession, id)
+	var i AuthSession
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ExpiresAt,
+		&i.CreatedAt,
 	)
 	return i, err
 }

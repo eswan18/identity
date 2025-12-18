@@ -210,25 +210,22 @@ paths:
         name: redirect_uri
         required: true
         type: string
-      - description: Requested scopes (e.g., 'openid profile email')
+      - description: Requested scopes (e.g., 'openid profile email'). Defaults to
+          'openid' if not provided.
         in: query
         name: scope
-        required: true
         type: string
-      - description: CSRF protection token
+      - description: CSRF protection token. Recommended for OAuth flow.
         in: query
         name: state
-        required: true
         type: string
-      - description: PKCE code challenge (SHA256 hash)
+      - description: PKCE code challenge (SHA256 hash). Required for OAuth flow.
         in: query
         name: code_challenge
-        required: true
         type: string
-      - description: Must be 'S256'
+      - description: PKCE challenge method (must be 'S256'). Required for OAuth flow.
         in: query
         name: code_challenge_method
-        required: true
         type: string
       produces:
       - text/html

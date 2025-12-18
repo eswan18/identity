@@ -2,12 +2,17 @@ package httpserver
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
+	"time"
 
 	"github.com/eswan18/identity/internal/auth"
+	"github.com/eswan18/identity/internal/db"
 )
 
 // handleLoginGet godoc
@@ -130,16 +135,46 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	valid, err := auth.VerifyPassword(password, user.PasswordHash)
+	if err != nil {
+		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
+		return
+	}
 	if !valid {
 		s.renderLoginError(w, http.StatusUnauthorized, "Invalid username or password", oauthParams)
 		return
 	}
+
+	// Create authenticated session
+	sessionID, err := generateSessionID()
 	if err != nil {
 		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
 		return
 	}
 
-	// TODO: Create authenticated session
+	// Session expires in 24 hours
+	expiresAt := time.Now().Add(24 * time.Hour)
+	err = s.datastore.Q.CreateSession(context.Background(), db.CreateSessionParams{
+		ID:        sessionID,
+		UserID:    user.ID,
+		ExpiresAt: expiresAt,
+	})
+	if err != nil {
+		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
+		return
+	}
+
+	// Set secure session cookie
+	// Secure flag should be true in production (HTTPS), false for local dev
+	isSecure := strings.HasPrefix(s.config.HTTPAddress, "https://") || strings.Contains(s.config.HTTPAddress, ":443")
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session_id",
+		Value:    sessionID,
+		Path:     "/",
+		Expires:  expiresAt,
+		HttpOnly: true,
+		Secure:   isSecure,
+		SameSite: http.SameSiteLaxMode,
+	})
 
 	// Handle OAuth flow vs direct login
 	if redirectURI != "" {
@@ -181,4 +216,13 @@ func (s *Server) renderLoginError(w http.ResponseWriter, statusCode int, errorMs
 			http.Error(w, "An error occurred while rendering the error page", http.StatusInternalServerError)
 		}
 	}
+}
+
+// generateSessionID generates a cryptographically secure random session ID
+func generateSessionID() (string, error) {
+	bytes := make([]byte, 32) // 256 bits
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return base64.URLEncoding.EncodeToString(bytes), nil
 }

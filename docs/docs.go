@@ -314,31 +314,27 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Requested scopes (e.g., 'openid profile email')",
+                        "description": "Requested scopes (e.g., 'openid profile email'). Defaults to 'openid' if not provided.",
                         "name": "scope",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "CSRF protection token",
+                        "description": "CSRF protection token. Recommended for OAuth flow.",
                         "name": "state",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "PKCE code challenge (SHA256 hash)",
+                        "description": "PKCE code challenge (SHA256 hash). Required for OAuth flow.",
                         "name": "code_challenge",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Must be 'S256'",
+                        "description": "PKCE challenge method (must be 'S256'). Required for OAuth flow.",
                         "name": "code_challenge_method",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
                     }
                 ],
                 "responses": {
