@@ -217,6 +217,32 @@ func (q *Queries) GetTokenByAccessToken(ctx context.Context, accessToken sql.Nul
 	return i, err
 }
 
+const getTokenByRefreshToken = `-- name: GetTokenByRefreshToken :one
+SELECT id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at
+FROM oauth_tokens
+WHERE refresh_token = $1
+  AND revoked_at IS NULL
+`
+
+func (q *Queries) GetTokenByRefreshToken(ctx context.Context, refreshToken sql.NullString) (OauthToken, error) {
+	row := q.db.QueryRowContext(ctx, getTokenByRefreshToken, refreshToken)
+	var i OauthToken
+	err := row.Scan(
+		&i.ID,
+		&i.AccessToken,
+		&i.RefreshToken,
+		&i.UserID,
+		&i.ClientID,
+		pq.Array(&i.Scope),
+		&i.TokenType,
+		&i.ExpiresAt,
+		&i.RefreshExpiresAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT id, username, password_hash, email, is_active, created_at, updated_at
 FROM auth_users

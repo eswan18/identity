@@ -76,6 +76,12 @@ WHERE access_token = $1
   AND revoked_at IS NULL
   AND expires_at > now();
 
+-- name: GetTokenByRefreshToken :one
+SELECT *
+FROM oauth_tokens
+WHERE refresh_token = $1
+  AND revoked_at IS NULL;
+
 -- name: RevokeTokenByRefreshToken :exec
 UPDATE oauth_tokens
 SET revoked_at = now()
