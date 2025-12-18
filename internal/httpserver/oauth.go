@@ -1,10 +1,11 @@
 package httpserver
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
+	"slices"
 	"strings"
-
-	"github.com/google/uuid"
 )
 
 // handleOauthAuthorize godoc
@@ -29,6 +30,7 @@ func (s *Server) handleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	scope := strings.Split(r.URL.Query().Get("scope"), " ")
 	codeChallenge := r.URL.Query().Get("code_challenge")
 	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
+	state := r.URL.Query().Get("state")
 
 	if responseType != "code" {
 		http.Error(w, "Invalid response type", http.StatusBadRequest)
@@ -59,18 +61,46 @@ func (s *Server) handleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if user is authenticated via session cookie
-	_, authenticated := s.getAuthenticatedUser(r)
-	if authenticated {
-		// generate authorization code and redirect to redirect_uri
-		// TODO: Generate authorization code (will need userID from getAuthenticatedUser)
-		// TODO: Redirect to redirect_uri with authorization code
-		http.Redirect(w, r, redirectURI, http.StatusFound)
+	session, err := s.getSessionFromCookie(r)
+	if err != nil {
+		// If not authenticated, redirect to login page with OAuth parameters preserved -- just pull the whole query string
+		loginURL := "/oauth/login?" + r.URL.RawQuery
+		http.Redirect(w, r, loginURL, http.StatusFound)
 		return
 	}
 
-	// If not authenticated, redirect to login page with OAuth parameters preserved -- just pull the whole query string
-	loginURL := "/oauth/login?" + r.URL.RawQuery
-	http.Redirect(w, r, loginURL, http.StatusFound)
+	client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
+	if err != nil {
+		http.Error(w, "Invalid client ID", http.StatusBadRequest)
+		return
+	}
+	// Validate the redirect URI is valid for this client
+	if !slices.Contains(client.RedirectUris, redirectURI) {
+		http.Error(w, "Invalid redirect URI", http.StatusBadRequest)
+		return
+	}
+	// Validate the scopes are valid for this client
+	if !containsAll(client.AllowedScopes, scope) {
+		http.Error(w, "Requested scopes are not allowed by the client", http.StatusBadRequest)
+		return
+	}
+
+	// generate authorization code and redirect to redirect_uri
+	authorizationCode, err := s.generateAuthorizationCode(r.Context(), session.UserID, client.ID, redirectURI, scope, codeChallenge, codeChallengeMethod)
+	if err != nil {
+		http.Error(w, "An error occurred", http.StatusInternalServerError)
+		return
+	}
+	redirectURL, err := url.Parse(redirectURI)
+	if err != nil {
+		http.Error(w, "Invalid redirect URI", http.StatusBadRequest)
+		return
+	}
+	q := redirectURL.Query()
+	q.Set("code", authorizationCode)
+	q.Set("state", state)
+	redirectURL.RawQuery = q.Encode()
+	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 }
 
 // handleOauthToken godoc
@@ -143,18 +173,22 @@ func (s *Server) handleOauthRevoke(w http.ResponseWriter, r *http.Request) {
 	// temporary no-op
 }
 
-// getAuthenticatedUser checks if the user is authenticated via session cookie.
-// Returns (userID, true) if authenticated, (nil UUID, false) otherwise.
-func (s *Server) getAuthenticatedUser(r *http.Request) (uuid.UUID, bool) {
+// getSessionFromCookie checks if the user is authenticated via session cookie.
+// Returns (session, true) if authenticated, (nil Session, false) otherwise.
+func (s *Server) getSessionFromCookie(r *http.Request) (Session, error) {
 	cookie, err := r.Cookie("session_id")
 	if err != nil {
-		return uuid.Nil, false
+		return Session{}, fmt.Errorf("failed to get session from cookie: %w", err)
 	}
 
-	// TODO: Validate session against database (check auth_sessions table)
-	// For now, just check if cookie exists - you'll need to implement session validation
-	// Example: query auth_sessions table where id = cookie.Value and expires_at > now()
-	_ = cookie.Value
+	session, err := s.datastore.Q.GetSession(r.Context(), cookie.Value)
+	if err != nil {
+		return Session{}, fmt.Errorf("failed to get session from database: %w", err)
+	}
 
-	return uuid.Nil, false
+	return Session{
+		ID:        session.ID,
+		UserID:    session.UserID,
+		ExpiresAt: session.ExpiresAt,
+	}, nil
 }
