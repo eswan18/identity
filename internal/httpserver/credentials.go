@@ -5,14 +5,52 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"time"
 
+	"github.com/eswan18/identity/internal/auth"
 	"github.com/eswan18/identity/internal/db"
 	"github.com/google/uuid"
 )
 
 const authorizationCodeExpiresIn = 10 * time.Minute
 const sessionExpiresIn = 24 * time.Hour
+
+// Sentinel errors for credential validation
+var (
+	ErrMissingCredentials = errors.New("username and password are required")
+	ErrInvalidCredentials = errors.New("invalid username or password")
+	ErrInternal           = errors.New("an error occurred")
+)
+
+// validateCredentials validates a username and password against the database.
+// Returns the user on success. On failure, returns one of:
+//   - ErrMissingCredentials (400)
+//   - ErrInvalidCredentials (401)
+//   - ErrInternal (500)
+func (s *Server) validateCredentials(ctx context.Context, username, password string) (db.AuthUser, error) {
+	if username == "" || password == "" {
+		return db.AuthUser{}, ErrMissingCredentials
+	}
+
+	user, err := s.datastore.Q.GetUserByUsername(ctx, username)
+	if err == sql.ErrNoRows {
+		return db.AuthUser{}, ErrInvalidCredentials
+	}
+	if err != nil {
+		return db.AuthUser{}, ErrInternal
+	}
+
+	valid, err := auth.VerifyPassword(password, user.PasswordHash)
+	if err != nil {
+		return db.AuthUser{}, ErrInternal
+	}
+	if !valid {
+		return db.AuthUser{}, ErrInvalidCredentials
+	}
+
+	return user, nil
+}
 
 type Session struct {
 	ID        string

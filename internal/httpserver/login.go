@@ -2,13 +2,12 @@ package httpserver
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
-
-	"github.com/eswan18/identity/internal/auth"
 )
 
 // handleLoginGet godoc
@@ -113,30 +112,16 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		CodeChallenge:       codeChallenge,
 		CodeChallengeMethod: codeChallengeMethod,
 	}
-	// Validate required fields and re-render login page with error if missing
-	if username == "" || password == "" {
-		s.renderLoginError(w, http.StatusBadRequest, "Username and password are required", oauthParams)
-		return
-	}
-
-	// Validate username and password against database
-	user, err := s.datastore.Q.GetUserByUsername(r.Context(), username)
-	if err == sql.ErrNoRows {
-		s.renderLoginError(w, http.StatusUnauthorized, "Invalid username or password", oauthParams)
-		return
-	}
+	// Validate credentials
+	user, err := s.validateCredentials(r.Context(), username, password)
 	if err != nil {
-		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
-		return
-	}
-
-	valid, err := auth.VerifyPassword(password, user.PasswordHash)
-	if err != nil {
-		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
-		return
-	}
-	if !valid {
-		s.renderLoginError(w, http.StatusUnauthorized, "Invalid username or password", oauthParams)
+		status := http.StatusInternalServerError
+		if errors.Is(err, ErrMissingCredentials) {
+			status = http.StatusBadRequest
+		} else if errors.Is(err, ErrInvalidCredentials) {
+			status = http.StatusUnauthorized
+		}
+		s.renderLoginError(w, status, err.Error(), oauthParams)
 		return
 	}
 
