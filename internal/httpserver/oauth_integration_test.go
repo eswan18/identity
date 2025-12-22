@@ -33,6 +33,11 @@ const (
 	testPgDatabase = "identity"
 )
 
+type UserWithPassword struct {
+	db.AuthUser
+	Password string
+}
+
 func mustGenerateRandomString(t *testing.T, length int) string {
 	t.Helper()
 	s, err := generateRandomString(length)
@@ -70,22 +75,22 @@ func TestOAuthIntegration(t *testing.T) {
 	}
 
 	// Register a user in the database.
-	var user struct {
-		db.AuthUser
-		Password string
-	}
+	var user UserWithPassword
 	{
 		username := mustGenerateRandomString(t, 8)
 		password := mustGenerateRandomString(t, 8)
 		hashedPassword, err := auth.HashPassword(password)
 		assert.NoError(err)
-		user.AuthUser, err = datastore.Q.CreateUser(t.Context(), db.CreateUserParams{
+		authUser, err := datastore.Q.CreateUser(t.Context(), db.CreateUserParams{
 			Username:     username,
 			Email:        mustGenerateRandomString(t, 8),
 			PasswordHash: hashedPassword,
 		})
 		assert.NoError(err)
-		user.Password = password
+		user = UserWithPassword{
+			AuthUser: authUser,
+			Password: password,
+		}
 	}
 
 	// Make an http client that doesn't follow redirects so we can check the 302 status
