@@ -49,9 +49,10 @@ type StateAndCodeVerifier struct {
 
 type OAuthFlowSuite struct {
 	suite.Suite
-	httpClient *http.Client
-	datastore  *store.Store
-	server     *Server
+	httpClient  *http.Client
+	pgContainer *postgres.PostgresContainer
+	datastore   *store.Store
+	server      *Server
 }
 
 func (s *OAuthFlowSuite) SetupSuite() {
@@ -61,7 +62,9 @@ func (s *OAuthFlowSuite) SetupSuite() {
 			return http.ErrUseLastResponse
 		},
 	}
-	_, dbURL := prepareDatabase(s.T())
+	s.pgContainer = prepareDatabase(s.T())
+	dbURL, err := s.pgContainer.ConnectionString(s.T().Context(), "sslmode=disable")
+	s.NoError(err)
 	s.datastore, err = store.New(dbURL)
 	s.NoError(err)
 
@@ -73,6 +76,11 @@ func (s *OAuthFlowSuite) SetupSuite() {
 		time.Sleep(100 * time.Millisecond)
 	}
 	s.T().Logf("server is listening on %s", s.server.config.HTTPAddress)
+}
+
+func (s *OAuthFlowSuite) TearDownTest() {
+	// Return to the snapshot of the DB from before any tests ran.
+	s.pgContainer.Restore(s.T().Context(), postgres.WithSnapshotName("post-migrations"))
 }
 
 func (s *OAuthFlowSuite) TearDownSuite() {
@@ -294,7 +302,7 @@ func (s *OAuthFlowSuite) TestOAuthIntegrationForNonconfidentialClient() {
 	})
 }
 
-func prepareDatabase(t *testing.T) (*postgres.PostgresContainer, string) {
+func prepareDatabase(t *testing.T) *postgres.PostgresContainer {
 	t.Helper()
 
 	// Create the test database container.
@@ -305,6 +313,7 @@ func prepareDatabase(t *testing.T) (*postgres.PostgresContainer, string) {
 		postgres.WithUsername(testPgUser),
 		postgres.WithPassword(testPgPassword),
 		postgres.BasicWaitStrategies(),
+		postgres.WithSQLDriver("pgx"),
 	)
 	assert.NoError(t, err)
 	t.Logf("postgres container started: %s", pgContainer.GetContainerID())
@@ -328,7 +337,10 @@ func prepareDatabase(t *testing.T) (*postgres.PostgresContainer, string) {
 		_ = pgContainer.Terminate(t.Context())
 	})
 
-	return pgContainer, connStr
+	// Take a snapshot that we can return to after each test.
+	pgContainer.Snapshot(t.Context(), postgres.WithSnapshotName("post-migrations"))
+
+	return pgContainer
 }
 
 func TestOAuthFlowSuite(t *testing.T) {
