@@ -1,4 +1,18 @@
 basePath: /
+definitions:
+  httpserver.TokenResponse:
+    properties:
+      access_token:
+        type: string
+      expires_in:
+        type: integer
+      refresh_token:
+        type: string
+      scope:
+        type: string
+      token_type:
+        type: string
+    type: object
 host: localhost:8080
 info:
   contact:
@@ -286,6 +300,44 @@ paths:
               type: string
             type: object
       summary: Token introspection endpoint
+      tags:
+      - oauth2
+  /oauth/refresh:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Exchanges a refresh token for new access and refresh tokens
+      parameters:
+      - description: Refresh token to exchange
+        in: formData
+        name: refresh_token
+        required: true
+        type: string
+      - description: OAuth client ID
+        in: formData
+        name: client_id
+        required: true
+        type: string
+      - description: OAuth client secret (required for confidential clients)
+        in: formData
+        name: client_secret
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Token response with access_token, token_type, expires_in, refresh_token,
+            and scope
+          schema:
+            $ref: '#/definitions/httpserver.TokenResponse'
+        "400":
+          description: OAuth2 error response (invalid_request, invalid_grant, invalid_client,
+            etc.)
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: OAuth2 refresh token endpoint
       tags:
       - oauth2
   /oauth/revoke:

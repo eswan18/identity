@@ -411,6 +411,60 @@
                 }
             }
         },
+        "/oauth/refresh": {
+            "post": {
+                "description": "Exchanges a refresh token for new access and refresh tokens",
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "oauth2"
+                ],
+                "summary": "OAuth2 refresh token endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Refresh token to exchange",
+                        "name": "refresh_token",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "OAuth client ID",
+                        "name": "client_id",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "OAuth client secret (required for confidential clients)",
+                        "name": "client_secret",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Token response with access_token, token_type, expires_in, refresh_token, and scope",
+                        "schema": {
+                            "$ref": "#/definitions/httpserver.TokenResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "OAuth2 error response (invalid_request, invalid_grant, invalid_client, etc.)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/oauth/revoke": {
             "post": {
                 "description": "Revokes a specific access token or refresh token per RFC 7009. This is more granular than /logout which invalidates all user tokens - revoke can invalidate individual tokens.",
@@ -743,6 +797,28 @@
                             "type": "string"
                         }
                     }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "httpserver.TokenResponse": {
+            "type": "object",
+            "properties": {
+                "access_token": {
+                    "type": "string"
+                },
+                "expires_in": {
+                    "type": "integer"
+                },
+                "refresh_token": {
+                    "type": "string"
+                },
+                "scope": {
+                    "type": "string"
+                },
+                "token_type": {
+                    "type": "string"
                 }
             }
         }
