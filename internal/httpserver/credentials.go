@@ -63,6 +63,10 @@ func (s *Server) validateOAuthClient(ctx context.Context, clientID, redirectURI 
 //   - ErrMissingCredentials (400)
 //   - ErrInvalidCredentials (401)
 //   - ErrInternal (500)
+//
+// Security: Always returns ErrInvalidCredentials for invalid username/password
+// to prevent username enumeration attacks. The specific reason (user not found vs
+// wrong password) is logged for debugging but not exposed to the client.
 func (s *Server) validateCredentials(ctx context.Context, username, password string) (db.AuthUser, error) {
 	if username == "" || password == "" {
 		return db.AuthUser{}, ErrMissingCredentials
@@ -70,6 +74,8 @@ func (s *Server) validateCredentials(ctx context.Context, username, password str
 
 	user, err := s.datastore.Q.GetUserByUsername(ctx, username)
 	if err == sql.ErrNoRows {
+		// User doesn't exist - log for debugging but return generic error to prevent enumeration
+		log.Printf("validateCredentials: user not found: %s", username)
 		return db.AuthUser{}, ErrInvalidCredentials
 	}
 	if err != nil {
@@ -81,6 +87,8 @@ func (s *Server) validateCredentials(ctx context.Context, username, password str
 		return db.AuthUser{}, ErrInternal
 	}
 	if !valid {
+		// Wrong password - log for debugging but return generic error to prevent enumeration
+		log.Printf("validateCredentials: invalid password for user: %s", username)
 		return db.AuthUser{}, ErrInvalidCredentials
 	}
 
