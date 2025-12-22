@@ -16,6 +16,14 @@ import (
 	"github.com/google/uuid"
 )
 
+type TokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token"`
+	Scope        string `json:"scope"`
+}
+
 // handleOauthAuthorize godoc
 // @Summary      OAuth2 authorization endpoint
 // @Description  Validates OAuth2 parameters, checks if user is authenticated (via session cookie), renders login page if not authenticated, or generates authorization code and redirects to redirect_uri if authenticated
@@ -200,7 +208,10 @@ func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Req
 		hash := sha256.Sum256([]byte(codeVerifier))
 		computedChallenge := base64.RawURLEncoding.EncodeToString(hash[:])
 
-		if computedChallenge != authCode.CodeChallenge.String {
+		// Normalize both challenges for comparison (handles any legacy padded data)
+		// The stored challenge should already be normalized, but we normalize both
+		// to be safe and handle edge cases.
+		if normalizeCodeChallenge(computedChallenge) != normalizeCodeChallenge(authCode.CodeChallenge.String) {
 			s.writeTokenError(w, "invalid_grant", "Invalid code verifier")
 			return
 		}
@@ -268,12 +279,12 @@ func (s *Server) writeTokenResponse(w http.ResponseWriter, r *http.Request, clie
 		return
 	}
 
-	response := map[string]any{
-		"access_token":  tokens.AccessToken,
-		"token_type":    "Bearer",
-		"expires_in":    tokens.ExpiresIn,
-		"refresh_token": tokens.RefreshToken,
-		"scope":         strings.Join(tokens.Scope, " "),
+	response := TokenResponse{
+		AccessToken:  tokens.AccessToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    tokens.ExpiresIn,
+		RefreshToken: tokens.RefreshToken,
+		Scope:        strings.Join(tokens.Scope, " "),
 	}
 
 	w.Header().Set("Content-Type", "application/json")

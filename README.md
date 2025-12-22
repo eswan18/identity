@@ -36,3 +36,8 @@ Regenerate sqlc queries and types.
 ```shell
 make sqlc
 ```
+
+## Adding a new client
+
+1. `make build`
+2. `ENV=dev ./register-client -name mycoolapp -redirect-uris http://localhost/redirect -scopes openid`

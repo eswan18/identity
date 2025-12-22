@@ -130,6 +130,13 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate OAuth client, redirect URI, and scopes
+	client, err := s.validateOAuthClient(r.Context(), clientID, redirectURI, scope)
+	if err != nil {
+		s.renderLoginError(w, http.StatusBadRequest, err.Error(), oauthParams)
+		return
+	}
+
 	// Set secure session cookie
 	// Secure flag should be true in production (HTTPS), false for local dev
 	isSecure := strings.HasPrefix(s.config.HTTPAddress, "https://") || strings.Contains(s.config.HTTPAddress, ":443")
@@ -147,13 +154,6 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		// There's no real reason to log in without a redirect except to check your password, but maybe someday.
 		// For now, we'll just show a success page explaining how to access applications.
 		http.Redirect(w, r, "/oauth/success", http.StatusFound)
-		return
-	}
-
-	// Validate OAuth client, redirect URI, and scopes
-	client, err := s.validateOAuthClient(r.Context(), clientID, redirectURI, scope)
-	if err != nil {
-		s.renderLoginError(w, http.StatusBadRequest, err.Error(), oauthParams)
 		return
 	}
 

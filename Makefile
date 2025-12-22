@@ -14,6 +14,7 @@ run: docs
 	go run cmd/auth-service/main.go
 
 build: docs
+	go build -o register-client ./cmd/register-client
 	go build -o identity cmd/auth-service/main.go
 
 migrate-new:

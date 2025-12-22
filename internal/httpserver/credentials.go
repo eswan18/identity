@@ -6,7 +6,10 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"errors"
+	"fmt"
+	"log"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/eswan18/identity/internal/auth"
@@ -41,13 +44,16 @@ var (
 func (s *Server) validateOAuthClient(ctx context.Context, clientID, redirectURI string, scopes []string) (db.OauthClient, error) {
 	client, err := s.datastore.Q.GetOAuthClientByClientID(ctx, clientID)
 	if err != nil {
+		log.Printf("validateOAuthClient: error getting client by client ID: %s\n", err)
 		return db.OauthClient{}, ErrInvalidClient
 	}
 	if !slices.Contains(client.RedirectUris, redirectURI) {
+		log.Printf("validateOAuthClient: redirect URI %s not in allowlist for client: %s\n", redirectURI, clientID)
 		return db.OauthClient{}, ErrInvalidRedirectURI
 	}
-	if !containsAll(client.AllowedScopes, scopes) {
-		return db.OauthClient{}, ErrInvalidScope
+	if scopesAreAllowed, invalidScopes := containsAll(client.AllowedScopes, scopes); !scopesAreAllowed {
+		log.Printf("validateOAuthClient: scopes %v not allowed for client: %s\n", invalidScopes, clientID)
+		return db.OauthClient{}, fmt.Errorf("%w: scopes %v not allowed", ErrInvalidScope, invalidScopes)
 	}
 	return client, nil
 }
@@ -94,11 +100,23 @@ type TokenPair struct {
 	Scope        []string
 }
 
+// normalizeCodeChallenge normalizes a base64url-encoded code challenge by removing padding.
+// This ensures consistent storage and comparison per RFC 7636, which specifies base64url
+// encoding without padding.
+func normalizeCodeChallenge(challenge string) string {
+	return strings.TrimRight(challenge, "=")
+}
+
 // generateAuthorizationCode generates a new authorization code and stores it in the database
 func (s *Server) generateAuthorizationCode(ctx context.Context, userID uuid.UUID, clientID uuid.UUID, redirectURI string, scope []string, codeChallenge string, codeChallengeMethod string) (string, error) {
 	code, err := generateRandomString(32)
 	if err != nil {
 		return "", err
+	}
+	// Normalize the code challenge by removing padding to ensure consistent storage per RFC 7636
+	normalizedChallenge := ""
+	if codeChallenge != "" {
+		normalizedChallenge = normalizeCodeChallenge(codeChallenge)
 	}
 	err = s.datastore.Q.InsertAuthorizationCode(ctx, db.InsertAuthorizationCodeParams{
 		Code:                code,
@@ -106,7 +124,7 @@ func (s *Server) generateAuthorizationCode(ctx context.Context, userID uuid.UUID
 		ClientID:            clientID,
 		RedirectUri:         redirectURI,
 		Scope:               scope,
-		CodeChallenge:       sql.NullString{String: codeChallenge, Valid: codeChallenge != ""},
+		CodeChallenge:       sql.NullString{String: normalizedChallenge, Valid: codeChallenge != ""},
 		CodeChallengeMethod: sql.NullString{String: codeChallengeMethod, Valid: codeChallengeMethod != ""},
 		ExpiresAt:           time.Now().Add(authorizationCodeExpiresIn),
 	})

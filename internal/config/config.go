@@ -8,8 +8,9 @@ import (
 )
 
 type Config struct {
-	HTTPAddress string
-	DatabaseURL string
+	HTTPAddress  string
+	DatabaseURL  string
+	TemplatesDir string
 }
 
 func NewFromEnv() *Config {
@@ -21,14 +22,18 @@ func NewFromEnv() *Config {
 	log.Println("Loaded environment variables from .env." + env)
 
 	config := &Config{
-		HTTPAddress: os.Getenv("HTTP_ADDRESS"),
-		DatabaseURL: os.Getenv("DATABASE_URL"),
+		HTTPAddress:  os.Getenv("HTTP_ADDRESS"),
+		DatabaseURL:  os.Getenv("DATABASE_URL"),
+		TemplatesDir: os.Getenv("TEMPLATES_DIR"),
 	}
 	if config.HTTPAddress == "" {
 		log.Fatal("HTTP_ADDRESS is not set")
 	}
 	if config.DatabaseURL == "" {
 		log.Fatal("DATABASE_URL is not set")
+	}
+	if config.TemplatesDir == "" {
+		log.Fatal("TEMPLATES_DIR is not set")
 	}
 	return config
 }

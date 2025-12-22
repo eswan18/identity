@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"context"
 	"html/template"
 	"net/http"
 	"time"
@@ -15,6 +16,7 @@ type Server struct {
 	config           *config.Config
 	datastore        *store.Store
 	router           chi.Router
+	httpServer       *http.Server
 	loginTemplate    *template.Template
 	registerTemplate *template.Template
 	errorTemplate    *template.Template
@@ -23,10 +25,10 @@ type Server struct {
 
 func New(config *config.Config, datastore *store.Store) *Server {
 	r := chi.NewRouter()
-	loginTemplate := template.Must(template.ParseFiles("templates/login.html"))
-	registerTemplate := template.Must(template.ParseFiles("templates/register.html"))
-	errorTemplate := template.Must(template.ParseFiles("templates/error.html"))
-	successTemplate := template.Must(template.ParseFiles("templates/success.html"))
+	loginTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/login.html"))
+	registerTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/register.html"))
+	errorTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/error.html"))
+	successTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/success.html"))
 
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -50,5 +52,21 @@ func New(config *config.Config, datastore *store.Store) *Server {
 }
 
 func (s *Server) Run() error {
-	return http.ListenAndServe(s.config.HTTPAddress, s.router)
+	s.httpServer = &http.Server{
+		Addr:    s.config.HTTPAddress,
+		Handler: s.router,
+	}
+	return s.httpServer.ListenAndServe()
+}
+
+func (s *Server) Close() error {
+	var err error
+	if s.httpServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if shutdownErr := s.httpServer.Shutdown(ctx); shutdownErr != nil {
+			err = shutdownErr
+		}
+	}
+	return err
 }
