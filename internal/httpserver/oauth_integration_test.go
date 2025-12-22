@@ -19,6 +19,7 @@ import (
 	"github.com/eswan18/identity/internal/db"
 	"github.com/eswan18/identity/internal/store"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -38,108 +39,129 @@ type UserWithPassword struct {
 	Password string
 }
 
-func mustGenerateRandomString(t *testing.T, length int) string {
-	t.Helper()
-	s, err := generateRandomString(length)
-	assert.NoError(t, err)
-	return s
+type StateAndCodeVerifier struct {
+	State               string
+	CodeVerifier        string
+	CodeChallenge       string
+	CodeChallengeMethod string
 }
 
-func TestOAuthIntegration(t *testing.T) {
-	assert := assert.New(t)
+type OAuthFlowSuite struct {
+	suite.Suite
+	httpClient *http.Client
+	datastore  *store.Store
+	server     *Server
+}
 
-	_, dbURL := prepareDatabase(t)
-	datastore, err := store.New(dbURL)
-	assert.NoError(err)
-	defer datastore.DB.Close()
-
-	config := &config.Config{HTTPAddress: ":8080", TemplatesDir: "../../templates"}
-	server := New(config, datastore)
-	go server.Run()
-	defer server.Close()
-
-	var client db.OauthClient
-	{
-		clientID := mustGenerateRandomString(t, 8)
-		name := mustGenerateRandomString(t, 8)
-		client, err = datastore.Q.CreateOAuthClient(t.Context(), db.CreateOAuthClientParams{
-			ClientID:       clientID,
-			ClientSecret:   sql.NullString{String: "", Valid: false},
-			Name:           name,
-			RedirectUris:   []string{"http://localhost:8080/callback"},
-			AllowedScopes:  []string{"openid", "profile", "email"},
-			IsConfidential: false,
-		})
-		assert.NoError(err)
-		t.Logf("oauth client created: %s", client.ClientID)
-	}
-
-	// Register a user in the database.
-	var user UserWithPassword
-	{
-		username := mustGenerateRandomString(t, 8)
-		password := mustGenerateRandomString(t, 8)
-		hashedPassword, err := auth.HashPassword(password)
-		assert.NoError(err)
-		authUser, err := datastore.Q.CreateUser(t.Context(), db.CreateUserParams{
-			Username:     username,
-			Email:        mustGenerateRandomString(t, 8),
-			PasswordHash: hashedPassword,
-		})
-		assert.NoError(err)
-		user = UserWithPassword{
-			AuthUser: authUser,
-			Password: password,
-		}
-	}
-
-	// Make an http client that doesn't follow redirects so we can check the 302 status
-	httpClient := &http.Client{
+func (s *OAuthFlowSuite) SetupSuite() {
+	var err error
+	s.httpClient = &http.Client{
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
+	_, dbURL := prepareDatabase(s.T())
+	s.datastore, err = store.New(dbURL)
+	s.NoError(err)
 
-	t.Run("/oauth/authorize", func(t *testing.T) {
+	config := &config.Config{HTTPAddress: ":8080", TemplatesDir: "../../templates"}
+	s.server = New(config, s.datastore)
+	go s.server.Run()
+}
+
+func (s *OAuthFlowSuite) TearDownSuite() {
+	s.NoError(s.server.Close())
+	s.NoError(s.datastore.DB.Close())
+}
+
+// mustGenerateRandomString generates a random string of the given length.
+func (s *OAuthFlowSuite) mustGenerateRandomString(length int) string {
+	s.T().Helper()
+	str, err := generateRandomString(length)
+	s.Require().NoError(err)
+	return str
+}
+
+func (s *OAuthFlowSuite) mustRegisterOAuthClient(params db.CreateOAuthClientParams) db.OauthClient {
+	client, err := s.datastore.Q.CreateOAuthClient(s.T().Context(), params)
+	s.Require().NoError(err)
+	s.T().Logf("oauth client created: %s", client.ClientID)
+	return client
+}
+
+func (s *OAuthFlowSuite) mustRegisterUser(username, password, email string) UserWithPassword {
+	hashedPassword, err := auth.HashPassword(password)
+	s.Require().NoError(err)
+	authUser, err := s.datastore.Q.CreateUser(s.T().Context(), db.CreateUserParams{
+		Username:     username,
+		Email:        email,
+		PasswordHash: hashedPassword,
+	})
+	s.Require().NoError(err)
+	s.T().Logf("user created: %s", authUser.Username)
+	return UserWithPassword{AuthUser: authUser, Password: password}
+}
+
+func (s *OAuthFlowSuite) mustCreateStateAndCodeVerifier() StateAndCodeVerifier {
+	state := s.mustGenerateRandomString(32)
+	codeVerifier := s.mustGenerateRandomString(32)
+	hash := sha256.Sum256([]byte(codeVerifier))
+	codeChallenge := base64.RawURLEncoding.EncodeToString(hash[:])
+	scv := StateAndCodeVerifier{
+		State:               state,
+		CodeVerifier:        codeVerifier,
+		CodeChallenge:       codeChallenge,
+		CodeChallengeMethod: "S256",
+	}
+	s.T().Logf("state and code verifier created: %+v", scv)
+	return scv
+}
+
+func (s *OAuthFlowSuite) TestOAuthIntegration() {
+	clientCallbackURI := "http://localhost:8080/callback"
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{clientCallbackURI},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+	})
+	user := s.mustRegisterUser(s.mustGenerateRandomString(8), s.mustGenerateRandomString(8), s.mustGenerateRandomString(8))
+	scv := s.mustCreateStateAndCodeVerifier()
+
+	s.Run("/oauth/authorize", func() {
 		// Calling authorize should redirect to the login page with the OAuth parameters preserved.
 
 		// Call /authorize
 		host := "localhost:8080"
 		route := "/oauth/authorize"
-		state := mustGenerateRandomString(t, 32)
 		query := url.Values{
 			"client_id":             {client.ClientID},
-			"redirect_uri":          {"http://localhost:8080/callback"},
+			"redirect_uri":          {clientCallbackURI},
 			"response_type":         {"code"},
-			"code_challenge":        {"abc"},
-			"code_challenge_method": {"S256"},
-			"state":                 {state},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+			"state":                 {scv.State},
 			"scope":                 {"openid profile email"},
 		}
 		authorizeUrl := fmt.Sprintf("http://%s%s?%s", host, route, query.Encode())
-		resp, err := httpClient.Get(authorizeUrl)
-		assert.NoError(err)
+		resp, err := s.httpClient.Get(authorizeUrl)
+		s.Require().NoError(err)
 		defer resp.Body.Close()
-		assert.Equal(http.StatusFound, resp.StatusCode)
+		s.Equal(http.StatusFound, resp.StatusCode)
 		// Verify it redirects to the login page
 		location := resp.Header.Get("Location")
 		redirectUrl, err := url.ParseRequestURI(location)
-		assert.NoError(err)
+		s.Require().NoError(err)
 		// We should be redirected to the login page with the OAuth parameters preserved.
-		assert.Equal("/oauth/login", redirectUrl.Path)
-		assert.Equal(query, redirectUrl.Query())
+		s.Equal("/oauth/login", redirectUrl.Path)
+		s.Equal(query, redirectUrl.Query())
 	})
 
-	// Generate a code verifier and code challenge for PKCE.
-	codeVerifier := mustGenerateRandomString(t, 32)
-	hash := sha256.Sum256([]byte(codeVerifier))
-	codeChallenge := base64.RawURLEncoding.EncodeToString(hash[:])
-	codeChallengeMethod := "S256"
-	// Generate a random state for CSRF protection.
-	state := mustGenerateRandomString(t, 32)
-	// Create a variable to store the returned authorization code.
+	// Create a variable to store the returned authorization code, which we'll use later.
 	var authorizationCode string
-	t.Run("/oauth/login", func(t *testing.T) {
+	s.Run("/oauth/login", func() {
 		// Calling login should render the login page with the OAuth parameters preserved.
 
 		// Call /login
@@ -147,56 +169,59 @@ func TestOAuthIntegration(t *testing.T) {
 		route := "/oauth/login"
 		loginQuery := url.Values{
 			"client_id":             {client.ClientID},
-			"redirect_uri":          {"http://localhost:8080/callback"},
+			"redirect_uri":          {clientCallbackURI},
 			"response_type":         {"code"},
-			"code_challenge":        {codeChallenge},
-			"code_challenge_method": {codeChallengeMethod},
-			"state":                 {state},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+			"state":                 {scv.State},
 			"scope":                 {"openid profile email"},
 		}
 		loginUrl := fmt.Sprintf("http://%s%s?%s", host, route, loginQuery.Encode())
-		resp, err := httpClient.Get(loginUrl)
-		assert.NoError(err)
+		resp, err := s.httpClient.Get(loginUrl)
+		s.Require().NoError(err)
 		defer resp.Body.Close()
-		assert.Equal(http.StatusOK, resp.StatusCode)
+		s.Equal(http.StatusOK, resp.StatusCode)
 		// Verify we get something that looks like the login page.
 		body, err := io.ReadAll(resp.Body)
-		assert.NoError(err)
-		assert.Contains(string(body), "login")
-		// Then submit the login form.
+		s.Require().NoError(err)
+		s.Contains(string(body), "login-container")
+		// Submit the login form.
 		formValues := url.Values{
+			// Login creds...
 			"username": {user.Username},
 			"password": {user.Password},
+			// ...along with the original OAuth parameters.
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {clientCallbackURI},
+			"state":                 {scv.State},
+			"scope":                 {"openid profile email"},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
 		}
-		// Add in the OAuth parameters.
-		for key, values := range loginQuery {
-			for _, value := range values {
-				formValues.Add(key, value)
-			}
-		}
-		resp, err = httpClient.PostForm(loginUrl, formValues)
-		assert.NoError(err)
+		resp, err = s.httpClient.PostForm(loginUrl, formValues)
+		s.Require().NoError(err)
 		defer resp.Body.Close()
-		if !assert.Equal(http.StatusFound, resp.StatusCode) {
+		if !s.Equal(http.StatusFound, resp.StatusCode) {
 			body, err := io.ReadAll(resp.Body)
-			assert.NoError(err)
-			t.Logf("response body: %s", string(body))
-			assert.FailNow("unexpected status found")
+			s.Require().NoError(err)
+			s.T().Logf("response body: %s", string(body))
+			s.FailNow("unexpected status found")
 		}
 		// Verify it redirects to the callback URL with an authorization code.
 		location := resp.Header.Get("Location")
 		redirectUrl, err := url.ParseRequestURI(location)
-		assert.NoError(err)
-		assert.Equal("localhost", redirectUrl.Hostname())
-		assert.Equal("8080", redirectUrl.Port())
-		assert.Equal("/callback", redirectUrl.Path)
+		s.Require().NoError(err)
+		s.Equal("localhost", redirectUrl.Hostname())
+		s.Equal("8080", redirectUrl.Port())
+		s.Equal("/callback", redirectUrl.Path)
 		// Verify the authorization code is in the query parameters.
 		authorizationCode = redirectUrl.Query().Get("code")
-		assert.NotEmpty(authorizationCode)
+		s.NotEmpty(authorizationCode)
 	})
 
+	// Create a variable to store the returned token response, which we'll use later.
 	var tokenResponse TokenResponse
-	t.Run("/oauth/token", func(t *testing.T) {
+	s.Run("/oauth/token", func() {
 		// Calling token should exchange the authorization code for a token.
 
 		// Call /token
@@ -205,33 +230,34 @@ func TestOAuthIntegration(t *testing.T) {
 		tokenQuery := url.Values{
 			"grant_type":    {"authorization_code"},
 			"code":          {authorizationCode},
-			"redirect_uri":  {"http://localhost:8080/callback"},
+			"redirect_uri":  {clientCallbackURI},
 			"client_id":     {client.ClientID},
-			"code_verifier": {codeVerifier},
+			"code_verifier": {scv.CodeVerifier},
 		}
 		tokenUrl := fmt.Sprintf("http://%s%s?%s", host, route, tokenQuery.Encode())
-		resp, err := httpClient.PostForm(tokenUrl, tokenQuery)
-		assert.NoError(err)
+		resp, err := s.httpClient.PostForm(tokenUrl, tokenQuery)
+		s.Require().NoError(err)
 		defer resp.Body.Close()
-		if !assert.Equal(http.StatusOK, resp.StatusCode) {
+		if !s.Equal(http.StatusOK, resp.StatusCode) {
 			body, err := io.ReadAll(resp.Body)
-			assert.NoError(err)
-			t.Logf("response body: %s", string(body))
+			s.Require().NoError(err)
+			s.T().Logf("response body: %s", string(body))
+			s.FailNow("unexpected status found")
 		}
 		body, err := io.ReadAll(resp.Body)
-		assert.NoError(err)
+		s.Require().NoError(err)
 		err = json.Unmarshal(body, &tokenResponse)
-		assert.NoError(err)
-		assert.NotEmpty(tokenResponse.AccessToken)
-		assert.Equal("Bearer", tokenResponse.TokenType)
-		assert.Greater(tokenResponse.ExpiresIn, 0)
-		assert.NotEmpty(tokenResponse.RefreshToken)
-		assert.Equal("openid profile email", tokenResponse.Scope)
+		s.Require().NoError(err)
+		s.NotEmpty(tokenResponse.AccessToken)
+		s.Equal("Bearer", tokenResponse.TokenType)
+		s.Greater(tokenResponse.ExpiresIn, 0)
+		s.NotEmpty(tokenResponse.RefreshToken)
+		s.Equal("openid profile email", tokenResponse.Scope)
 	})
 
-	t.Run("/oauth/refresh", func(t *testing.T) {
+	s.Run("/oauth/refresh", func() {
 		// Calling refresh should exchange the refresh token for a new token.
-		t.Skip("Not implemented yet")
+		s.T().Skip("Not implemented yet")
 
 		// Call /refresh
 		host := "localhost:8080"
@@ -242,19 +268,19 @@ func TestOAuthIntegration(t *testing.T) {
 			"client_id":     {client.ClientID},
 		}
 		refreshUrl := fmt.Sprintf("http://%s%s?%s", host, route, refreshQuery.Encode())
-		resp, err := httpClient.PostForm(refreshUrl, refreshQuery)
-		assert.NoError(err)
+		resp, err := s.httpClient.PostForm(refreshUrl, refreshQuery)
+		s.Require().NoError(err)
 		defer resp.Body.Close()
-		assert.Equal(http.StatusOK, resp.StatusCode)
+		s.Equal(http.StatusOK, resp.StatusCode)
 		body, err := io.ReadAll(resp.Body)
-		assert.NoError(err)
+		s.Require().NoError(err)
 		err = json.Unmarshal(body, &tokenResponse)
-		assert.NoError(err)
-		assert.NotEmpty(tokenResponse.AccessToken)
-		assert.Equal("Bearer", tokenResponse.TokenType)
-		assert.Greater(tokenResponse.ExpiresIn, 0)
-		assert.NotEmpty(tokenResponse.RefreshToken)
-		assert.Equal("openid profile email", tokenResponse.Scope)
+		s.Require().NoError(err)
+		s.NotEmpty(tokenResponse.AccessToken)
+		s.Equal("Bearer", tokenResponse.TokenType)
+		s.Greater(tokenResponse.ExpiresIn, 0)
+		s.NotEmpty(tokenResponse.RefreshToken)
+		s.Equal("openid profile email", tokenResponse.Scope)
 	})
 }
 
@@ -292,6 +318,9 @@ func prepareDatabase(t *testing.T) (*postgres.PostgresContainer, string) {
 		_ = pgContainer.Terminate(t.Context())
 	})
 
-	// Todo: run migrations
 	return pgContainer, connStr
+}
+
+func TestOAuthFlowSuite(t *testing.T) {
+	suite.Run(t, new(OAuthFlowSuite))
 }
