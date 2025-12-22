@@ -123,7 +123,7 @@ func (s *OAuthFlowSuite) mustCreateStateAndCodeVerifier() StateAndCodeVerifier {
 	return scv
 }
 
-func (s *OAuthFlowSuite) TestOAuthIntegration() {
+func (s *OAuthFlowSuite) TestOAuthIntegrationForNonconfidentialClient() {
 	clientCallbackURI := "http://localhost:8080/callback"
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
 		ClientID:       s.mustGenerateRandomString(8),
@@ -268,7 +268,6 @@ func (s *OAuthFlowSuite) TestOAuthIntegration() {
 
 	s.Run("/oauth/refresh", func() {
 		// Calling refresh should exchange the refresh token for a new token.
-		s.T().Skip("Not implemented yet")
 
 		// Call /refresh
 		host := "localhost:8080"

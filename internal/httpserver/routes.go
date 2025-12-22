@@ -21,6 +21,7 @@ func (s *Server) registerRoutes() {
 		r.Get("/login", s.handleLoginGet)
 		r.Post("/login", s.handleLoginPost)
 		r.Post("/token", s.handleOauthToken)
+		r.Post("/refresh", s.handleOauthRefresh)
 		// Registration
 		r.Get("/register", s.handleRegisterGet)
 		r.Post("/register", s.handleRegisterPost)

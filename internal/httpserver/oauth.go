@@ -156,6 +156,41 @@ func (s *Server) handleOauthToken(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleOauthRefresh godoc
+// @Summary      OAuth2 refresh token endpoint
+// @Description  Exchanges a refresh token for new access and refresh tokens
+// @Tags         oauth2
+// @Accept       application/x-www-form-urlencoded
+// @Produce      json
+// @Param        refresh_token formData  string  true  "Refresh token to exchange"
+// @Param        client_id     formData  string  true  "OAuth client ID"
+// @Param        client_secret formData  string  false "OAuth client secret (required for confidential clients)"
+// @Success      200 {object} TokenResponse "Token response with access_token, token_type, expires_in, refresh_token, and scope"
+// @Failure      400 {object} map[string]string "OAuth2 error response (invalid_request, invalid_grant, invalid_client, etc.)"
+// @Router       /oauth/refresh [post]
+func (s *Server) handleOauthRefresh(w http.ResponseWriter, r *http.Request) {
+	clientID := r.FormValue("client_id")
+	clientSecret := r.FormValue("client_secret")
+
+	// Validate client credentials
+	client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
+	if err != nil {
+		s.writeTokenError(w, "invalid_client", "Invalid client credentials")
+		return
+	}
+
+	// For confidential clients, verify client secret
+	if client.IsConfidential {
+		if !client.ClientSecret.Valid || subtle.ConstantTimeCompare([]byte(client.ClientSecret.String), []byte(clientSecret)) != 1 {
+			s.writeTokenError(w, "invalid_client", "Invalid client credentials")
+			return
+		}
+	}
+
+	// Handle the refresh token grant
+	s.handleRefreshTokenGrant(w, r, client)
+}
+
 // handleAuthorizationCodeGrant exchanges an authorization code for tokens
 func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Request, client db.OauthClient) {
 	code := r.FormValue("code")
