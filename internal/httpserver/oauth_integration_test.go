@@ -33,10 +33,19 @@ const (
 	testPgDatabase = "identity"
 )
 
+func mustGenerateRandomString(t *testing.T, length int) string {
+	t.Helper()
+	s, err := generateRandomString(length)
+	assert.NoError(t, err)
+	return s
+}
+
 func TestOAuthIntegration(t *testing.T) {
+	assert := assert.New(t)
+
 	_, dbURL := prepareDatabase(t)
 	datastore, err := store.New(dbURL)
-	assert.NoError(t, err)
+	assert.NoError(err)
 	defer datastore.DB.Close()
 
 	config := &config.Config{HTTPAddress: ":8080", TemplatesDir: "../../templates"}
@@ -44,34 +53,40 @@ func TestOAuthIntegration(t *testing.T) {
 	go server.Run()
 	defer server.Close()
 
-	// Register an oauth client in the database.
-	clientID, err := generateRandomString(8)
-	assert.NoError(t, err)
-	clientSecret, err := generateRandomString(32)
-	assert.NoError(t, err)
-	client, err := datastore.Q.CreateOAuthClient(t.Context(), db.CreateOAuthClientParams{
-		ClientID:       clientID,
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           "test-client",
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-	})
-	assert.NoError(t, err)
-	t.Logf("oauth client created: %s", client.ClientID)
+	var client db.OauthClient
+	{
+		clientID := mustGenerateRandomString(t, 8)
+		name := mustGenerateRandomString(t, 8)
+		client, err = datastore.Q.CreateOAuthClient(t.Context(), db.CreateOAuthClientParams{
+			ClientID:       clientID,
+			ClientSecret:   sql.NullString{String: "", Valid: false},
+			Name:           name,
+			RedirectUris:   []string{"http://localhost:8080/callback"},
+			AllowedScopes:  []string{"openid", "profile", "email"},
+			IsConfidential: false,
+		})
+		assert.NoError(err)
+		t.Logf("oauth client created: %s", client.ClientID)
+	}
 
 	// Register a user in the database.
-	username := "testuser"
-	password := "testpassword"
-	hashedPassword, err := auth.HashPassword(password)
-	assert.NoError(t, err)
-	user, err := datastore.Q.CreateUser(t.Context(), db.CreateUserParams{
-		Username:     username,
-		Email:        "testuser@example.com",
-		PasswordHash: hashedPassword,
-	})
-	assert.NoError(t, err)
-	t.Logf("user created: %s", user.Username)
+	var user struct {
+		db.AuthUser
+		Password string
+	}
+	{
+		username := mustGenerateRandomString(t, 8)
+		password := mustGenerateRandomString(t, 8)
+		hashedPassword, err := auth.HashPassword(password)
+		assert.NoError(err)
+		user.AuthUser, err = datastore.Q.CreateUser(t.Context(), db.CreateUserParams{
+			Username:     username,
+			Email:        mustGenerateRandomString(t, 8),
+			PasswordHash: hashedPassword,
+		})
+		assert.NoError(err)
+		user.Password = password
+	}
 
 	// Make an http client that doesn't follow redirects so we can check the 302 status
 	httpClient := &http.Client{
@@ -86,10 +101,9 @@ func TestOAuthIntegration(t *testing.T) {
 		// Call /authorize
 		host := "localhost:8080"
 		route := "/oauth/authorize"
-		state, err := generateRandomString(32)
-		assert.NoError(t, err)
+		state := mustGenerateRandomString(t, 32)
 		query := url.Values{
-			"client_id":             {clientID},
+			"client_id":             {client.ClientID},
 			"redirect_uri":          {"http://localhost:8080/callback"},
 			"response_type":         {"code"},
 			"code_challenge":        {"abc"},
@@ -99,27 +113,25 @@ func TestOAuthIntegration(t *testing.T) {
 		}
 		authorizeUrl := fmt.Sprintf("http://%s%s?%s", host, route, query.Encode())
 		resp, err := httpClient.Get(authorizeUrl)
-		assert.NoError(t, err)
+		assert.NoError(err)
 		defer resp.Body.Close()
-		assert.Equal(t, http.StatusFound, resp.StatusCode)
+		assert.Equal(http.StatusFound, resp.StatusCode)
 		// Verify it redirects to the login page
 		location := resp.Header.Get("Location")
 		redirectUrl, err := url.ParseRequestURI(location)
-		assert.NoError(t, err)
+		assert.NoError(err)
 		// We should be redirected to the login page with the OAuth parameters preserved.
-		assert.Equal(t, "/oauth/login", redirectUrl.Path)
-		assert.Equal(t, query, redirectUrl.Query())
+		assert.Equal("/oauth/login", redirectUrl.Path)
+		assert.Equal(query, redirectUrl.Query())
 	})
 
 	// Generate a code verifier and code challenge for PKCE.
-	codeVerifier, err := generateRandomString(32)
-	assert.NoError(t, err)
+	codeVerifier := mustGenerateRandomString(t, 32)
 	hash := sha256.Sum256([]byte(codeVerifier))
 	codeChallenge := base64.RawURLEncoding.EncodeToString(hash[:])
 	codeChallengeMethod := "S256"
 	// Generate a random state for CSRF protection.
-	state, err := generateRandomString(32)
-	assert.NoError(t, err)
+	state := mustGenerateRandomString(t, 32)
 	// Create a variable to store the returned authorization code.
 	var authorizationCode string
 	t.Run("/oauth/login", func(t *testing.T) {
@@ -129,7 +141,7 @@ func TestOAuthIntegration(t *testing.T) {
 		host := "localhost:8080"
 		route := "/oauth/login"
 		loginQuery := url.Values{
-			"client_id":             {clientID},
+			"client_id":             {client.ClientID},
 			"redirect_uri":          {"http://localhost:8080/callback"},
 			"response_type":         {"code"},
 			"code_challenge":        {codeChallenge},
@@ -139,17 +151,17 @@ func TestOAuthIntegration(t *testing.T) {
 		}
 		loginUrl := fmt.Sprintf("http://%s%s?%s", host, route, loginQuery.Encode())
 		resp, err := httpClient.Get(loginUrl)
-		assert.NoError(t, err)
+		assert.NoError(err)
 		defer resp.Body.Close()
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(http.StatusOK, resp.StatusCode)
 		// Verify we get something that looks like the login page.
 		body, err := io.ReadAll(resp.Body)
-		assert.NoError(t, err)
-		assert.Contains(t, string(body), "login")
+		assert.NoError(err)
+		assert.Contains(string(body), "login")
 		// Then submit the login form.
 		formValues := url.Values{
-			"username": {username},
-			"password": {password},
+			"username": {user.Username},
+			"password": {user.Password},
 		}
 		// Add in the OAuth parameters.
 		for key, values := range loginQuery {
@@ -158,19 +170,24 @@ func TestOAuthIntegration(t *testing.T) {
 			}
 		}
 		resp, err = httpClient.PostForm(loginUrl, formValues)
-		assert.NoError(t, err)
+		assert.NoError(err)
 		defer resp.Body.Close()
-		assert.Equal(t, http.StatusFound, resp.StatusCode)
+		if !assert.Equal(http.StatusFound, resp.StatusCode) {
+			body, err := io.ReadAll(resp.Body)
+			assert.NoError(err)
+			t.Logf("response body: %s", string(body))
+			assert.FailNow("unexpected status found")
+		}
 		// Verify it redirects to the callback URL with an authorization code.
 		location := resp.Header.Get("Location")
 		redirectUrl, err := url.ParseRequestURI(location)
-		assert.NoError(t, err)
-		assert.Equal(t, "localhost", redirectUrl.Hostname())
-		assert.Equal(t, "8080", redirectUrl.Port())
-		assert.Equal(t, "/callback", redirectUrl.Path)
+		assert.NoError(err)
+		assert.Equal("localhost", redirectUrl.Hostname())
+		assert.Equal("8080", redirectUrl.Port())
+		assert.Equal("/callback", redirectUrl.Path)
 		// Verify the authorization code is in the query parameters.
 		authorizationCode = redirectUrl.Query().Get("code")
-		assert.NotEmpty(t, authorizationCode)
+		assert.NotEmpty(authorizationCode)
 	})
 
 	var tokenResponse TokenResponse
@@ -184,28 +201,27 @@ func TestOAuthIntegration(t *testing.T) {
 			"grant_type":    {"authorization_code"},
 			"code":          {authorizationCode},
 			"redirect_uri":  {"http://localhost:8080/callback"},
-			"client_id":     {clientID},
-			"client_secret": {clientSecret},
+			"client_id":     {client.ClientID},
 			"code_verifier": {codeVerifier},
 		}
 		tokenUrl := fmt.Sprintf("http://%s%s?%s", host, route, tokenQuery.Encode())
 		resp, err := httpClient.PostForm(tokenUrl, tokenQuery)
-		assert.NoError(t, err)
+		assert.NoError(err)
 		defer resp.Body.Close()
-		if !assert.Equal(t, http.StatusOK, resp.StatusCode) {
+		if !assert.Equal(http.StatusOK, resp.StatusCode) {
 			body, err := io.ReadAll(resp.Body)
-			assert.NoError(t, err)
+			assert.NoError(err)
 			t.Logf("response body: %s", string(body))
 		}
 		body, err := io.ReadAll(resp.Body)
-		assert.NoError(t, err)
+		assert.NoError(err)
 		err = json.Unmarshal(body, &tokenResponse)
-		assert.NoError(t, err)
-		assert.NotEmpty(t, tokenResponse.AccessToken)
-		assert.Equal(t, "Bearer", tokenResponse.TokenType)
-		assert.Greater(t, tokenResponse.ExpiresIn, 0)
-		assert.NotEmpty(t, tokenResponse.RefreshToken)
-		assert.Equal(t, "openid profile email", tokenResponse.Scope)
+		assert.NoError(err)
+		assert.NotEmpty(tokenResponse.AccessToken)
+		assert.Equal("Bearer", tokenResponse.TokenType)
+		assert.Greater(tokenResponse.ExpiresIn, 0)
+		assert.NotEmpty(tokenResponse.RefreshToken)
+		assert.Equal("openid profile email", tokenResponse.Scope)
 	})
 
 	t.Run("/oauth/refresh", func(t *testing.T) {
@@ -218,23 +234,22 @@ func TestOAuthIntegration(t *testing.T) {
 		refreshQuery := url.Values{
 			"grant_type":    {"refresh_token"},
 			"refresh_token": {tokenResponse.RefreshToken},
-			"client_id":     {clientID},
-			"client_secret": {clientSecret},
+			"client_id":     {client.ClientID},
 		}
 		refreshUrl := fmt.Sprintf("http://%s%s?%s", host, route, refreshQuery.Encode())
 		resp, err := httpClient.PostForm(refreshUrl, refreshQuery)
-		assert.NoError(t, err)
+		assert.NoError(err)
 		defer resp.Body.Close()
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(http.StatusOK, resp.StatusCode)
 		body, err := io.ReadAll(resp.Body)
-		assert.NoError(t, err)
+		assert.NoError(err)
 		err = json.Unmarshal(body, &tokenResponse)
-		assert.NoError(t, err)
-		assert.NotEmpty(t, tokenResponse.AccessToken)
-		assert.Equal(t, "Bearer", tokenResponse.TokenType)
-		assert.Greater(t, tokenResponse.ExpiresIn, 0)
-		assert.NotEmpty(t, tokenResponse.RefreshToken)
-		assert.Equal(t, "openid profile email", tokenResponse.Scope)
+		assert.NoError(err)
+		assert.NotEmpty(tokenResponse.AccessToken)
+		assert.Equal("Bearer", tokenResponse.TokenType)
+		assert.Greater(tokenResponse.ExpiresIn, 0)
+		assert.NotEmpty(tokenResponse.RefreshToken)
+		assert.Equal("openid profile email", tokenResponse.Scope)
 	})
 }
 
