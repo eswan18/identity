@@ -3,6 +3,7 @@ package httpserver
 import (
 	"context"
 	"html/template"
+	"net"
 	"net/http"
 	"time"
 
@@ -49,6 +50,19 @@ func New(config *config.Config, datastore *store.Store) *Server {
 	s.registerRoutes()
 
 	return s
+}
+
+// IsListening checks if the server is listening on the configured address.
+func (s *Server) IsListening() bool {
+	if s.httpServer == nil {
+		return false
+	}
+	conn, err := net.DialTimeout("tcp", s.config.HTTPAddress, 5*time.Second)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	return true
 }
 
 func (s *Server) Run() error {

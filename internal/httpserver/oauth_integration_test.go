@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/eswan18/identity/internal/auth"
 	"github.com/eswan18/identity/internal/config"
@@ -67,6 +68,11 @@ func (s *OAuthFlowSuite) SetupSuite() {
 	config := &config.Config{HTTPAddress: ":8080", TemplatesDir: "../../templates"}
 	s.server = New(config, s.datastore)
 	go s.server.Run()
+	// Wait for the server to be listening before returning.
+	for !s.server.IsListening() {
+		time.Sleep(100 * time.Millisecond)
+	}
+	s.T().Logf("server is listening on %s", s.server.config.HTTPAddress)
 }
 
 func (s *OAuthFlowSuite) TearDownSuite() {
@@ -127,7 +133,11 @@ func (s *OAuthFlowSuite) TestOAuthIntegration() {
 		AllowedScopes:  []string{"openid", "profile", "email"},
 		IsConfidential: false,
 	})
-	user := s.mustRegisterUser(s.mustGenerateRandomString(8), s.mustGenerateRandomString(8), s.mustGenerateRandomString(8))
+	user := s.mustRegisterUser(
+		s.mustGenerateRandomString(8),
+		s.mustGenerateRandomString(8),
+		fmt.Sprintf("%s@example.com", s.mustGenerateRandomString(8)),
+	)
 	scv := s.mustCreateStateAndCodeVerifier()
 
 	s.Run("/oauth/authorize", func() {
@@ -176,8 +186,8 @@ func (s *OAuthFlowSuite) TestOAuthIntegration() {
 			"state":                 {scv.State},
 			"scope":                 {"openid profile email"},
 		}
-		loginUrl := fmt.Sprintf("http://%s%s?%s", host, route, loginQuery.Encode())
-		resp, err := s.httpClient.Get(loginUrl)
+		getLoginUrl := fmt.Sprintf("http://%s%s?%s", host, route, loginQuery.Encode())
+		resp, err := s.httpClient.Get(getLoginUrl)
 		s.Require().NoError(err)
 		defer resp.Body.Close()
 		s.Equal(http.StatusOK, resp.StatusCode)
@@ -198,14 +208,15 @@ func (s *OAuthFlowSuite) TestOAuthIntegration() {
 			"code_challenge":        {scv.CodeChallenge},
 			"code_challenge_method": {scv.CodeChallengeMethod},
 		}
-		resp, err = s.httpClient.PostForm(loginUrl, formValues)
+		postLoginUrl := fmt.Sprintf("http://%s%s", host, route)
+		resp, err = s.httpClient.PostForm(postLoginUrl, formValues)
 		s.Require().NoError(err)
 		defer resp.Body.Close()
 		if !s.Equal(http.StatusFound, resp.StatusCode) {
 			body, err := io.ReadAll(resp.Body)
 			s.Require().NoError(err)
 			s.T().Logf("response body: %s", string(body))
-			s.FailNow("unexpected status found")
+			s.FailNow("unexpected status code found")
 		}
 		// Verify it redirects to the callback URL with an authorization code.
 		location := resp.Header.Get("Location")
@@ -234,15 +245,15 @@ func (s *OAuthFlowSuite) TestOAuthIntegration() {
 			"client_id":     {client.ClientID},
 			"code_verifier": {scv.CodeVerifier},
 		}
-		tokenUrl := fmt.Sprintf("http://%s%s?%s", host, route, tokenQuery.Encode())
-		resp, err := s.httpClient.PostForm(tokenUrl, tokenQuery)
+		postTokenUrl := fmt.Sprintf("http://%s%s", host, route)
+		resp, err := s.httpClient.PostForm(postTokenUrl, tokenQuery)
 		s.Require().NoError(err)
 		defer resp.Body.Close()
 		if !s.Equal(http.StatusOK, resp.StatusCode) {
 			body, err := io.ReadAll(resp.Body)
 			s.Require().NoError(err)
 			s.T().Logf("response body: %s", string(body))
-			s.FailNow("unexpected status found")
+			s.FailNow("unexpected status code found")
 		}
 		body, err := io.ReadAll(resp.Body)
 		s.Require().NoError(err)
@@ -267,8 +278,8 @@ func (s *OAuthFlowSuite) TestOAuthIntegration() {
 			"refresh_token": {tokenResponse.RefreshToken},
 			"client_id":     {client.ClientID},
 		}
-		refreshUrl := fmt.Sprintf("http://%s%s?%s", host, route, refreshQuery.Encode())
-		resp, err := s.httpClient.PostForm(refreshUrl, refreshQuery)
+		postRefreshUrl := fmt.Sprintf("http://%s%s", host, route)
+		resp, err := s.httpClient.PostForm(postRefreshUrl, refreshQuery)
 		s.Require().NoError(err)
 		defer resp.Body.Close()
 		s.Equal(http.StatusOK, resp.StatusCode)
