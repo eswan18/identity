@@ -43,6 +43,15 @@ func (s *Server) RegisterRoutes(r chi.Router) {
 		httpSwagger.URL("http://localhost:8080/openapi.json"),
 	))
 	r.Get("/openapi.json", s.HandleOpenAPISpec)
+
+	// 404 handler - catch all unmatched routes
+	r.NotFound(s.HandleNotFound)
+}
+
+// HandleNotFound handles 404 Not Found errors
+func (s *Server) HandleNotFound(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotFound)
+	w.Write([]byte("404 - Not Found: " + r.URL.Path))
 }
 
 // registerRoutes is a convenience method that registers routes on the server's router
