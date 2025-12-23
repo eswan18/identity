@@ -39,9 +39,9 @@ func getServer() *httpserver.Server {
 		datastore.DB.SetMaxIdleConns(2)
 		datastore.DB.SetConnMaxLifetime(5 * time.Minute)
 
-		// Use the existing New() function - it creates a router with all routes and middleware
+		// Use the existing NewWithoutRateLimiting() function - it creates a router with all routes and middleware
 		// We'll use that router directly via server.Router()
-		server = httpserver.New(cfg, datastore)
+		server = httpserver.NewWithoutRateLimiting(cfg, datastore)
 
 		log.Println("Server initialized for Vercel")
 	})

@@ -26,6 +26,14 @@ type Server struct {
 }
 
 func New(config *config.Config, datastore *store.Store) *Server {
+	return new(config, datastore, true)
+}
+
+func NewWithoutRateLimiting(config *config.Config, datastore *store.Store) *Server {
+	return new(config, datastore, false)
+}
+
+func new(config *config.Config, datastore *store.Store, withRateLimiting bool) *Server {
 	r := chi.NewRouter()
 	loginTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/login.html"))
 	registerTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/register.html"))
@@ -37,22 +45,24 @@ func New(config *config.Config, datastore *store.Store) *Server {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
-
-	// Create rate limit store and apply rate limiting to all routes
-	// (20 requests per IP per minute - provides basic DDoS protection)
-	rateLimitStore := newRateLimitStore()
-	r.Use(rateLimitMiddleware(rateLimitStore, 20))
-
 	s := &Server{
 		config:           config,
 		datastore:        datastore,
 		router:           r,
-		rateLimitStore:   rateLimitStore,
 		loginTemplate:    loginTemplate,
 		registerTemplate: registerTemplate,
 		errorTemplate:    errorTemplate,
 		successTemplate:  successTemplate,
 	}
+
+	if withRateLimiting {
+		// Create rate limit store and apply rate limiting to all routes
+		// (20 requests per IP per minute - provides basic DDoS protection)
+		rateLimitStore := newRateLimitStore()
+		r.Use(rateLimitMiddleware(rateLimitStore, 20))
+		s.rateLimitStore = rateLimitStore
+	}
+
 	s.registerRoutes()
 
 	return s
