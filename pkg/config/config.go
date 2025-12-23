@@ -14,7 +14,8 @@ type Config struct {
 }
 
 func NewFromEnv() *Config {
-	if _, ok := os.LookupEnv("VERCEL"); ok {
+	// If running on Vercel, use environment variables directly (no .env file loading)
+	if _, ok := os.LookupEnv("VERCEL_ENV"); ok {
 		log.Println("Loading environment variables directly from Vercel")
 		return &Config{
 			DatabaseURL:  os.Getenv("DATABASE_URL"),
@@ -22,6 +23,7 @@ func NewFromEnv() *Config {
 		}
 	}
 
+	// Local development: load from .env files
 	env := os.Getenv("ENV")
 	if env == "" {
 		env = "local"
