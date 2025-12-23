@@ -24,7 +24,7 @@ import (
 // @Param        code_challenge_method query   string  false "PKCE challenge method (preserved through flow)"
 // @Success      200 {string} string "HTML registration page"
 // @Router       /register [get]
-func (s *Server) handleRegisterGet(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleRegisterGet(w http.ResponseWriter, r *http.Request) {
 	// Extract OAuth parameters from query string to preserve them
 	oauthParams := RegisterPageData{
 		ClientID:            r.URL.Query().Get("client_id"),
@@ -53,7 +53,7 @@ func (s *Server) handleRegisterGet(w http.ResponseWriter, r *http.Request) {
 // @Failure      400 {string} string "Invalid request parameters or validation error"
 // @Failure      409 {string} string "Username or email already exists"
 // @Router       /register [post]
-func (s *Server) handleRegisterPost(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 	username := r.FormValue("username")
 	email := r.FormValue("email")
 	password := r.FormValue("password")

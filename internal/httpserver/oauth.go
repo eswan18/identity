@@ -39,7 +39,7 @@ type TokenResponse struct {
 // @Success      302 {string} string "Redirect to redirect_uri with authorization code and state"
 // @Failure      302 {string} string "Redirect to redirect_uri with error parameters"
 // @Router       /oauth/authorize [get]
-func (s *Server) handleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	responseType := r.URL.Query().Get("response_type")
 	clientID := r.URL.Query().Get("client_id")
 	redirectURI := r.URL.Query().Get("redirect_uri")
@@ -126,7 +126,7 @@ func (s *Server) handleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 // @Success      200 {object} map[string]interface{} "Token response with access_token, token_type, expires_in, refresh_token, id_token, and scope"
 // @Failure      400 {object} map[string]string "OAuth2 error response (invalid_request, invalid_grant, invalid_client, etc.)"
 // @Router       /oauth/token [post]
-func (s *Server) handleOauthToken(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleOauthToken(w http.ResponseWriter, r *http.Request) {
 	grantType := r.FormValue("grant_type")
 	clientID := r.FormValue("client_id")
 	clientSecret := r.FormValue("client_secret")
@@ -168,7 +168,7 @@ func (s *Server) handleOauthToken(w http.ResponseWriter, r *http.Request) {
 // @Success      200 {object} TokenResponse "Token response with access_token, token_type, expires_in, refresh_token, and scope"
 // @Failure      400 {object} map[string]string "OAuth2 error response (invalid_request, invalid_grant, invalid_client, etc.)"
 // @Router       /oauth/refresh [post]
-func (s *Server) handleOauthRefresh(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleOauthRefresh(w http.ResponseWriter, r *http.Request) {
 	clientID := r.FormValue("client_id")
 	clientSecret := r.FormValue("client_secret")
 
@@ -348,7 +348,7 @@ func (s *Server) writeTokenError(w http.ResponseWriter, errorCode, description s
 // @Success      200 {object} map[string]interface{} "User profile claims (sub, username, email, email_verified)"
 // @Failure      401 {object} map[string]string "Unauthorized - invalid or missing access token"
 // @Router       /oauth/userinfo [get]
-func (s *Server) handleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 	// temporary no-op
 }
 
@@ -366,7 +366,7 @@ func (s *Server) handleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 // @Failure      400 {object} map[string]string "Invalid request"
 // @Failure      401 {object} map[string]string "Unauthorized - invalid client credentials"
 // @Router       /oauth/introspect [post]
-func (s *Server) handleIntrospect(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleIntrospect(w http.ResponseWriter, r *http.Request) {
 	// temporary no-op
 }
 
@@ -384,7 +384,7 @@ func (s *Server) handleIntrospect(w http.ResponseWriter, r *http.Request) {
 // @Failure      400 {object} map[string]string "Invalid request"
 // @Failure      401 {object} map[string]string "Unauthorized - invalid client credentials"
 // @Router       /oauth/revoke [post]
-func (s *Server) handleOauthRevoke(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleOauthRevoke(w http.ResponseWriter, r *http.Request) {
 	// temporary no-op
 }
 

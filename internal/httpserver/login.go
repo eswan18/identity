@@ -21,7 +21,7 @@ import (
 // @Param        code_challenge_method query   string  true  "PKCE challenge method (must be 'S256')"
 // @Success      200 {string} string "HTML login page"
 // @Router       /login [get]
-func (s *Server) handleLoginGet(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
 	// Extract OAuth parameters (all optional - /login can be accessed standalone or via OAuth flow)
 	// Note: /oauth/authorize should validate required OAuth params before redirecting here
 	clientID := r.URL.Query().Get("client_id")
@@ -91,7 +91,7 @@ func (s *Server) handleLoginGet(w http.ResponseWriter, r *http.Request) {
 // @Failure      400 {string} string "Invalid request parameters"
 // @Failure      401 {string} string "Invalid credentials"
 // @Router       /login [post]
-func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 	clientID := r.FormValue("client_id")
