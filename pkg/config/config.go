@@ -20,6 +20,7 @@ func NewFromEnv() *Config {
 		return &Config{
 			DatabaseURL:  os.Getenv("DATABASE_URL"),
 			TemplatesDir: os.Getenv("TEMPLATES_DIR"),
+			HTTPAddress:  os.Getenv("HTTP_ADDRESS"),
 		}
 	}
 
