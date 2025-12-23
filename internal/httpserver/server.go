@@ -26,14 +26,14 @@ type Server struct {
 }
 
 func New(config *config.Config, datastore *store.Store) *Server {
-	return new(config, datastore, true)
+	return newWithOptions(config, datastore, true)
 }
 
 func NewWithoutRateLimiting(config *config.Config, datastore *store.Store) *Server {
-	return new(config, datastore, false)
+	return newWithOptions(config, datastore, false)
 }
 
-func new(config *config.Config, datastore *store.Store, withRateLimiting bool) *Server {
+func newWithOptions(config *config.Config, datastore *store.Store, withRateLimiting bool) *Server {
 	r := chi.NewRouter()
 	loginTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/login.html"))
 	registerTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/register.html"))
