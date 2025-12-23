@@ -3,3 +3,4 @@
 db/schema.sql
 identity
 register-client
+auth-service

@@ -1,0 +1,47 @@
+# Git
+.git
+.gitignore
+
+# Build artifacts
+auth-service
+register-client
+identity
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test files
+*_test.go
+**/*_test.go
+
+# Documentation (but keep docs/ package for swagger)
+*.md
+README.md
+
+# Environment files
+.env*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Vercel
+api/
+vercel.json
+
+# Database migrations (if not needed at runtime)
+# db/migrations/
+
+# Keep docs/ directory (needed for swagger)
+# docs/
+
