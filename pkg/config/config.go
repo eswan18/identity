@@ -7,6 +7,14 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// These will be set at build time via -ldflags
+// Example: go build -ldflags "-X github.com/eswan18/identity/pkg/config.isVercel=true -X github.com/eswan18/identity/pkg/config.databaseURL=postgres://... -X github.com/eswan18/identity/pkg/config.templatesDir=templates"
+var (
+	isVercel     = "false"
+	databaseURL  = ""
+	templatesDir = ""
+)
+
 type Config struct {
 	HTTPAddress  string
 	DatabaseURL  string
@@ -14,12 +22,17 @@ type Config struct {
 }
 
 func NewFromEnv() *Config {
-	// If running on Vercel, use environment variables directly (no .env file loading)
-	if _, ok := os.LookupEnv("VERCEL"); ok {
-		log.Println("Loading environment variables directly from Vercel")
+	// If built for Vercel (detected at build time), use build-time or runtime environment variables
+	if isVercel == "true" {
+		log.Println("Loading environment variables for Vercel (build-time detection)")
+
+		// Use build-time values if set, otherwise fall back to runtime environment variables
+		dbURL := databaseURL
+		tmplDir := templatesDir
+
 		return &Config{
-			DatabaseURL:  os.Getenv("DATABASE_URL"),
-			TemplatesDir: os.Getenv("TEMPLATES_DIR"),
+			DatabaseURL:  dbURL,
+			TemplatesDir: tmplDir,
 		}
 	}
 

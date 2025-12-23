@@ -1,0 +1,7 @@
+{
+  "env": {
+    "TEMPLATES_DIR": "templates",
+    "GO_BUILD_FLAGS": "-ldflags \"-X github.com/eswan18/identity/pkg/config.isVercel=true -X github.com/eswan18/identity/pkg/config.databaseURL=$DATABASE_URL -X github.com/eswan18/identity/pkg/config.templatesDir=$TEMPLATES_DIR\""
+  }
+}
+
