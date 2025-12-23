@@ -3,7 +3,6 @@ package api
 import (
 	"log"
 	"net/http"
-	"os"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -16,12 +15,6 @@ import (
 var handler http.Handler
 
 func init() {
-	// Use config.NewFromEnv() but set a dummy HTTP_ADDRESS for Vercel
-	// (it's not used since we don't call server.Run())
-	if os.Getenv("HTTP_ADDRESS") == "" {
-		os.Setenv("HTTP_ADDRESS", ":8080") // Dummy value, not used
-	}
-
 	cfg := config.NewFromEnv()
 
 	datastore, err := store.New(cfg.DatabaseURL)

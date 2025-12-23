@@ -14,6 +14,13 @@ type Config struct {
 }
 
 func NewFromEnv() *Config {
+	if _, ok := os.LookupEnv("VERCEL"); ok {
+		return &Config{
+			DatabaseURL:  os.Getenv("DATABASE_URL"),
+			TemplatesDir: os.Getenv("TEMPLATES_DIR"),
+		}
+	}
+
 	env := os.Getenv("ENV")
 	if env == "" {
 		env = "local"
