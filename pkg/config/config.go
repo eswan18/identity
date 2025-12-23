@@ -15,6 +15,7 @@ type Config struct {
 
 func NewFromEnv() *Config {
 	if _, ok := os.LookupEnv("VERCEL"); ok {
+		log.Println("Loading environment variables directly from Vercel")
 		return &Config{
 			DatabaseURL:  os.Getenv("DATABASE_URL"),
 			TemplatesDir: os.Getenv("TEMPLATES_DIR"),
