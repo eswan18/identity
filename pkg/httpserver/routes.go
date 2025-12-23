@@ -9,7 +9,6 @@ import (
 )
 
 // RegisterRoutes registers all routes on the given router.
-// This can be used by both the regular server and Vercel serverless functions.
 func (s *Server) RegisterRoutes(r chi.Router) {
 	// Health check
 	r.Get("/health", s.HandleHealthCheck)
@@ -38,7 +37,7 @@ func (s *Server) RegisterRoutes(r chi.Router) {
 	r.Get("/.well-known/jwks.json", s.HandleJWKS)
 	*/
 
-	// Swagger - only for regular server (Vercel can override this)
+	// Swagger
 	r.Get("/openapi/*", httpSwagger.Handler(
 		httpSwagger.URL("http://localhost:8080/openapi.json"),
 	))

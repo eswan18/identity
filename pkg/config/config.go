@@ -14,7 +14,7 @@ type Config struct {
 }
 
 func NewFromEnv() *Config {
-	// If running on Vercel, use environment variables directly (no .env file loading)
+	// If running on Koyeb, use environment variables directly (no .env file loading)
 	if _, ok := os.LookupEnv("KOYEB_APP_ID"); ok {
 		log.Println("Loading environment variables directly from Koyeb")
 		return &Config{

@@ -35,9 +35,6 @@ README.md
 .DS_Store
 Thumbs.db
 
-# Vercel
-api/
-vercel.json
 
 # Database migrations (if not needed at runtime)
 # db/migrations/
