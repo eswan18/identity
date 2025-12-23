@@ -27,13 +27,13 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// RegisterRoutes registers all routes on the given router.
-func (s *Server) RegisterRoutes(r chi.Router) {
+// registerRoutes registers all routes on the given router.
+func (s *Server) registerRoutes() {
 	// Health check with CORS enabled for all origins (safe - no sensitive data)
-	r.With(corsMiddleware).Get("/health", s.HandleHealthCheck)
+	s.router.With(corsMiddleware).Get("/health", s.HandleHealthCheck)
 
 	// OAuth2/OIDC endpoints
-	r.Route("/oauth", func(r chi.Router) {
+	s.router.Route("/oauth", func(r chi.Router) {
 		// Core auth stuff
 		r.Get("/authorize", s.HandleOauthAuthorize)
 		r.Get("/login", s.HandleLoginGet)
@@ -51,30 +51,20 @@ func (s *Server) RegisterRoutes(r chi.Router) {
 		r.Post("/revoke", s.HandleOauthRevoke)
 	})
 
-	/*// OIDC discovery endpoints (must be at root per spec)
-	r.Get("/.well-known/openid-configuration", s.HandleOpenIDConfiguration)
-	r.Get("/.well-known/jwks.json", s.HandleJWKS)
-	*/
-
 	// Swagger
-	r.Get("/openapi/*", httpSwagger.Handler(
+	s.router.Get("/openapi/*", httpSwagger.Handler(
 		httpSwagger.URL("http://localhost:8080/openapi.json"),
 	))
-	r.Get("/openapi.json", s.HandleOpenAPISpec)
+	s.router.Get("/openapi.json", s.HandleOpenAPISpec)
 
 	// 404 handler - catch all unmatched routes
-	r.NotFound(s.HandleNotFound)
+	s.router.NotFound(s.HandleNotFound)
 }
 
 // HandleNotFound handles 404 Not Found errors
 func (s *Server) HandleNotFound(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotFound)
 	w.Write([]byte("404 - Not Found: " + r.URL.Path))
-}
-
-// registerRoutes is a convenience method that registers routes on the server's router
-func (s *Server) registerRoutes() {
-	s.RegisterRoutes(s.router)
 }
 
 // HandleHealthCheck godoc
@@ -115,29 +105,8 @@ func (s *Server) HandleSuccess(w http.ResponseWriter, r *http.Request) {
 // @Failure      400 {string} string "Invalid request"
 // @Router       /logout [post]
 func (s *Server) HandleLogout(w http.ResponseWriter, r *http.Request) {
-	// temporary no-op
-}
-
-// HandleOpenIDConfiguration godoc
-// @Summary      OIDC discovery document
-// @Description  Returns OpenID Connect discovery document with endpoints and supported features
-// @Tags         oidc
-// @Produce      json
-// @Success      200 {object} map[string]interface{} "OIDC configuration including issuer, endpoints, supported response types, scopes, etc."
-// @Router       /.well-known/openid-configuration [get]
-func (s *Server) HandleOpenIDConfiguration(w http.ResponseWriter, r *http.Request) {
-	// temporary no-op
-}
-
-// HandleJWKS godoc
-// @Summary      JSON Web Key Set
-// @Description  Returns public RSA keys for JWT signature verification
-// @Tags         oidc
-// @Produce      json
-// @Success      200 {object} map[string]interface{} "JWKS containing public keys with kty, use, kid, n, e fields"
-// @Router       /.well-known/jwks.json [get]
-func (s *Server) HandleJWKS(w http.ResponseWriter, r *http.Request) {
-	// temporary no-op
+	// TODO: Implement logout functionality
+	http.Error(w, "Logout not yet implemented", http.StatusNotImplemented)
 }
 
 // HandleOpenAPISpec serves the OpenAPI JSON spec
