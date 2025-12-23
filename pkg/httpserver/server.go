@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/eswan18/identity/internal/config"
-	"github.com/eswan18/identity/internal/store"
+	"github.com/eswan18/identity/pkg/config"
+	"github.com/eswan18/identity/pkg/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )

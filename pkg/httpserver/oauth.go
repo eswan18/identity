@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eswan18/identity/internal/db"
+	"github.com/eswan18/identity/pkg/db"
 	"github.com/google/uuid"
 )
 

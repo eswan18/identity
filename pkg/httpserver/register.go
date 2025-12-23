@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/eswan18/identity/internal/auth"
-	"github.com/eswan18/identity/internal/db"
+	"github.com/eswan18/identity/pkg/auth"
+	"github.com/eswan18/identity/pkg/db"
 )
 
 // handleRegisterGet godoc

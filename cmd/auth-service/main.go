@@ -14,9 +14,9 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/eswan18/identity/internal/config"
-	"github.com/eswan18/identity/internal/httpserver"
-	"github.com/eswan18/identity/internal/store"
+	"github.com/eswan18/identity/pkg/config"
+	"github.com/eswan18/identity/pkg/httpserver"
+	"github.com/eswan18/identity/pkg/store"
 )
 
 func main() {
