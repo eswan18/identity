@@ -58,6 +58,12 @@ func New(config *config.Config, datastore *store.Store) *Server {
 	return s
 }
 
+// Router returns the server's router. This is useful for serverless deployments
+// where you want to use the server's router directly instead of creating a new one.
+func (s *Server) Router() chi.Router {
+	return s.router
+}
+
 // IsListening checks if the server is listening on the configured address.
 func (s *Server) IsListening() bool {
 	if s.httpServer == nil {
