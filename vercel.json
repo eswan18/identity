@@ -1,9 +1,4 @@
 {
-  "functions": {
-    "vercel/index.go": {
-      "runtime": "go1.x"
-    }
-  },
   "rewrites": [
     {
       "source": "/(.*)",
