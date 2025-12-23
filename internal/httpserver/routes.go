@@ -16,13 +16,13 @@ func (s *Server) registerRoutes() {
 
 	// OAuth2/OIDC endpoints
 	r.Route("/oauth", func(r chi.Router) {
-		// Core oauth flow (in this order)
+		// Core auth stuff
 		r.Get("/authorize", s.handleOauthAuthorize)
 		r.Get("/login", s.handleLoginGet)
 		r.Post("/login", s.handleLoginPost)
 		r.Post("/token", s.handleOauthToken)
 		r.Post("/refresh", s.handleOauthRefresh)
-		// Registration
+		// Registration stuff
 		r.Get("/register", s.handleRegisterGet)
 		r.Post("/register", s.handleRegisterPost)
 		// Other stuff

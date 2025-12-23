@@ -18,6 +18,7 @@ type Server struct {
 	datastore        *store.Store
 	router           chi.Router
 	httpServer       *http.Server
+	rateLimitStore   *rateLimitStore
 	loginTemplate    *template.Template
 	registerTemplate *template.Template
 	errorTemplate    *template.Template
@@ -35,13 +36,18 @@ func New(config *config.Config, datastore *store.Store) *Server {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-
 	r.Use(middleware.Timeout(60 * time.Second))
+
+	// Create rate limit store and apply rate limiting to all routes
+	// (20 requests per IP per minute - provides basic DDoS protection)
+	rateLimitStore := newRateLimitStore()
+	r.Use(rateLimitMiddleware(rateLimitStore, 20))
 
 	s := &Server{
 		config:           config,
 		datastore:        datastore,
 		router:           r,
+		rateLimitStore:   rateLimitStore,
 		loginTemplate:    loginTemplate,
 		registerTemplate: registerTemplate,
 		errorTemplate:    errorTemplate,
@@ -81,6 +87,9 @@ func (s *Server) Close() error {
 		if shutdownErr := s.httpServer.Shutdown(ctx); shutdownErr != nil {
 			err = shutdownErr
 		}
+	}
+	if s.rateLimitStore != nil {
+		s.rateLimitStore.Stop()
 	}
 	return err
 }
