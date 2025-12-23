@@ -17,48 +17,6 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/.well-known/jwks.json": {
-            "get": {
-                "description": "Returns public RSA keys for JWT signature verification",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "oidc"
-                ],
-                "summary": "JSON Web Key Set",
-                "responses": {
-                    "200": {
-                        "description": "JWKS containing public keys with kty, use, kid, n, e fields",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/.well-known/openid-configuration": {
-            "get": {
-                "description": "Returns OpenID Connect discovery document with endpoints and supported features",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "oidc"
-                ],
-                "summary": "OIDC discovery document",
-                "responses": {
-                    "200": {
-                        "description": "OIDC configuration including issuer, endpoints, supported response types, scopes, etc.",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
         "/health": {
             "get": {
                 "description": "Returns service health status including database connectivity",

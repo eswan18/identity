@@ -4,6 +4,8 @@ GO_SOURCES := $(shell find . -name '*.go' -not -path './docs/*' -not -path './ve
 MIGRATIONS := $(wildcard db/migrations/*.up.sql)
 ENV ?= local
 
+.DEFAULT_GOAL := build
+
 docs: docs/docs.go docs/swagger.json docs/swagger.yaml
 
 docs/docs.go docs/swagger.json docs/swagger.yaml: $(GO_SOURCES)
@@ -14,7 +16,7 @@ run: docs
 	go run cmd/auth-service/main.go
 
 build: docs
-	go build -o register-client ./cmd/register-client
+	go build -o identity-cli ./cmd/identity-cli
 	go build -o identity cmd/auth-service/main.go
 
 migrate-new:

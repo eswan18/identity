@@ -20,36 +20,6 @@ info:
   title: Identity Service
   version: "1.0"
 paths:
-  /.well-known/jwks.json:
-    get:
-      description: Returns public RSA keys for JWT signature verification
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: JWKS containing public keys with kty, use, kid, n, e fields
-          schema:
-            additionalProperties: true
-            type: object
-      summary: JSON Web Key Set
-      tags:
-      - oidc
-  /.well-known/openid-configuration:
-    get:
-      description: Returns OpenID Connect discovery document with endpoints and supported
-        features
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OIDC configuration including issuer, endpoints, supported response
-            types, scopes, etc.
-          schema:
-            additionalProperties: true
-            type: object
-      summary: OIDC discovery document
-      tags:
-      - oidc
   /health:
     get:
       description: Returns service health status including database connectivity

@@ -40,4 +40,15 @@ make sqlc
 ## Adding a new client
 
 1. `make build`
-2. `ENV=dev ./register-client -name mycoolapp -redirect-uris http://localhost/redirect -scopes openid`
+2. `ENV=dev ./identity-cli client create --name mycoolapp --redirect-uris http://localhost/redirect --scopes openid`
+
+Or for a confidential client:
+```shell
+ENV=dev ./identity-cli client create --name mycoolapp --redirect-uris http://localhost/redirect --scopes openid --confidential
+```
+
+Other client commands:
+- `./identity-cli client list` - List all clients
+- `./identity-cli client get <client-id>` - Get client details
+- `./identity-cli client update <client-id> --name "New Name"` - Update client
+- `./identity-cli client delete <client-id>` - Delete client

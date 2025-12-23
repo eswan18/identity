@@ -32,6 +32,26 @@ SELECT *
 FROM oauth_clients
 WHERE client_id = $1;
 
+-- name: ListOAuthClients :many
+SELECT *
+FROM oauth_clients
+ORDER BY created_at DESC;
+
+-- name: UpdateOAuthClient :one
+UPDATE oauth_clients
+SET
+  name = COALESCE(NULLIF(sqlc.narg(name)::text, ''), name),
+  redirect_uris = COALESCE(sqlc.narg(redirect_uris)::text[], redirect_uris),
+  allowed_scopes = COALESCE(sqlc.narg(allowed_scopes)::text[], allowed_scopes),
+  is_confidential = COALESCE(sqlc.narg(is_confidential), is_confidential),
+  updated_at = now()
+WHERE client_id = sqlc.arg(client_id)
+RETURNING *;
+
+-- name: DeleteOAuthClient :exec
+DELETE FROM oauth_clients
+WHERE client_id = $1;
+
 -- name: InsertAuthorizationCode :exec
 INSERT INTO oauth_authorization_codes (
   code,

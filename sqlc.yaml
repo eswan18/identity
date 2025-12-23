@@ -9,7 +9,7 @@ sql:
     gen:
       go:
         package: "db"
-        out: "internal/db"
+        out: "pkg/db"
         emit_json_tags: true
         emit_prepared_queries: false
         emit_interface: false

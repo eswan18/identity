@@ -444,30 +444,30 @@ func (q *Queries) RevokeTokenByRefreshToken(ctx context.Context, refreshToken sq
 const updateOAuthClient = `-- name: UpdateOAuthClient :one
 UPDATE oauth_clients
 SET
-  name = COALESCE(NULLIF($1::text, ''), name),
-  redirect_uris = COALESCE($2::text[], redirect_uris),
-  allowed_scopes = COALESCE($3::text[], allowed_scopes),
-  is_confidential = COALESCE($4, is_confidential),
+  name = COALESCE($2, name),
+  redirect_uris = COALESCE($3, redirect_uris),
+  allowed_scopes = COALESCE($4, allowed_scopes),
+  is_confidential = COALESCE($5, is_confidential),
   updated_at = now()
-WHERE client_id = $5
+WHERE client_id = $1
 RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, created_at, updated_at
 `
 
 type UpdateOAuthClientParams struct {
-	Name           sql.NullString `json:"name"`
-	RedirectUris   []string       `json:"redirect_uris"`
-	AllowedScopes  []string       `json:"allowed_scopes"`
-	IsConfidential sql.NullBool   `json:"is_confidential"`
-	ClientID       string         `json:"client_id"`
+	ClientID       string   `json:"client_id"`
+	Name           string   `json:"name"`
+	RedirectUris   []string `json:"redirect_uris"`
+	AllowedScopes  []string `json:"allowed_scopes"`
+	IsConfidential bool     `json:"is_confidential"`
 }
 
 func (q *Queries) UpdateOAuthClient(ctx context.Context, arg UpdateOAuthClientParams) (OauthClient, error) {
 	row := q.db.QueryRowContext(ctx, updateOAuthClient,
+		arg.ClientID,
 		arg.Name,
 		pq.Array(arg.RedirectUris),
 		pq.Array(arg.AllowedScopes),
 		arg.IsConfidential,
-		arg.ClientID,
 	)
 	var i OauthClient
 	err := row.Scan(
