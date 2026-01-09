@@ -84,6 +84,12 @@ func (s *Server) validateCredentials(ctx context.Context, username, password str
 
 	valid, err := auth.VerifyPassword(password, user.PasswordHash)
 	if err != nil {
+		log.Printf("validateCredentials: ERROR verifying password for user %s: %v", username, err)
+		hashPreview := user.PasswordHash
+		if len(hashPreview) > 20 {
+			hashPreview = hashPreview[:20] + "..."
+		}
+		log.Printf("validateCredentials: password hash length=%d, preview=%s", len(user.PasswordHash), hashPreview)
 		return db.AuthUser{}, ErrInternal
 	}
 	if !valid {
