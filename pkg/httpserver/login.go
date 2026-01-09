@@ -3,6 +3,7 @@ package httpserver
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -92,6 +93,7 @@ func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
 // @Failure      401 {string} string "Invalid credentials"
 // @Router       /login [post]
 func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[DEBUG] HandleLoginPost: Starting login request")
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 	clientID := r.FormValue("client_id")
@@ -100,6 +102,8 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 	scope := strings.Split(r.FormValue("scope"), " ")
 	codeChallenge := r.FormValue("code_challenge")
 	codeChallengeMethod := r.FormValue("code_challenge_method")
+
+	log.Printf("[DEBUG] HandleLoginPost: username=%s, clientID=%s, redirectURI=%s", username, clientID, redirectURI)
 
 	// Extract OAuth parameters into a struct for reuse.
 	oauthParams := LoginPageData{
@@ -111,8 +115,10 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 		CodeChallengeMethod: codeChallengeMethod,
 	}
 	// Validate credentials
+	log.Printf("[DEBUG] HandleLoginPost: Validating credentials for user: %s", username)
 	user, err := s.validateCredentials(r.Context(), username, password)
 	if err != nil {
+		log.Printf("[DEBUG] HandleLoginPost: Credential validation failed: %v", err)
 		status := http.StatusInternalServerError
 		if errors.Is(err, ErrMissingCredentials) {
 			status = http.StatusBadRequest
@@ -122,24 +128,32 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 		s.renderLoginError(w, status, err.Error(), oauthParams)
 		return
 	}
+	log.Printf("[DEBUG] HandleLoginPost: Credentials validated successfully for user ID: %v", user.ID)
 
 	// Create authenticated session
+	log.Printf("[DEBUG] HandleLoginPost: Creating session for user ID: %v", user.ID)
 	session, err := s.createSession(r.Context(), user.ID)
 	if err != nil {
+		log.Printf("[ERROR] HandleLoginPost: Failed to create session: %v", err)
 		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
 		return
 	}
+	log.Printf("[DEBUG] HandleLoginPost: Session created successfully: %s", session.ID)
 
 	// Validate OAuth client, redirect URI, and scopes
+	log.Printf("[DEBUG] HandleLoginPost: Validating OAuth client: %s", clientID)
 	client, err := s.validateOAuthClient(r.Context(), clientID, redirectURI, scope)
 	if err != nil {
+		log.Printf("[ERROR] HandleLoginPost: OAuth client validation failed: %v", err)
 		s.renderLoginError(w, http.StatusBadRequest, err.Error(), oauthParams)
 		return
 	}
+	log.Printf("[DEBUG] HandleLoginPost: OAuth client validated: %s", client.ID)
 
 	// Set secure session cookie
 	// Secure flag should be true in production (HTTPS), false for local dev
 	isSecure := strings.HasPrefix(s.config.HTTPAddress, "https://") || strings.Contains(s.config.HTTPAddress, ":443")
+	log.Printf("[DEBUG] HandleLoginPost: Setting session cookie (secure=%v)", isSecure)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session_id",
 		Value:    session.ID,
@@ -153,20 +167,26 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 		// Direct login (no OAuth):
 		// There's no real reason to log in without a redirect except to check your password, but maybe someday.
 		// For now, we'll just show a success page explaining how to access applications.
+		log.Printf("[DEBUG] HandleLoginPost: No redirect URI, redirecting to success page")
 		http.Redirect(w, r, "/oauth/success", http.StatusFound)
 		return
 	}
 
 	// Generate and store authorization code
+	log.Printf("[DEBUG] HandleLoginPost: Generating authorization code")
 	authorizationCode, err := s.generateAuthorizationCode(r.Context(), user.ID, client.ID, redirectURI, scope, codeChallenge, codeChallengeMethod)
 	if err != nil {
+		log.Printf("[ERROR] HandleLoginPost: Failed to generate authorization code: %v", err)
 		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
 		return
 	}
+	log.Printf("[DEBUG] HandleLoginPost: Authorization code generated successfully")
 
 	// Build the final redirect URL with the authorization code and other OAuth parameters.
+	log.Printf("[DEBUG] HandleLoginPost: Building redirect URL to: %s", redirectURI)
 	redirectURL, err := url.Parse(redirectURI)
 	if err != nil {
+		log.Printf("[ERROR] HandleLoginPost: Failed to parse redirect URI: %v", err)
 		s.renderLoginError(w, http.StatusBadRequest, "Invalid redirect URI", oauthParams)
 		return
 	}
@@ -175,6 +195,7 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 	q.Set("code", authorizationCode)
 	redirectURL.RawQuery = q.Encode()
 
+	log.Printf("[DEBUG] HandleLoginPost: Redirecting to: %s", redirectURL.String())
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 }
 
