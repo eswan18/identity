@@ -349,7 +349,92 @@ func (s *Server) writeTokenError(w http.ResponseWriter, errorCode, description s
 // @Failure      401 {object} map[string]string "Unauthorized - invalid or missing access token"
 // @Router       /oauth/userinfo [get]
 func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
-	// temporary no-op
+	// Extract Bearer token from Authorization header
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":             "invalid_token",
+			"error_description": "Missing or invalid Authorization header",
+		})
+		return
+	}
+
+	accessToken := strings.TrimPrefix(authHeader, "Bearer ")
+
+	// Look up token in database
+	token, err := s.datastore.Q.GetTokenByAccessToken(r.Context(), sql.NullString{String: accessToken, Valid: true})
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":             "invalid_token",
+			"error_description": "Invalid access token",
+		})
+		return
+	}
+
+	// Check if token is expired (handled by query, but double-check)
+	if token.ExpiresAt.Before(time.Now()) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":             "invalid_token",
+			"error_description": "Token has expired",
+		})
+		return
+	}
+
+	// Check if token is revoked (handled by query, but double-check)
+	if token.RevokedAt.Valid {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":             "invalid_token",
+			"error_description": "Token has been revoked",
+		})
+		return
+	}
+
+	// Get user info
+	if !token.UserID.Valid {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":             "server_error",
+			"error_description": "Token has no associated user",
+		})
+		return
+	}
+
+	user, err := s.datastore.Q.GetUserByID(r.Context(), token.UserID.UUID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":             "server_error",
+			"error_description": "Failed to retrieve user information",
+		})
+		return
+	}
+
+	// Return OIDC standard claims
+	userInfo := map[string]interface{}{
+		"sub":            user.ID.String(), // Subject (user ID)
+		"username":       user.Username,
+		"email":          user.Email,
+		"email_verified": user.IsActive, // Use is_active as proxy for email verification
+	}
+
+	// Include scope-specific claims
+	if sliceContains(token.Scope, "profile") {
+		userInfo["updated_at"] = user.UpdatedAt.Unix()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(userInfo)
 }
 
 // handleIntrospect godoc
@@ -406,4 +491,14 @@ func (s *Server) getSessionFromCookie(r *http.Request) (Session, error) {
 		UserID:    session.UserID,
 		ExpiresAt: session.ExpiresAt,
 	}, nil
+}
+
+// sliceContains checks if a slice contains a specific value.
+func sliceContains(slice []string, value string) bool {
+	for _, item := range slice {
+		if item == value {
+			return true
+		}
+	}
+	return false
 }

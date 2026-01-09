@@ -15,6 +15,12 @@ FROM auth_users
 WHERE email = $1
   AND is_active = true;
 
+-- name: GetUserByID :one
+SELECT *
+FROM auth_users
+WHERE id = $1
+  AND is_active = true;
+
 -- name: CreateOAuthClient :one
 INSERT INTO oauth_clients (
   client_id,
