@@ -275,6 +275,28 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email interface{}) (AuthUs
 	return i, err
 }
 
+const getUserByID = `-- name: GetUserByID :one
+SELECT id, username, password_hash, email, is_active, created_at, updated_at
+FROM auth_users
+WHERE id = $1
+  AND is_active = true
+`
+
+func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (AuthUser, error) {
+	row := q.db.QueryRowContext(ctx, getUserByID, id)
+	var i AuthUser
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.Email,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getUserByUsername = `-- name: GetUserByUsername :one
 SELECT id, username, password_hash, email, is_active, created_at, updated_at
 FROM auth_users
