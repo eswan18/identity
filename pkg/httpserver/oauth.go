@@ -43,7 +43,13 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	responseType := r.URL.Query().Get("response_type")
 	clientID := r.URL.Query().Get("client_id")
 	redirectURI := r.URL.Query().Get("redirect_uri")
-	scope := strings.Split(r.URL.Query().Get("scope"), " ")
+	scopeParam := r.URL.Query().Get("scope")
+	var scope []string
+	if scopeParam == "" {
+		scope = []string{"openid"}
+	} else {
+		scope = strings.Split(scopeParam, " ")
+	}
 	codeChallenge := r.URL.Query().Get("code_challenge")
 	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
 	state := r.URL.Query().Get("state")
@@ -59,9 +65,6 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	if redirectURI == "" {
 		http.Error(w, "Redirect URI is required", http.StatusBadRequest)
 		return
-	}
-	if len(scope) == 0 {
-		scope = []string{"openid"}
 	}
 	if codeChallenge == "" {
 		http.Error(w, "Code challenge is required", http.StatusBadRequest)
