@@ -144,8 +144,8 @@ func padTo32Bytes(b []byte) []byte {
 // If expectedAudience is non-empty, it validates that the token's audience contains it.
 func (g *Generator) ValidateToken(tokenString string, expectedAudience string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		// Verify signing method is ES256
-		if _, ok := token.Method.(*jwt.SigningMethodECDSA); !ok {
+		// Verify signing method is exactly ES256 (not ES384 or ES512)
+		if token.Method != jwt.SigningMethodES256 {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return g.publicKey, nil
