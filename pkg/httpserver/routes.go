@@ -144,8 +144,36 @@ func (s *Server) HandleSuccess(w http.ResponseWriter, r *http.Request) {
 // @Failure      400 {string} string "Invalid request"
 // @Router       /logout [post]
 func (s *Server) HandleLogout(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement logout functionality
-	http.Error(w, "Logout not yet implemented", http.StatusNotImplemented)
+	// Get the session cookie
+	cookie, err := r.Cookie("session_id")
+	if err == nil && cookie.Value != "" {
+		// Delete the session from the database
+		if err := s.datastore.Q.DeleteSession(r.Context(), cookie.Value); err != nil {
+			// Log the error but continue with logout (clear cookie anyway)
+			// The session might already be expired/deleted
+		}
+	}
+
+	// Clear the session cookie by setting it to expire immediately
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session_id",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	// Redirect to post_logout_redirect_uri if provided, otherwise to login page
+	redirectURI := r.URL.Query().Get("post_logout_redirect_uri")
+	if redirectURI == "" {
+		redirectURI = r.FormValue("post_logout_redirect_uri")
+	}
+	if redirectURI == "" {
+		redirectURI = "/oauth/login"
+	}
+
+	http.Redirect(w, r, redirectURI, http.StatusFound)
 }
 
 // HandleOpenAPISpec serves the OpenAPI JSON spec
