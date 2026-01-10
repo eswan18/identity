@@ -25,6 +25,7 @@ jobs:
       - name: Build
         run: go build -v ./...
         env:
+          # Don't worry, this is a key used only for testing.
           JWT_PRIVATE_KEY: |
             -----BEGIN EC PRIVATE KEY-----
             MHcCAQEEICQMNHONu2Sud2tu6jgOZs3LIj5yOZr89NBMLYiyqBK/oAoGCCqGSM49
@@ -37,6 +38,7 @@ jobs:
       - name: Run tests
         run: go test -v ./...
         env:
+          # Don't worry, this is a key used only for testing.
           JWT_PRIVATE_KEY: |
             -----BEGIN EC PRIVATE KEY-----
             MHcCAQEEICQMNHONu2Sud2tu6jgOZs3LIj5yOZr89NBMLYiyqBK/oAoGCCqGSM49
