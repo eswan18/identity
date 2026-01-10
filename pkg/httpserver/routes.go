@@ -48,6 +48,9 @@ func oauthCorsMiddleware(next http.Handler) http.Handler {
 
 // registerRoutes registers all routes on the given router.
 func (s *Server) registerRoutes() {
+	// Root redirect - sends to login or account settings based on auth status
+	s.router.Get("/", s.HandleRoot)
+
 	// Health check with CORS enabled for all origins (safe - no sensitive data)
 	s.router.With(corsMiddleware).Get("/health", s.HandleHealthCheck)
 
@@ -74,6 +77,9 @@ func (s *Server) registerRoutes() {
 		r.Get("/userinfo", s.HandleOauthUserInfo)
 		r.Post("/introspect", s.HandleIntrospect)
 		r.Post("/revoke", s.HandleOauthRevoke)
+		// Account settings
+		r.Get("/account-settings", s.HandleAccountSettingsGet)
+		r.Post("/account-settings", s.HandleAccountSettingsPost)
 	})
 
 	// Swagger

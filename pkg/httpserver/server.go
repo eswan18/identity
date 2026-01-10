@@ -16,16 +16,17 @@ import (
 )
 
 type Server struct {
-	config           *config.Config
-	datastore        *store.Store
-	router           chi.Router
-	httpServer       *http.Server
-	rateLimitStore   *rateLimitStore
-	jwtGenerator     *jwt.Generator
-	loginTemplate    *template.Template
-	registerTemplate *template.Template
-	errorTemplate    *template.Template
-	successTemplate  *template.Template
+	config                  *config.Config
+	datastore               *store.Store
+	router                  chi.Router
+	httpServer              *http.Server
+	rateLimitStore          *rateLimitStore
+	jwtGenerator            *jwt.Generator
+	loginTemplate           *template.Template
+	registerTemplate        *template.Template
+	errorTemplate           *template.Template
+	successTemplate         *template.Template
+	accountSettingsTemplate *template.Template
 }
 
 func New(config *config.Config, datastore *store.Store) *Server {
@@ -34,6 +35,7 @@ func New(config *config.Config, datastore *store.Store) *Server {
 	registerTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/register.html"))
 	errorTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/error.html"))
 	successTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/success.html"))
+	accountSettingsTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/account-settings.html"))
 
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -56,15 +58,16 @@ func New(config *config.Config, datastore *store.Store) *Server {
 	}
 
 	s := &Server{
-		config:           config,
-		datastore:        datastore,
-		router:           r,
-		rateLimitStore:   rateLimitStore,
-		jwtGenerator:     jwtGen,
-		loginTemplate:    loginTemplate,
-		registerTemplate: registerTemplate,
-		errorTemplate:    errorTemplate,
-		successTemplate:  successTemplate,
+		config:                  config,
+		datastore:               datastore,
+		router:                  r,
+		rateLimitStore:          rateLimitStore,
+		jwtGenerator:            jwtGen,
+		loginTemplate:           loginTemplate,
+		registerTemplate:        registerTemplate,
+		errorTemplate:           errorTemplate,
+		successTemplate:         successTemplate,
+		accountSettingsTemplate: accountSettingsTemplate,
 	}
 	s.registerRoutes()
 
