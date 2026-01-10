@@ -8,6 +8,23 @@ import (
 	"github.com/eswan18/identity/pkg/db"
 )
 
+// HandleRoot godoc
+// @Summary      Root redirect
+// @Description  Redirects to account settings if logged in, or login page if not
+// @Tags         navigation
+// @Success      302 {string} string "Redirect to appropriate page"
+// @Router       / [get]
+func (s *Server) HandleRoot(w http.ResponseWriter, r *http.Request) {
+	_, err := s.getUserFromSession(r)
+	if err != nil {
+		// Not logged in, redirect to login
+		http.Redirect(w, r, "/oauth/login", http.StatusFound)
+		return
+	}
+	// Logged in, redirect to account settings
+	http.Redirect(w, r, "/oauth/account-settings", http.StatusFound)
+}
+
 // HandleAccountSettingsGet godoc
 // @Summary      Show account settings page
 // @Description  Displays the account settings page where users can view their account info and change their password
