@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -120,14 +121,7 @@ func (g *Generator) PublicKeyJWKS() ([]byte, error) {
 
 // joinScope converts a slice of scopes to a space-separated string
 func joinScope(scope []string) string {
-	if len(scope) == 0 {
-		return ""
-	}
-	result := scope[0]
-	for i := 1; i < len(scope); i++ {
-		result += " " + scope[i]
-	}
-	return result
+	return strings.Join(scope, " ")
 }
 
 // padTo32Bytes pads a byte slice to 32 bytes (required for P-256 coordinates)

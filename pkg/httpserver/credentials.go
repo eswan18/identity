@@ -220,7 +220,7 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 		UserID:           uuid.NullUUID{UUID: userID, Valid: userID != uuid.Nil},
 		ClientID:         clientID,
 		Scope:            scope,
-		Column6:          "Bearer",
+		TokenType:        sql.NullString{String: "Bearer", Valid: true},
 		ExpiresAt:        accessExpiresAt,
 		RefreshExpiresAt: sql.NullTime{Time: refreshExpiresAt, Valid: true},
 	})

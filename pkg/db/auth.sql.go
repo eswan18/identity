@@ -398,7 +398,7 @@ INSERT INTO oauth_tokens (
   expires_at,
   refresh_expires_at
 )
-VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'bearer'), $7, $8)
+VALUES ($1, $2, $3, $4, $5, COALESCE($8::text, 'bearer'), $6, $7)
 RETURNING id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at
 `
 
@@ -408,9 +408,9 @@ type InsertTokenParams struct {
 	UserID           uuid.NullUUID  `json:"user_id"`
 	ClientID         uuid.UUID      `json:"client_id"`
 	Scope            []string       `json:"scope"`
-	Column6          interface{}    `json:"column_6"`
 	ExpiresAt        time.Time      `json:"expires_at"`
 	RefreshExpiresAt sql.NullTime   `json:"refresh_expires_at"`
+	TokenType        sql.NullString `json:"token_type"`
 }
 
 func (q *Queries) InsertToken(ctx context.Context, arg InsertTokenParams) (OauthToken, error) {
@@ -420,9 +420,9 @@ func (q *Queries) InsertToken(ctx context.Context, arg InsertTokenParams) (Oauth
 		arg.UserID,
 		arg.ClientID,
 		pq.Array(arg.Scope),
-		arg.Column6,
 		arg.ExpiresAt,
 		arg.RefreshExpiresAt,
+		arg.TokenType,
 	)
 	var i OauthToken
 	err := row.Scan(

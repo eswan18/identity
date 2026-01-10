@@ -99,7 +99,7 @@ INSERT INTO oauth_tokens (
   expires_at,
   refresh_expires_at
 )
-VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'bearer'), $7, $8)
+VALUES ($1, $2, $3, $4, $5, COALESCE(sqlc.narg(token_type)::text, 'bearer'), $6, $7)
 RETURNING *;
 
 -- name: GetTokenByAccessToken :one

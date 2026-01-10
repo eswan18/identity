@@ -486,13 +486,3 @@ func (s *Server) getSessionFromCookie(r *http.Request) (Session, error) {
 		ExpiresAt: session.ExpiresAt,
 	}, nil
 }
-
-// sliceContains checks if a slice contains a specific value.
-func sliceContains(slice []string, value string) bool {
-	for _, item := range slice {
-		if item == value {
-			return true
-		}
-	}
-	return false
-}
