@@ -1,7 +1,10 @@
 package config
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"log"
+	"net/url"
 	"os"
 
 	"github.com/joho/godotenv"
@@ -62,5 +65,52 @@ func NewFromEnv() *Config {
 	if config.JWTIssuer == "" {
 		log.Fatal("JWT_ISSUER is not set")
 	}
+
+	// Validate JWT_PRIVATE_KEY is a valid PEM-encoded ECDSA private key
+	if err := validateECDSAPrivateKey(config.JWTPrivateKey); err != nil {
+		log.Fatalf("JWT_PRIVATE_KEY is invalid: %v", err)
+	}
+
+	// Validate JWT_ISSUER is a valid URL
+	if err := validateIssuerURL(config.JWTIssuer); err != nil {
+		log.Fatalf("JWT_ISSUER is invalid: %v", err)
+	}
+
 	return config
+}
+
+// validateECDSAPrivateKey checks that the given string is a valid PEM-encoded ECDSA private key.
+func validateECDSAPrivateKey(keyPEM string) error {
+	block, _ := pem.Decode([]byte(keyPEM))
+	if block == nil {
+		return &configError{"failed to parse PEM block"}
+	}
+	_, err := x509.ParseECPrivateKey(block.Bytes)
+	if err != nil {
+		return &configError{"failed to parse ECDSA private key: " + err.Error()}
+	}
+	return nil
+}
+
+// validateIssuerURL checks that the given string is a valid URL with http or https scheme.
+func validateIssuerURL(issuer string) error {
+	u, err := url.Parse(issuer)
+	if err != nil {
+		return &configError{"failed to parse URL: " + err.Error()}
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return &configError{"scheme must be http or https"}
+	}
+	if u.Host == "" {
+		return &configError{"host is required"}
+	}
+	return nil
+}
+
+type configError struct {
+	msg string
+}
+
+func (e *configError) Error() string {
+	return e.msg
 }
