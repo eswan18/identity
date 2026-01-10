@@ -139,3 +139,29 @@ func padTo32Bytes(b []byte) []byte {
 	copy(padded[32-len(b):], b)
 	return padded
 }
+
+// ValidateToken validates a JWT and returns its claims
+func (g *Generator) ValidateToken(tokenString string) (*Claims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		// Verify signing method is ES256
+		if _, ok := token.Method.(*jwt.SigningMethodECDSA); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return g.publicKey, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse token: %w", err)
+	}
+
+	claims, ok := token.Claims.(*Claims)
+	if !ok || !token.Valid {
+		return nil, fmt.Errorf("invalid token claims")
+	}
+
+	// Validate issuer
+	if claims.Issuer != g.issuer {
+		return nil, fmt.Errorf("invalid issuer: expected %s, got %s", g.issuer, claims.Issuer)
+	}
+
+	return claims, nil
+}
