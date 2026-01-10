@@ -187,6 +187,9 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 	if err != nil {
 		return TokenPair{}, fmt.Errorf("failed to get client: %w", err)
 	}
+	if client.Audience == "" {
+		return TokenPair{}, fmt.Errorf("client %s has no audience configured", client.ClientID)
+	}
 
 	// Generate JWT access token with client's audience
 	accessToken, jti, err := s.jwtGenerator.GenerateAccessToken(
