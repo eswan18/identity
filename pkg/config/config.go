@@ -8,9 +8,12 @@ import (
 )
 
 type Config struct {
-	HTTPAddress  string
-	DatabaseURL  string
-	TemplatesDir string
+	HTTPAddress   string
+	DatabaseURL   string
+	TemplatesDir  string
+	JWTPrivateKey string
+	JWTIssuer     string
+	JWTAudience   string
 }
 
 func NewFromEnv() *Config {
@@ -18,9 +21,12 @@ func NewFromEnv() *Config {
 	if _, ok := os.LookupEnv("KOYEB_APP_ID"); ok {
 		log.Println("Loading environment variables directly from Koyeb")
 		return &Config{
-			DatabaseURL:  os.Getenv("DATABASE_URL"),
-			TemplatesDir: os.Getenv("TEMPLATES_DIR"),
-			HTTPAddress:  os.Getenv("HTTP_ADDRESS"),
+			DatabaseURL:   os.Getenv("DATABASE_URL"),
+			TemplatesDir:  os.Getenv("TEMPLATES_DIR"),
+			HTTPAddress:   os.Getenv("HTTP_ADDRESS"),
+			JWTPrivateKey: os.Getenv("JWT_PRIVATE_KEY"),
+			JWTIssuer:     os.Getenv("JWT_ISSUER"),
+			JWTAudience:   os.Getenv("JWT_AUDIENCE"),
 		}
 	}
 
@@ -33,9 +39,12 @@ func NewFromEnv() *Config {
 	log.Println("Loaded environment variables from .env." + env)
 
 	config := &Config{
-		HTTPAddress:  os.Getenv("HTTP_ADDRESS"),
-		DatabaseURL:  os.Getenv("DATABASE_URL"),
-		TemplatesDir: os.Getenv("TEMPLATES_DIR"),
+		HTTPAddress:   os.Getenv("HTTP_ADDRESS"),
+		DatabaseURL:   os.Getenv("DATABASE_URL"),
+		TemplatesDir:  os.Getenv("TEMPLATES_DIR"),
+		JWTPrivateKey: os.Getenv("JWT_PRIVATE_KEY"),
+		JWTIssuer:     os.Getenv("JWT_ISSUER"),
+		JWTAudience:   os.Getenv("JWT_AUDIENCE"),
 	}
 	if config.HTTPAddress == "" {
 		log.Fatal("HTTP_ADDRESS is not set")
@@ -45,6 +54,15 @@ func NewFromEnv() *Config {
 	}
 	if config.TemplatesDir == "" {
 		log.Fatal("TEMPLATES_DIR is not set")
+	}
+	if config.JWTPrivateKey == "" {
+		log.Fatal("JWT_PRIVATE_KEY is not set")
+	}
+	if config.JWTIssuer == "" {
+		log.Fatal("JWT_ISSUER is not set")
+	}
+	if config.JWTAudience == "" {
+		log.Fatal("JWT_AUDIENCE is not set")
 	}
 	return config
 }

@@ -3,11 +3,13 @@ package httpserver
 import (
 	"context"
 	"html/template"
+	"log"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/eswan18/identity/pkg/config"
+	"github.com/eswan18/identity/pkg/jwt"
 	"github.com/eswan18/identity/pkg/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -19,6 +21,7 @@ type Server struct {
 	router           chi.Router
 	httpServer       *http.Server
 	rateLimitStore   *rateLimitStore
+	jwtGenerator     *jwt.Generator
 	loginTemplate    *template.Template
 	registerTemplate *template.Template
 	errorTemplate    *template.Template
@@ -43,11 +46,23 @@ func New(config *config.Config, datastore *store.Store) *Server {
 	rateLimitStore := newRateLimitStore()
 	r.Use(rateLimitMiddleware(rateLimitStore, 20))
 
+	// Initialize JWT generator
+	jwtGen, err := jwt.NewGenerator(
+		config.JWTPrivateKey,
+		config.JWTIssuer,
+		config.JWTAudience,
+		"key-1",
+	)
+	if err != nil {
+		log.Fatalf("Failed to initialize JWT generator: %v", err)
+	}
+
 	s := &Server{
 		config:           config,
 		datastore:        datastore,
 		router:           r,
 		rateLimitStore:   rateLimitStore,
+		jwtGenerator:     jwtGen,
 		loginTemplate:    loginTemplate,
 		registerTemplate: registerTemplate,
 		errorTemplate:    errorTemplate,

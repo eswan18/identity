@@ -181,11 +181,25 @@ func (s *Server) createSession(ctx context.Context, userID uuid.UUID) (Session, 
 // generateTokens creates new access and refresh tokens and stores them in the database.
 // Returns the token pair on success.
 func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID uuid.UUID, scope []string) (TokenPair, error) {
-	accessToken, err := generateRandomString(32)
+	// Fetch user information for JWT claims
+	user, err := s.datastore.Q.GetUserByID(ctx, userID)
 	if err != nil {
-		return TokenPair{}, err
+		return TokenPair{}, fmt.Errorf("failed to get user: %w", err)
 	}
 
+	// Generate JWT access token
+	accessToken, jti, err := s.jwtGenerator.GenerateAccessToken(
+		userID.String(),
+		user.Username,
+		user.Email,
+		scope,
+		accessTokenExpiresIn,
+	)
+	if err != nil {
+		return TokenPair{}, fmt.Errorf("failed to generate access token: %w", err)
+	}
+
+	// Generate opaque refresh token (unchanged)
 	refreshToken, err := generateRandomString(32)
 	if err != nil {
 		return TokenPair{}, err
@@ -194,8 +208,10 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 	accessExpiresAt := time.Now().Add(accessTokenExpiresIn)
 	refreshExpiresAt := time.Now().Add(refreshTokenExpiresIn)
 
+	// Store token record in database
+	// Note: Store JTI (JWT ID) in access_token column for audit/revocation tracking
 	_, err = s.datastore.Q.InsertToken(ctx, db.InsertTokenParams{
-		AccessToken:      sql.NullString{String: accessToken, Valid: true},
+		AccessToken:      sql.NullString{String: jti, Valid: true}, // Store JTI, not full JWT
 		RefreshToken:     sql.NullString{String: refreshToken, Valid: true},
 		UserID:           uuid.NullUUID{UUID: userID, Valid: userID != uuid.Nil},
 		ClientID:         clientID,
@@ -209,7 +225,7 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 	}
 
 	return TokenPair{
-		AccessToken:  accessToken,
+		AccessToken:  accessToken, // Return full JWT to client
 		RefreshToken: refreshToken,
 		ExpiresIn:    int(accessTokenExpiresIn.Seconds()),
 		Scope:        scope,
