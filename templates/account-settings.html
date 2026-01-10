@@ -183,6 +183,22 @@
             gap: 0.75rem;
         }
 
+        .btn-danger {
+            background: #dc2626;
+            color: #fff;
+            text-decoration: none;
+        }
+
+        .btn-danger:hover {
+            background: #b91c1c;
+        }
+
+        .logout-section {
+            margin-bottom: 1.5rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
         .branding {
             text-align: center;
             margin-top: 1.5rem;
@@ -272,6 +288,18 @@
                 background: #4b5563;
             }
 
+            .btn-danger {
+                background: #dc2626;
+            }
+
+            .btn-danger:hover {
+                background: #b91c1c;
+            }
+
+            .logout-section {
+                border-bottom-color: #374151;
+            }
+
             .branding {
                 border-top-color: #374151;
                 color: #6b7280;
@@ -314,6 +342,12 @@
                 <span class="info-label">Email</span>
                 <span class="info-value">{{.Email}}</span>
             </div>
+        </div>
+
+        <div class="logout-section">
+            <form method="POST" action="/oauth/logout">
+                <button type="submit" class="btn btn-danger">Log Out</button>
+            </form>
         </div>
 
         <div class="section">
