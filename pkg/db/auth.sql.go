@@ -509,6 +509,38 @@ func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPassword
 	return err
 }
 
+const updateUserUsername = `-- name: UpdateUserUsername :exec
+UPDATE auth_users
+SET username = $1, updated_at = now()
+WHERE id = $2
+`
+
+type UpdateUserUsernameParams struct {
+	Username string    `json:"username"`
+	ID       uuid.UUID `json:"id"`
+}
+
+func (q *Queries) UpdateUserUsername(ctx context.Context, arg UpdateUserUsernameParams) error {
+	_, err := q.db.ExecContext(ctx, updateUserUsername, arg.Username, arg.ID)
+	return err
+}
+
+const updateUserEmail = `-- name: UpdateUserEmail :exec
+UPDATE auth_users
+SET email = $1, updated_at = now()
+WHERE id = $2
+`
+
+type UpdateUserEmailParams struct {
+	Email string    `json:"email"`
+	ID    uuid.UUID `json:"id"`
+}
+
+func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) error {
+	_, err := q.db.ExecContext(ctx, updateUserEmail, arg.Email, arg.ID)
+	return err
+}
+
 const updateOAuthClient = `-- name: UpdateOAuthClient :one
 UPDATE oauth_clients
 SET

@@ -48,24 +48,39 @@ func (s *Server) HandleAccountSettingsGet(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// HandleAccountSettingsPost godoc
-// @Summary      Update account settings
-// @Description  Processes account settings form submission (currently supports password change)
+// HandleChangePasswordGet godoc
+// @Summary      Show change password page
+// @Description  Displays the change password form
+// @Tags         account
+// @Produce      html
+// @Success      200 {string} string "HTML change password page"
+// @Failure      401 {string} string "Unauthorized - no valid session"
+// @Router       /change-password [get]
+func (s *Server) HandleChangePasswordGet(w http.ResponseWriter, r *http.Request) {
+	_, err := s.getUserFromSession(r)
+	if err != nil {
+		http.Redirect(w, r, "/oauth/login", http.StatusFound)
+		return
+	}
+	s.changePasswordTemplate.Execute(w, ChangePasswordPageData{})
+}
+
+// HandleChangePasswordPost godoc
+// @Summary      Update password
+// @Description  Processes password change form submission
 // @Tags         account
 // @Accept       application/x-www-form-urlencoded
 // @Produce      html
 // @Param        current_password formData string true "Current password for verification"
 // @Param        new_password     formData string true "New password"
 // @Param        confirm_password formData string true "Confirm new password"
-// @Success      200 {string} string "HTML account settings page with success message"
+// @Success      200 {string} string "HTML change password page with success message"
 // @Failure      400 {string} string "Invalid request - passwords don't match"
 // @Failure      401 {string} string "Unauthorized - invalid current password"
-// @Router       /account-settings [post]
-func (s *Server) HandleAccountSettingsPost(w http.ResponseWriter, r *http.Request) {
-	// Get user from session
+// @Router       /change-password [post]
+func (s *Server) HandleChangePasswordPost(w http.ResponseWriter, r *http.Request) {
 	user, err := s.getUserFromSession(r)
 	if err != nil {
-		log.Printf("[DEBUG] HandleAccountSettingsPost: Failed to get user from session: %v", err)
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
@@ -74,40 +89,35 @@ func (s *Server) HandleAccountSettingsPost(w http.ResponseWriter, r *http.Reques
 	newPassword := r.FormValue("new_password")
 	confirmPassword := r.FormValue("confirm_password")
 
-	pageData := AccountSettingsPageData{
-		Username: user.Username,
-		Email:    user.Email,
-	}
-
 	// Validate that all fields are provided
 	if currentPassword == "" || newPassword == "" || confirmPassword == "" {
-		s.renderAccountSettingsError(w, http.StatusBadRequest, "All password fields are required", pageData)
+		s.renderChangePasswordError(w, http.StatusBadRequest, "All password fields are required")
 		return
 	}
 
 	// Validate that new password and confirm password match
 	if newPassword != confirmPassword {
-		s.renderAccountSettingsError(w, http.StatusBadRequest, "New passwords do not match", pageData)
+		s.renderChangePasswordError(w, http.StatusBadRequest, "New passwords do not match")
 		return
 	}
 
 	// Validate current password
 	valid, err := auth.VerifyPassword(currentPassword, user.PasswordHash)
 	if err != nil {
-		log.Printf("[ERROR] HandleAccountSettingsPost: Failed to verify password: %v", err)
-		s.renderAccountSettingsError(w, http.StatusInternalServerError, "An error occurred", pageData)
+		log.Printf("[ERROR] HandleChangePasswordPost: Failed to verify password: %v", err)
+		s.renderChangePasswordError(w, http.StatusInternalServerError, "An error occurred")
 		return
 	}
 	if !valid {
-		s.renderAccountSettingsError(w, http.StatusUnauthorized, "Current password is incorrect", pageData)
+		s.renderChangePasswordError(w, http.StatusUnauthorized, "Current password is incorrect")
 		return
 	}
 
 	// Hash new password
 	newPasswordHash, err := auth.HashPassword(newPassword)
 	if err != nil {
-		log.Printf("[ERROR] HandleAccountSettingsPost: Failed to hash new password: %v", err)
-		s.renderAccountSettingsError(w, http.StatusInternalServerError, "An error occurred", pageData)
+		log.Printf("[ERROR] HandleChangePasswordPost: Failed to hash new password: %v", err)
+		s.renderChangePasswordError(w, http.StatusInternalServerError, "An error occurred")
 		return
 	}
 
@@ -117,16 +127,207 @@ func (s *Server) HandleAccountSettingsPost(w http.ResponseWriter, r *http.Reques
 		ID:           user.ID,
 	})
 	if err != nil {
-		log.Printf("[ERROR] HandleAccountSettingsPost: Failed to update password: %v", err)
-		s.renderAccountSettingsError(w, http.StatusInternalServerError, "An error occurred", pageData)
+		log.Printf("[ERROR] HandleChangePasswordPost: Failed to update password: %v", err)
+		s.renderChangePasswordError(w, http.StatusInternalServerError, "An error occurred")
 		return
 	}
 
-	log.Printf("[DEBUG] HandleAccountSettingsPost: Password updated successfully for user: %s", user.Username)
+	log.Printf("[DEBUG] HandleChangePasswordPost: Password updated successfully for user: %s", user.Username)
+	s.changePasswordTemplate.Execute(w, ChangePasswordPageData{Success: "Password updated successfully"})
+}
 
-	// Render success
-	pageData.Success = "Password updated successfully"
-	s.accountSettingsTemplate.Execute(w, pageData)
+// HandleChangeUsernameGet godoc
+// @Summary      Show change username page
+// @Description  Displays the change username form
+// @Tags         account
+// @Produce      html
+// @Success      200 {string} string "HTML change username page"
+// @Failure      401 {string} string "Unauthorized - no valid session"
+// @Router       /change-username [get]
+func (s *Server) HandleChangeUsernameGet(w http.ResponseWriter, r *http.Request) {
+	user, err := s.getUserFromSession(r)
+	if err != nil {
+		http.Redirect(w, r, "/oauth/login", http.StatusFound)
+		return
+	}
+	s.changeUsernameTemplate.Execute(w, ChangeUsernamePageData{CurrentUsername: user.Username})
+}
+
+// HandleChangeUsernamePost godoc
+// @Summary      Update username
+// @Description  Processes username change form submission
+// @Tags         account
+// @Accept       application/x-www-form-urlencoded
+// @Produce      html
+// @Param        new_username formData string true "New username"
+// @Param        password     formData string true "Password for verification"
+// @Success      200 {string} string "HTML change username page with success message"
+// @Failure      400 {string} string "Invalid request"
+// @Failure      401 {string} string "Unauthorized - invalid password"
+// @Router       /change-username [post]
+func (s *Server) HandleChangeUsernamePost(w http.ResponseWriter, r *http.Request) {
+	user, err := s.getUserFromSession(r)
+	if err != nil {
+		http.Redirect(w, r, "/oauth/login", http.StatusFound)
+		return
+	}
+
+	newUsername := r.FormValue("new_username")
+	password := r.FormValue("password")
+
+	pageData := ChangeUsernamePageData{CurrentUsername: user.Username}
+
+	// Validate that all fields are provided
+	if newUsername == "" || password == "" {
+		pageData.Error = "All fields are required"
+		w.WriteHeader(http.StatusBadRequest)
+		s.changeUsernameTemplate.Execute(w, pageData)
+		return
+	}
+
+	// Validate password
+	valid, err := auth.VerifyPassword(password, user.PasswordHash)
+	if err != nil {
+		log.Printf("[ERROR] HandleChangeUsernamePost: Failed to verify password: %v", err)
+		pageData.Error = "An error occurred"
+		w.WriteHeader(http.StatusInternalServerError)
+		s.changeUsernameTemplate.Execute(w, pageData)
+		return
+	}
+	if !valid {
+		pageData.Error = "Password is incorrect"
+		w.WriteHeader(http.StatusUnauthorized)
+		s.changeUsernameTemplate.Execute(w, pageData)
+		return
+	}
+
+	// Check if username is already taken
+	_, err = s.datastore.Q.GetUserByUsername(r.Context(), newUsername)
+	if err == nil {
+		pageData.Error = "Username is already taken"
+		w.WriteHeader(http.StatusBadRequest)
+		s.changeUsernameTemplate.Execute(w, pageData)
+		return
+	}
+
+	// Update username in database
+	err = s.datastore.Q.UpdateUserUsername(r.Context(), db.UpdateUserUsernameParams{
+		Username: newUsername,
+		ID:       user.ID,
+	})
+	if err != nil {
+		log.Printf("[ERROR] HandleChangeUsernamePost: Failed to update username: %v", err)
+		pageData.Error = "An error occurred"
+		w.WriteHeader(http.StatusInternalServerError)
+		s.changeUsernameTemplate.Execute(w, pageData)
+		return
+	}
+
+	log.Printf("[DEBUG] HandleChangeUsernamePost: Username updated successfully from %s to %s", user.Username, newUsername)
+	s.changeUsernameTemplate.Execute(w, ChangeUsernamePageData{
+		Success:         "Username updated successfully",
+		CurrentUsername: newUsername,
+	})
+}
+
+// HandleChangeEmailGet godoc
+// @Summary      Show change email page
+// @Description  Displays the change email form
+// @Tags         account
+// @Produce      html
+// @Success      200 {string} string "HTML change email page"
+// @Failure      401 {string} string "Unauthorized - no valid session"
+// @Router       /change-email [get]
+func (s *Server) HandleChangeEmailGet(w http.ResponseWriter, r *http.Request) {
+	user, err := s.getUserFromSession(r)
+	if err != nil {
+		http.Redirect(w, r, "/oauth/login", http.StatusFound)
+		return
+	}
+	s.changeEmailTemplate.Execute(w, ChangeEmailPageData{CurrentEmail: user.Email})
+}
+
+// HandleChangeEmailPost godoc
+// @Summary      Update email
+// @Description  Processes email change form submission
+// @Tags         account
+// @Accept       application/x-www-form-urlencoded
+// @Produce      html
+// @Param        new_email formData string true "New email address"
+// @Param        password  formData string true "Password for verification"
+// @Success      200 {string} string "HTML change email page with success message"
+// @Failure      400 {string} string "Invalid request"
+// @Failure      401 {string} string "Unauthorized - invalid password"
+// @Router       /change-email [post]
+func (s *Server) HandleChangeEmailPost(w http.ResponseWriter, r *http.Request) {
+	user, err := s.getUserFromSession(r)
+	if err != nil {
+		http.Redirect(w, r, "/oauth/login", http.StatusFound)
+		return
+	}
+
+	newEmail := r.FormValue("new_email")
+	password := r.FormValue("password")
+
+	pageData := ChangeEmailPageData{CurrentEmail: user.Email}
+
+	// Validate that all fields are provided
+	if newEmail == "" || password == "" {
+		pageData.Error = "All fields are required"
+		w.WriteHeader(http.StatusBadRequest)
+		s.changeEmailTemplate.Execute(w, pageData)
+		return
+	}
+
+	// Validate password
+	valid, err := auth.VerifyPassword(password, user.PasswordHash)
+	if err != nil {
+		log.Printf("[ERROR] HandleChangeEmailPost: Failed to verify password: %v", err)
+		pageData.Error = "An error occurred"
+		w.WriteHeader(http.StatusInternalServerError)
+		s.changeEmailTemplate.Execute(w, pageData)
+		return
+	}
+	if !valid {
+		pageData.Error = "Password is incorrect"
+		w.WriteHeader(http.StatusUnauthorized)
+		s.changeEmailTemplate.Execute(w, pageData)
+		return
+	}
+
+	// Check if email is already taken
+	_, err = s.datastore.Q.GetUserByEmail(r.Context(), newEmail)
+	if err == nil {
+		pageData.Error = "Email is already taken"
+		w.WriteHeader(http.StatusBadRequest)
+		s.changeEmailTemplate.Execute(w, pageData)
+		return
+	}
+
+	// Update email in database
+	err = s.datastore.Q.UpdateUserEmail(r.Context(), db.UpdateUserEmailParams{
+		Email: newEmail,
+		ID:    user.ID,
+	})
+	if err != nil {
+		log.Printf("[ERROR] HandleChangeEmailPost: Failed to update email: %v", err)
+		pageData.Error = "An error occurred"
+		w.WriteHeader(http.StatusInternalServerError)
+		s.changeEmailTemplate.Execute(w, pageData)
+		return
+	}
+
+	log.Printf("[DEBUG] HandleChangeEmailPost: Email updated successfully from %s to %s", user.Email, newEmail)
+	s.changeEmailTemplate.Execute(w, ChangeEmailPageData{
+		Success:      "Email updated successfully",
+		CurrentEmail: newEmail,
+	})
+}
+
+// renderChangePasswordError renders the change password page with an error message
+func (s *Server) renderChangePasswordError(w http.ResponseWriter, statusCode int, errorMsg string) {
+	w.WriteHeader(statusCode)
+	s.changePasswordTemplate.Execute(w, ChangePasswordPageData{Error: errorMsg})
 }
 
 // getUserFromSession retrieves the authenticated user from the session cookie
@@ -147,15 +348,4 @@ func (s *Server) getUserFromSession(r *http.Request) (db.AuthUser, error) {
 	}
 
 	return user, nil
-}
-
-// renderAccountSettingsError renders the account settings page with an error message
-func (s *Server) renderAccountSettingsError(w http.ResponseWriter, statusCode int, errorMsg string, pageData AccountSettingsPageData) {
-	w.WriteHeader(statusCode)
-	pageData.Error = errorMsg
-	err := s.accountSettingsTemplate.Execute(w, pageData)
-	if err != nil {
-		log.Printf("[ERROR] renderAccountSettingsError: Failed to render template: %v", err)
-		http.Error(w, "An error occurred", http.StatusInternalServerError)
-	}
 }
