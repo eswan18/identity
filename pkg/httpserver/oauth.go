@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -383,7 +384,20 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 	// Check if token has been revoked by looking up the JTI
 	if claims.ID != "" {
 		token, err := s.datastore.Q.GetTokenByAccessToken(r.Context(), sql.NullString{String: claims.ID, Valid: true})
-		if err == nil && token.RevokedAt.Valid {
+		if err != nil {
+			if !errors.Is(err, sql.ErrNoRows) {
+				// Database error (not "not found") - fail closed for security
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error":             "server_error",
+					"error_description": "Failed to verify token status",
+				})
+				return
+			}
+			// Token not found in DB - that's okay, JWT is still valid
+			// This can happen if revocation tracking is not enabled
+		} else if token.RevokedAt.Valid {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{
@@ -392,8 +406,6 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		// Note: If token not found in DB, that's okay - JWT is still valid
-		// This can happen if revocation tracking is not enabled
 	}
 
 	// Return OIDC standard claims from JWT
