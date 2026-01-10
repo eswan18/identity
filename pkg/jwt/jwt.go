@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"math/big"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"

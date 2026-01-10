@@ -187,11 +187,14 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 		return TokenPair{}, fmt.Errorf("failed to get user: %w", err)
 	}
 
+	// Extract email as string (field is interface{})
+	email, _ := user.Email.(string)
+
 	// Generate JWT access token
 	accessToken, jti, err := s.jwtGenerator.GenerateAccessToken(
 		userID.String(),
 		user.Username,
-		user.Email,
+		email,
 		scope,
 		accessTokenExpiresIn,
 	)
