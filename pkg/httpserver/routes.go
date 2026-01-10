@@ -74,6 +74,9 @@ func (s *Server) registerRoutes() {
 		r.Get("/userinfo", s.HandleOauthUserInfo)
 		r.Post("/introspect", s.HandleIntrospect)
 		r.Post("/revoke", s.HandleOauthRevoke)
+		// Account settings
+		r.Get("/account-settings", s.HandleAccountSettingsGet)
+		r.Post("/account-settings", s.HandleAccountSettingsPost)
 	})
 
 	// Swagger

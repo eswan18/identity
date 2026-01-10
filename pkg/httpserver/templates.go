@@ -32,3 +32,11 @@ type ErrorPageData struct {
 	ErrorCode   string
 	RedirectURI string
 }
+
+// AccountSettingsPageData holds the data needed to render the account settings page template.
+type AccountSettingsPageData struct {
+	Error    string
+	Success  string
+	Username string
+	Email    string
+}

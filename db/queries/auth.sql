@@ -134,3 +134,8 @@ WHERE id = $1
 -- name: DeleteSession :exec
 DELETE FROM auth_sessions
 WHERE id = $1;
+
+-- name: UpdateUserPassword :exec
+UPDATE auth_users
+SET password_hash = $1, updated_at = now()
+WHERE id = $2;
