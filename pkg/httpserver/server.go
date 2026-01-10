@@ -27,6 +27,9 @@ type Server struct {
 	errorTemplate           *template.Template
 	successTemplate         *template.Template
 	accountSettingsTemplate *template.Template
+	changePasswordTemplate  *template.Template
+	changeUsernameTemplate  *template.Template
+	changeEmailTemplate     *template.Template
 }
 
 func New(config *config.Config, datastore *store.Store) *Server {
@@ -36,6 +39,9 @@ func New(config *config.Config, datastore *store.Store) *Server {
 	errorTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/error.html"))
 	successTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/success.html"))
 	accountSettingsTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/account-settings.html"))
+	changePasswordTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/change-password.html"))
+	changeUsernameTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/change-username.html"))
+	changeEmailTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/change-email.html"))
 
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -68,6 +74,9 @@ func New(config *config.Config, datastore *store.Store) *Server {
 		errorTemplate:           errorTemplate,
 		successTemplate:         successTemplate,
 		accountSettingsTemplate: accountSettingsTemplate,
+		changePasswordTemplate:  changePasswordTemplate,
+		changeUsernameTemplate:  changeUsernameTemplate,
+		changeEmailTemplate:     changeEmailTemplate,
 	}
 	s.registerRoutes()
 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Account Settings</title>
+    <title>Change Username</title>
     <style>
         *, *::before, *::after {
             margin: 0;
@@ -76,33 +76,25 @@
             border: 1px solid #bbf7d0;
         }
 
-        .section {
-            margin-bottom: 2rem;
+        .current-value {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
         }
 
-        .section-title {
-            font-size: 1rem;
-            font-weight: 600;
-            color: #374151;
-            margin-bottom: 1rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 1px solid #e5e7eb;
-        }
-
-        .info-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0.75rem 0;
-        }
-
-        .info-label {
-            font-size: 0.875rem;
+        .current-value-label {
+            font-size: 0.75rem;
+            font-weight: 500;
             color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.25rem;
         }
 
-        .info-value {
-            font-size: 0.875rem;
+        .current-value-text {
+            font-size: 1rem;
             font-weight: 500;
             color: #1f2937;
         }
@@ -152,6 +144,7 @@
             border-radius: 0.5rem;
             cursor: pointer;
             transition: background-color 0.15s, transform 0.1s;
+            text-decoration: none;
         }
 
         .btn-primary {
@@ -170,33 +163,11 @@
         .btn-secondary {
             background: #f3f4f6;
             color: #374151;
-            text-decoration: none;
+            margin-top: 0.75rem;
         }
 
         .btn-secondary:hover {
             background: #e5e7eb;
-        }
-
-        .action-buttons {
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-        }
-
-        .btn-danger {
-            background: #dc2626;
-            color: #fff;
-            text-decoration: none;
-        }
-
-        .btn-danger:hover {
-            background: #b91c1c;
-        }
-
-        .logout-section {
-            margin-bottom: 1.5rem;
-            padding-bottom: 1.5rem;
-            border-bottom: 1px solid #e5e7eb;
         }
 
         .branding {
@@ -239,16 +210,16 @@
                 color: #86efac;
             }
 
-            .section-title {
-                color: #d1d5db;
-                border-bottom-color: #374151;
+            .current-value {
+                background: #374151;
+                border-color: #4b5563;
             }
 
-            .info-label {
+            .current-value-label {
                 color: #9ca3af;
             }
 
-            .info-value {
+            .current-value-text {
                 color: #f3f4f6;
             }
 
@@ -288,18 +259,6 @@
                 background: #4b5563;
             }
 
-            .btn-danger {
-                background: #dc2626;
-            }
-
-            .btn-danger:hover {
-                background: #b91c1c;
-            }
-
-            .logout-section {
-                border-bottom-color: #374151;
-            }
-
             .branding {
                 border-top-color: #374151;
                 color: #6b7280;
@@ -310,8 +269,8 @@
 <body>
     <div class="card">
         <div class="header">
-            <h1>Account Settings</h1>
-            <p>Manage your account details</p>
+            <h1>Change Username</h1>
+            <p>Update your account username</p>
         </div>
 
         {{if .Error}}
@@ -332,32 +291,40 @@
         </div>
         {{end}}
 
-        <div class="section">
-            <h2 class="section-title">Account Information</h2>
-            <div class="info-row">
-                <span class="info-label">Username</span>
-                <span class="info-value">{{.Username}}</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Email</span>
-                <span class="info-value">{{.Email}}</span>
-            </div>
+        <div class="current-value">
+            <div class="current-value-label">Current Username</div>
+            <div class="current-value-text">{{.CurrentUsername}}</div>
         </div>
 
-        <div class="logout-section">
-            <form method="POST" action="/oauth/logout">
-                <button type="submit" class="btn btn-danger">Log Out</button>
-            </form>
-        </div>
-
-        <div class="section">
-            <h2 class="section-title">Account Actions</h2>
-            <div class="action-buttons">
-                <a href="/oauth/change-username" class="btn btn-secondary">Change Username</a>
-                <a href="/oauth/change-password" class="btn btn-secondary">Change Password</a>
-                <a href="/oauth/change-email" class="btn btn-secondary">Change Email</a>
+        <form method="POST" action="/oauth/change-username">
+            <div class="form-group">
+                <label for="new_username">New Username</label>
+                <input
+                    type="text"
+                    id="new_username"
+                    name="new_username"
+                    placeholder="Enter your new username"
+                    required
+                    autocomplete="username"
+                >
             </div>
-        </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input
+                    type="password"
+                    id="password"
+                    name="password"
+                    placeholder="Enter your password to confirm"
+                    required
+                    autocomplete="current-password"
+                >
+            </div>
+
+            <button type="submit" class="btn btn-primary">Update Username</button>
+        </form>
+
+        <a href="/oauth/account-settings" class="btn btn-secondary">Back to Account Settings</a>
 
         <div class="branding">
             Identity Service

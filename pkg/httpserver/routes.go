@@ -79,7 +79,15 @@ func (s *Server) registerRoutes() {
 		r.Post("/revoke", s.HandleOauthRevoke)
 		// Account settings
 		r.Get("/account-settings", s.HandleAccountSettingsGet)
-		r.Post("/account-settings", s.HandleAccountSettingsPost)
+		// Change password
+		r.Get("/change-password", s.HandleChangePasswordGet)
+		r.Post("/change-password", s.HandleChangePasswordPost)
+		// Change username
+		r.Get("/change-username", s.HandleChangeUsernameGet)
+		r.Post("/change-username", s.HandleChangeUsernamePost)
+		// Change email
+		r.Get("/change-email", s.HandleChangeEmailGet)
+		r.Post("/change-email", s.HandleChangeEmailPost)
 	})
 
 	// Swagger

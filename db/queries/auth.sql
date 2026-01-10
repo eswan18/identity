@@ -139,3 +139,13 @@ WHERE id = $1;
 UPDATE auth_users
 SET password_hash = $1, updated_at = now()
 WHERE id = $2;
+
+-- name: UpdateUserUsername :exec
+UPDATE auth_users
+SET username = $1, updated_at = now()
+WHERE id = $2;
+
+-- name: UpdateUserEmail :exec
+UPDATE auth_users
+SET email = $1, updated_at = now()
+WHERE id = $2;

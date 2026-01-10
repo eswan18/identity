@@ -40,3 +40,23 @@ type AccountSettingsPageData struct {
 	Username string
 	Email    string
 }
+
+// ChangePasswordPageData holds the data needed to render the change password page template.
+type ChangePasswordPageData struct {
+	Error   string
+	Success string
+}
+
+// ChangeUsernamePageData holds the data needed to render the change username page template.
+type ChangeUsernamePageData struct {
+	Error           string
+	Success         string
+	CurrentUsername string
+}
+
+// ChangeEmailPageData holds the data needed to render the change email page template.
+type ChangeEmailPageData struct {
+	Error        string
+	Success      string
+	CurrentEmail string
+}
