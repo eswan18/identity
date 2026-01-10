@@ -16,33 +16,37 @@ type Config struct {
 }
 
 func NewFromEnv() *Config {
+	var config *Config
+
 	// If running on Koyeb, use environment variables directly (no .env file loading)
 	if _, ok := os.LookupEnv("KOYEB_APP_ID"); ok {
 		log.Println("Loading environment variables directly from Koyeb")
-		return &Config{
+		config = &Config{
 			DatabaseURL:   os.Getenv("DATABASE_URL"),
 			TemplatesDir:  os.Getenv("TEMPLATES_DIR"),
 			HTTPAddress:   os.Getenv("HTTP_ADDRESS"),
 			JWTPrivateKey: os.Getenv("JWT_PRIVATE_KEY"),
 			JWTIssuer:     os.Getenv("JWT_ISSUER"),
 		}
+	} else {
+		// Local development: load from .env files
+		env := os.Getenv("ENV")
+		if env == "" {
+			env = "local"
+		}
+		godotenv.Load(".env." + env)
+		log.Println("Loaded environment variables from .env." + env)
+
+		config = &Config{
+			HTTPAddress:   os.Getenv("HTTP_ADDRESS"),
+			DatabaseURL:   os.Getenv("DATABASE_URL"),
+			TemplatesDir:  os.Getenv("TEMPLATES_DIR"),
+			JWTPrivateKey: os.Getenv("JWT_PRIVATE_KEY"),
+			JWTIssuer:     os.Getenv("JWT_ISSUER"),
+		}
 	}
 
-	// Local development: load from .env files
-	env := os.Getenv("ENV")
-	if env == "" {
-		env = "local"
-	}
-	godotenv.Load(".env." + env)
-	log.Println("Loaded environment variables from .env." + env)
-
-	config := &Config{
-		HTTPAddress:   os.Getenv("HTTP_ADDRESS"),
-		DatabaseURL:   os.Getenv("DATABASE_URL"),
-		TemplatesDir:  os.Getenv("TEMPLATES_DIR"),
-		JWTPrivateKey: os.Getenv("JWT_PRIVATE_KEY"),
-		JWTIssuer:     os.Getenv("JWT_ISSUER"),
-	}
+	// Validate required fields (applies to both Koyeb and local environments)
 	if config.HTTPAddress == "" {
 		log.Fatal("HTTP_ADDRESS is not set")
 	}
