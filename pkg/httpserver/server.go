@@ -46,7 +46,6 @@ func New(config *config.Config, datastore *store.Store) *Server {
 	rateLimitStore := newRateLimitStore()
 	r.Use(rateLimitMiddleware(rateLimitStore, 20))
 
-	// Initialize JWT generator
 	jwtGen, err := jwt.NewGenerator(
 		config.JWTPrivateKey,
 		config.JWTIssuer,

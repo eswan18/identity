@@ -202,7 +202,6 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 		return TokenPair{}, fmt.Errorf("failed to generate access token: %w", err)
 	}
 
-	// Generate opaque refresh token (unchanged)
 	refreshToken, err := generateRandomString(32)
 	if err != nil {
 		return TokenPair{}, err
