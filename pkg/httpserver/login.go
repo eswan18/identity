@@ -140,16 +140,6 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("[DEBUG] HandleLoginPost: Session created successfully: %s", session.ID)
 
-	// Validate OAuth client, redirect URI, and scopes
-	log.Printf("[DEBUG] HandleLoginPost: Validating OAuth client: %s", clientID)
-	client, err := s.validateOAuthClient(r.Context(), clientID, redirectURI, scope)
-	if err != nil {
-		log.Printf("[ERROR] HandleLoginPost: OAuth client validation failed: %v", err)
-		s.renderLoginError(w, http.StatusBadRequest, err.Error(), oauthParams)
-		return
-	}
-	log.Printf("[DEBUG] HandleLoginPost: OAuth client validated: %s", client.ID)
-
 	// Set secure session cookie
 	// Secure flag should be true in production (HTTPS), false for local dev
 	isSecure := strings.HasPrefix(s.config.HTTPAddress, "https://") || strings.Contains(s.config.HTTPAddress, ":443")
@@ -163,10 +153,27 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 		Secure:   isSecure,
 		SameSite: http.SameSiteLaxMode,
 	})
+
+	// Check if this is a direct login (no OAuth flow)
+	if clientID == "" {
+		// Direct login: redirect to account settings
+		log.Printf("[DEBUG] HandleLoginPost: Direct login (no client_id), redirecting to account settings")
+		http.Redirect(w, r, "/oauth/account-settings", http.StatusFound)
+		return
+	}
+
+	// Validate OAuth client, redirect URI, and scopes
+	log.Printf("[DEBUG] HandleLoginPost: Validating OAuth client: %s", clientID)
+	client, err := s.validateOAuthClient(r.Context(), clientID, redirectURI, scope)
+	if err != nil {
+		log.Printf("[ERROR] HandleLoginPost: OAuth client validation failed: %v", err)
+		s.renderLoginError(w, http.StatusBadRequest, err.Error(), oauthParams)
+		return
+	}
+	log.Printf("[DEBUG] HandleLoginPost: OAuth client validated: %s", client.ID)
+
 	if redirectURI == "" {
-		// Direct login (no OAuth):
-		// There's no real reason to log in without a redirect except to check your password, but maybe someday.
-		// For now, we'll just show a success page explaining how to access applications.
+		// OAuth flow but no redirect URI - show success page
 		log.Printf("[DEBUG] HandleLoginPost: No redirect URI, redirecting to success page")
 		http.Redirect(w, r, "/oauth/success", http.StatusFound)
 		return
