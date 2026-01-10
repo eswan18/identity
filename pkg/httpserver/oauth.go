@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -372,11 +373,14 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 	// Audience validation is done by resource servers (like the fitness API).
 	claims, err := s.jwtGenerator.ValidateToken(accessToken, "")
 	if err != nil {
+		// Log the detailed error server-side, but return generic error to client
+		// to avoid leaking information about token structure or validation logic
+		log.Printf("JWT validation failed: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{
 			"error":             "invalid_token",
-			"error_description": "Invalid access token: " + err.Error(),
+			"error_description": "Invalid or expired access token",
 		})
 		return
 	}
