@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"encoding/base64"
+	"testing"
+)
 
 const validPrivateKey = `-----BEGIN EC PRIVATE KEY-----
 MHcCAQEEICQMNHONu2Sud2tu6jgOZs3LIj5yOZr89NBMLYiyqBK/oAoGCCqGSM49
@@ -96,6 +99,39 @@ func TestValidateIssuerURL(t *testing.T) {
 			err := validateIssuerURL(tt.issuer)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateIssuerURL(%q) error = %v, wantErr %v", tt.issuer, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestDecodePrivateKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "already PEM format",
+			input:    validPrivateKey,
+			expected: validPrivateKey,
+		},
+		{
+			name:     "base64 encoded PEM",
+			input:    base64.StdEncoding.EncodeToString([]byte(validPrivateKey)),
+			expected: validPrivateKey,
+		},
+		{
+			name:     "invalid base64 returns original",
+			input:    "not-valid-base64!!!",
+			expected: "not-valid-base64!!!",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := decodePrivateKey(tt.input)
+			if result != tt.expected {
+				t.Errorf("decodePrivateKey() = %q, want %q", result, tt.expected)
 			}
 		})
 	}
