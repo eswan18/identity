@@ -2,10 +2,12 @@ package config
 
 import (
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"log"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -66,6 +68,9 @@ func NewFromEnv() *Config {
 		log.Fatal("JWT_ISSUER is not set")
 	}
 
+	// Decode JWT_PRIVATE_KEY if it's base64-encoded (for environments that don't support multiline values)
+	config.JWTPrivateKey = decodePrivateKey(config.JWTPrivateKey)
+
 	// Validate JWT_PRIVATE_KEY is a valid PEM-encoded ECDSA private key
 	if err := validateECDSAPrivateKey(config.JWTPrivateKey); err != nil {
 		log.Fatalf("JWT_PRIVATE_KEY is invalid: %v", err)
@@ -77,6 +82,25 @@ func NewFromEnv() *Config {
 	}
 
 	return config
+}
+
+// decodePrivateKey decodes a private key that may be base64-encoded.
+// If the key starts with "-----BEGIN", it's already PEM format and returned as-is.
+// Otherwise, it's assumed to be base64-encoded and is decoded.
+func decodePrivateKey(key string) string {
+	// If it already looks like PEM, return as-is
+	if strings.HasPrefix(key, "-----BEGIN") {
+		return key
+	}
+
+	// Try to decode as base64
+	decoded, err := base64.StdEncoding.DecodeString(key)
+	if err != nil {
+		// Not valid base64, return original (will fail validation with clear error)
+		return key
+	}
+
+	return string(decoded)
 }
 
 // validateECDSAPrivateKey checks that the given string is a valid PEM-encoded ECDSA private key.
