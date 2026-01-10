@@ -24,6 +24,24 @@ jobs:
 
       - name: Build
         run: go build -v ./...
+        env:
+          JWT_PRIVATE_KEY: |
+            -----BEGIN EC PRIVATE KEY-----
+            MHcCAQEEICQMNHONu2Sud2tu6jgOZs3LIj5yOZr89NBMLYiyqBK/oAoGCCqGSM49
+            AwEHoUQDQgAERCHWHrX20emk31HypGNgptwBjdZOyBybV/9BLTbJPj8UsZ/46ri5
+            /eFKkRfNApxFU/5lk1RGQJqt8t0GvkkJdw==
+            -----END EC PRIVATE KEY-----
+          JWT_ISSUER: http://localhost:8080
+          JWT_AUDIENCE: http://localhost:8000
 
       - name: Run tests
         run: go test -v ./...
+        env:
+          JWT_PRIVATE_KEY: |
+            -----BEGIN EC PRIVATE KEY-----
+            MHcCAQEEICQMNHONu2Sud2tu6jgOZs3LIj5yOZr89NBMLYiyqBK/oAoGCCqGSM49
+            AwEHoUQDQgAERCHWHrX20emk31HypGNgptwBjdZOyBybV/9BLTbJPj8UsZ/46ri5
+            /eFKkRfNApxFU/5lk1RGQJqt8t0GvkkJdw==
+            -----END EC PRIVATE KEY-----
+          JWT_ISSUER: http://localhost:8080
+          JWT_AUDIENCE: http://localhost:8000
