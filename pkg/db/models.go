@@ -49,6 +49,7 @@ type OauthClient struct {
 	RedirectUris   []string       `json:"redirect_uris"`
 	AllowedScopes  []string       `json:"allowed_scopes"`
 	IsConfidential bool           `json:"is_confidential"`
+	Audience       string         `json:"audience"`
 	CreatedAt      time.Time      `json:"created_at"`
 	UpdatedAt      time.Time      `json:"updated_at"`
 }

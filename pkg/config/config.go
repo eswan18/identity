@@ -13,7 +13,6 @@ type Config struct {
 	TemplatesDir  string
 	JWTPrivateKey string
 	JWTIssuer     string
-	JWTAudience   string
 }
 
 func NewFromEnv() *Config {
@@ -26,7 +25,6 @@ func NewFromEnv() *Config {
 			HTTPAddress:   os.Getenv("HTTP_ADDRESS"),
 			JWTPrivateKey: os.Getenv("JWT_PRIVATE_KEY"),
 			JWTIssuer:     os.Getenv("JWT_ISSUER"),
-			JWTAudience:   os.Getenv("JWT_AUDIENCE"),
 		}
 	}
 
@@ -44,7 +42,6 @@ func NewFromEnv() *Config {
 		TemplatesDir:  os.Getenv("TEMPLATES_DIR"),
 		JWTPrivateKey: os.Getenv("JWT_PRIVATE_KEY"),
 		JWTIssuer:     os.Getenv("JWT_ISSUER"),
-		JWTAudience:   os.Getenv("JWT_AUDIENCE"),
 	}
 	if config.HTTPAddress == "" {
 		log.Fatal("HTTP_ADDRESS is not set")
@@ -60,9 +57,6 @@ func NewFromEnv() *Config {
 	}
 	if config.JWTIssuer == "" {
 		log.Fatal("JWT_ISSUER is not set")
-	}
-	if config.JWTAudience == "" {
-		log.Fatal("JWT_AUDIENCE is not set")
 	}
 	return config
 }

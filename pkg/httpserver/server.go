@@ -49,7 +49,6 @@ func New(config *config.Config, datastore *store.Store) *Server {
 	jwtGen, err := jwt.NewGenerator(
 		config.JWTPrivateKey,
 		config.JWTIssuer,
-		config.JWTAudience,
 		"key-1",
 	)
 	if err != nil {

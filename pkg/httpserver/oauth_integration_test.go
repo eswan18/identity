@@ -35,6 +35,12 @@ const (
 	testPgDatabase = "identity"
 )
 
+const testJWTPrivateKey = `-----BEGIN EC PRIVATE KEY-----
+MHcCAQEEICQMNHONu2Sud2tu6jgOZs3LIj5yOZr89NBMLYiyqBK/oAoGCCqGSM49
+AwEHoUQDQgAERCHWHrX20emk31HypGNgptwBjdZOyBybV/9BLTbJPj8UsZ/46ri5
+/eFKkRfNApxFU/5lk1RGQJqt8t0GvkkJdw==
+-----END EC PRIVATE KEY-----`
+
 type UserWithPassword struct {
 	db.AuthUser
 	Password string
@@ -68,7 +74,12 @@ func (s *OAuthFlowSuite) SetupSuite() {
 	s.datastore, err = store.New(dbURL)
 	s.NoError(err)
 
-	config := &config.Config{HTTPAddress: ":8080", TemplatesDir: "../../templates"}
+	config := &config.Config{
+		HTTPAddress:   ":8080",
+		TemplatesDir:  "../../templates",
+		JWTPrivateKey: testJWTPrivateKey,
+		JWTIssuer:     "http://localhost:8080",
+	}
 	s.server = New(config, s.datastore)
 	go s.server.Run()
 	// Wait for the server to be listening before returning.
@@ -140,6 +151,7 @@ func (s *OAuthFlowSuite) TestOAuthIntegrationForNonconfidentialClient() {
 		RedirectUris:   []string{clientCallbackURI},
 		AllowedScopes:  []string{"openid", "profile", "email"},
 		IsConfidential: false,
+		Audience:       "http://localhost:8000",
 	})
 	user := s.mustRegisterUser(
 		s.mustGenerateRandomString(8),

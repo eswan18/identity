@@ -18,7 +18,6 @@ type Generator struct {
 	privateKey *ecdsa.PrivateKey
 	publicKey  *ecdsa.PublicKey
 	issuer     string
-	audience   string
 	keyID      string
 }
 
@@ -31,7 +30,7 @@ type Claims struct {
 }
 
 // NewGenerator creates a new JWT generator from a PEM-encoded ECDSA private key
-func NewGenerator(privateKeyPEM, issuer, audience, keyID string) (*Generator, error) {
+func NewGenerator(privateKeyPEM, issuer, keyID string) (*Generator, error) {
 	// Parse PEM block
 	block, _ := pem.Decode([]byte(privateKeyPEM))
 	if block == nil {
@@ -48,14 +47,13 @@ func NewGenerator(privateKeyPEM, issuer, audience, keyID string) (*Generator, er
 		privateKey: privateKey,
 		publicKey:  &privateKey.PublicKey,
 		issuer:     issuer,
-		audience:   audience,
 		keyID:      keyID,
 	}, nil
 }
 
 // GenerateAccessToken creates a signed JWT access token
 func (g *Generator) GenerateAccessToken(
-	userID, username, email string,
+	userID, username, email, audience string,
 	scope []string,
 	expiresIn time.Duration,
 ) (token string, jti string, err error) {
@@ -66,7 +64,7 @@ func (g *Generator) GenerateAccessToken(
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    g.issuer,
 			Subject:   userID,
-			Audience:  jwt.ClaimStrings{g.audience},
+			Audience:  jwt.ClaimStrings{audience},
 			ExpiresAt: jwt.NewNumericDate(now.Add(expiresIn)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			ID:        jti,

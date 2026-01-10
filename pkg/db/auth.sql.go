@@ -32,10 +32,11 @@ INSERT INTO oauth_clients (
   name,
   redirect_uris,
   allowed_scopes,
-  is_confidential
+  is_confidential,
+  audience
 )
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, created_at, updated_at
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, audience, created_at, updated_at
 `
 
 type CreateOAuthClientParams struct {
@@ -45,6 +46,7 @@ type CreateOAuthClientParams struct {
 	RedirectUris   []string       `json:"redirect_uris"`
 	AllowedScopes  []string       `json:"allowed_scopes"`
 	IsConfidential bool           `json:"is_confidential"`
+	Audience       string         `json:"audience"`
 }
 
 func (q *Queries) CreateOAuthClient(ctx context.Context, arg CreateOAuthClientParams) (OauthClient, error) {
@@ -55,6 +57,7 @@ func (q *Queries) CreateOAuthClient(ctx context.Context, arg CreateOAuthClientPa
 		pq.Array(arg.RedirectUris),
 		pq.Array(arg.AllowedScopes),
 		arg.IsConfidential,
+		arg.Audience,
 	)
 	var i OauthClient
 	err := row.Scan(
@@ -65,6 +68,7 @@ func (q *Queries) CreateOAuthClient(ctx context.Context, arg CreateOAuthClientPa
 		pq.Array(&i.RedirectUris),
 		pq.Array(&i.AllowedScopes),
 		&i.IsConfidential,
+		&i.Audience,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -159,7 +163,7 @@ func (q *Queries) GetAuthorizationCode(ctx context.Context, code string) (OauthA
 }
 
 const getOAuthClientByClientID = `-- name: GetOAuthClientByClientID :one
-SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, created_at, updated_at
+SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, audience, created_at, updated_at
 FROM oauth_clients
 WHERE client_id = $1
 `
@@ -175,6 +179,31 @@ func (q *Queries) GetOAuthClientByClientID(ctx context.Context, clientID string)
 		pq.Array(&i.RedirectUris),
 		pq.Array(&i.AllowedScopes),
 		&i.IsConfidential,
+		&i.Audience,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getOAuthClientByID = `-- name: GetOAuthClientByID :one
+SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, audience, created_at, updated_at
+FROM oauth_clients
+WHERE id = $1
+`
+
+func (q *Queries) GetOAuthClientByID(ctx context.Context, id uuid.UUID) (OauthClient, error) {
+	row := q.db.QueryRowContext(ctx, getOAuthClientByID, id)
+	var i OauthClient
+	err := row.Scan(
+		&i.ID,
+		&i.ClientID,
+		&i.ClientSecret,
+		&i.Name,
+		pq.Array(&i.RedirectUris),
+		pq.Array(&i.AllowedScopes),
+		&i.IsConfidential,
+		&i.Audience,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -413,7 +442,7 @@ func (q *Queries) InsertToken(ctx context.Context, arg InsertTokenParams) (Oauth
 }
 
 const listOAuthClients = `-- name: ListOAuthClients :many
-SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, created_at, updated_at
+SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, audience, created_at, updated_at
 FROM oauth_clients
 ORDER BY created_at DESC
 `
@@ -435,6 +464,7 @@ func (q *Queries) ListOAuthClients(ctx context.Context) ([]OauthClient, error) {
 			pq.Array(&i.RedirectUris),
 			pq.Array(&i.AllowedScopes),
 			&i.IsConfidential,
+			&i.Audience,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -470,9 +500,10 @@ SET
   redirect_uris = COALESCE($2::text[], redirect_uris),
   allowed_scopes = COALESCE($3::text[], allowed_scopes),
   is_confidential = COALESCE($4, is_confidential),
+  audience = COALESCE(NULLIF($5::text, ''), audience),
   updated_at = now()
-WHERE client_id = $5
-RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, created_at, updated_at
+WHERE client_id = $6
+RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, audience, created_at, updated_at
 `
 
 type UpdateOAuthClientParams struct {
@@ -480,6 +511,7 @@ type UpdateOAuthClientParams struct {
 	RedirectUris   []string       `json:"redirect_uris"`
 	AllowedScopes  []string       `json:"allowed_scopes"`
 	IsConfidential sql.NullBool   `json:"is_confidential"`
+	Audience       sql.NullString `json:"audience"`
 	ClientID       string         `json:"client_id"`
 }
 
@@ -489,6 +521,7 @@ func (q *Queries) UpdateOAuthClient(ctx context.Context, arg UpdateOAuthClientPa
 		pq.Array(arg.RedirectUris),
 		pq.Array(arg.AllowedScopes),
 		arg.IsConfidential,
+		arg.Audience,
 		arg.ClientID,
 	)
 	var i OauthClient
@@ -500,6 +533,7 @@ func (q *Queries) UpdateOAuthClient(ctx context.Context, arg UpdateOAuthClientPa
 		pq.Array(&i.RedirectUris),
 		pq.Array(&i.AllowedScopes),
 		&i.IsConfidential,
+		&i.Audience,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

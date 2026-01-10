@@ -187,14 +187,21 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 		return TokenPair{}, fmt.Errorf("failed to get user: %w", err)
 	}
 
+	// Fetch client information for audience
+	client, err := s.datastore.Q.GetOAuthClientByID(ctx, clientID)
+	if err != nil {
+		return TokenPair{}, fmt.Errorf("failed to get client: %w", err)
+	}
+
 	// Extract email as string (field is interface{})
 	email, _ := user.Email.(string)
 
-	// Generate JWT access token
+	// Generate JWT access token with client's audience
 	accessToken, jti, err := s.jwtGenerator.GenerateAccessToken(
 		userID.String(),
 		user.Username,
 		email,
+		client.Audience,
 		scope,
 		accessTokenExpiresIn,
 	)
