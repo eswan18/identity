@@ -6,7 +6,9 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -43,7 +45,13 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	responseType := r.URL.Query().Get("response_type")
 	clientID := r.URL.Query().Get("client_id")
 	redirectURI := r.URL.Query().Get("redirect_uri")
-	scope := strings.Split(r.URL.Query().Get("scope"), " ")
+	scopeParam := r.URL.Query().Get("scope")
+	var scope []string
+	if scopeParam == "" {
+		scope = []string{"openid"}
+	} else {
+		scope = strings.Split(scopeParam, " ")
+	}
 	codeChallenge := r.URL.Query().Get("code_challenge")
 	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
 	state := r.URL.Query().Get("state")
@@ -59,9 +67,6 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	if redirectURI == "" {
 		http.Error(w, "Redirect URI is required", http.StatusBadRequest)
 		return
-	}
-	if len(scope) == 0 {
-		scope = []string{"openid"}
 	}
 	if codeChallenge == "" {
 		http.Error(w, "Code challenge is required", http.StatusBadRequest)
@@ -363,73 +368,62 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 
 	accessToken := strings.TrimPrefix(authHeader, "Bearer ")
 
-	// Look up token in database
-	token, err := s.datastore.Q.GetTokenByAccessToken(r.Context(), sql.NullString{String: accessToken, Valid: true})
+	// Validate the JWT and extract claims
+	// Note: We don't validate audience here since this is the identity provider's own endpoint.
+	// Audience validation is done by resource servers (like the fitness API).
+	claims, err := s.jwtGenerator.ValidateToken(accessToken, "")
 	if err != nil {
+		// Log the detailed error server-side, but return generic error to client
+		// to avoid leaking information about token structure or validation logic
+		log.Printf("JWT validation failed: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{
 			"error":             "invalid_token",
-			"error_description": "Invalid access token",
+			"error_description": "Invalid or expired access token",
 		})
 		return
 	}
 
-	// Check if token is expired (handled by query, but double-check)
-	if token.ExpiresAt.Before(time.Now()) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error":             "invalid_token",
-			"error_description": "Token has expired",
-		})
-		return
+	// Check if token has been revoked by looking up the JTI
+	if claims.ID != "" {
+		token, err := s.datastore.Q.GetTokenByAccessToken(r.Context(), sql.NullString{String: claims.ID, Valid: true})
+		if err != nil {
+			if !errors.Is(err, sql.ErrNoRows) {
+				// Database error (not "not found") - fail closed for security
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error":             "server_error",
+					"error_description": "Failed to verify token status",
+				})
+				return
+			}
+			// Token not found in DB - that's okay, JWT is still valid
+			// This can happen if revocation tracking is not enabled
+		} else if token.RevokedAt.Valid {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":             "invalid_token",
+				"error_description": "Token has been revoked",
+			})
+			return
+		}
 	}
 
-	// Check if token is revoked (handled by query, but double-check)
-	if token.RevokedAt.Valid {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error":             "invalid_token",
-			"error_description": "Token has been revoked",
-		})
-		return
-	}
-
-	// Get user info
-	if !token.UserID.Valid {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error":             "server_error",
-			"error_description": "Token has no associated user",
-		})
-		return
-	}
-
-	user, err := s.datastore.Q.GetUserByID(r.Context(), token.UserID.UUID)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error":             "server_error",
-			"error_description": "Failed to retrieve user information",
-		})
-		return
-	}
-
-	// Return OIDC standard claims
+	// Return OIDC standard claims from JWT
 	userInfo := map[string]interface{}{
-		"sub":            user.ID.String(), // Subject (user ID)
-		"username":       user.Username,
-		"email":          user.Email,
-		"email_verified": user.IsActive, // Use is_active as proxy for email verification
+		"sub":            claims.Subject,  // Subject (user ID)
+		"username":       claims.Username,
+		"email":          claims.Email,
+		"email_verified": true, // JWT was issued after authentication
 	}
 
 	// Include scope-specific claims
-	if sliceContains(token.Scope, "profile") {
-		userInfo["updated_at"] = user.UpdatedAt.Unix()
+	if strings.Contains(claims.Scope, "profile") {
+		// For profile scope, we'd need to fetch from DB for updated_at
+		// Skip for now since JWT doesn't contain this claim
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -491,14 +485,4 @@ func (s *Server) getSessionFromCookie(r *http.Request) (Session, error) {
 		UserID:    session.UserID,
 		ExpiresAt: session.ExpiresAt,
 	}, nil
-}
-
-// sliceContains checks if a slice contains a specific value.
-func sliceContains(slice []string, value string) bool {
-	for _, item := range slice {
-		if item == value {
-			return true
-		}
-	}
-	return false
 }

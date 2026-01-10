@@ -84,12 +84,7 @@ func (s *Server) validateCredentials(ctx context.Context, username, password str
 
 	valid, err := auth.VerifyPassword(password, user.PasswordHash)
 	if err != nil {
-		log.Printf("validateCredentials: ERROR verifying password for user %s: %v", username, err)
-		hashPreview := user.PasswordHash
-		if len(hashPreview) > 20 {
-			hashPreview = hashPreview[:20] + "..."
-		}
-		log.Printf("validateCredentials: password hash length=%d, preview=%s", len(user.PasswordHash), hashPreview)
+		log.Printf("validateCredentials: password verification error for user %s: %v", username, err)
 		return db.AuthUser{}, ErrInternal
 	}
 	if !valid {
@@ -181,9 +176,32 @@ func (s *Server) createSession(ctx context.Context, userID uuid.UUID) (Session, 
 // generateTokens creates new access and refresh tokens and stores them in the database.
 // Returns the token pair on success.
 func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID uuid.UUID, scope []string) (TokenPair, error) {
-	accessToken, err := generateRandomString(32)
+	// Fetch user information for JWT claims
+	user, err := s.datastore.Q.GetUserByID(ctx, userID)
 	if err != nil {
-		return TokenPair{}, err
+		return TokenPair{}, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	// Fetch client information for audience
+	client, err := s.datastore.Q.GetOAuthClientByID(ctx, clientID)
+	if err != nil {
+		return TokenPair{}, fmt.Errorf("failed to get client: %w", err)
+	}
+	if client.Audience == "" {
+		return TokenPair{}, fmt.Errorf("client %s has no audience configured", client.ClientID)
+	}
+
+	// Generate JWT access token with client's audience
+	accessToken, jti, err := s.jwtGenerator.GenerateAccessToken(
+		userID.String(),
+		user.Username,
+		user.Email,
+		client.Audience,
+		scope,
+		accessTokenExpiresIn,
+	)
+	if err != nil {
+		return TokenPair{}, fmt.Errorf("failed to generate access token: %w", err)
 	}
 
 	refreshToken, err := generateRandomString(32)
@@ -194,13 +212,15 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 	accessExpiresAt := time.Now().Add(accessTokenExpiresIn)
 	refreshExpiresAt := time.Now().Add(refreshTokenExpiresIn)
 
+	// Store token record in database
+	// Note: Store JTI (JWT ID) in access_token column for audit/revocation tracking
 	_, err = s.datastore.Q.InsertToken(ctx, db.InsertTokenParams{
-		AccessToken:      sql.NullString{String: accessToken, Valid: true},
+		AccessToken:      sql.NullString{String: jti, Valid: true}, // Store JTI, not full JWT
 		RefreshToken:     sql.NullString{String: refreshToken, Valid: true},
 		UserID:           uuid.NullUUID{UUID: userID, Valid: userID != uuid.Nil},
 		ClientID:         clientID,
 		Scope:            scope,
-		Column6:          "Bearer",
+		TokenType:        sql.NullString{String: "Bearer", Valid: true},
 		ExpiresAt:        accessExpiresAt,
 		RefreshExpiresAt: sql.NullTime{Time: refreshExpiresAt, Valid: true},
 	})
@@ -209,7 +229,7 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 	}
 
 	return TokenPair{
-		AccessToken:  accessToken,
+		AccessToken:  accessToken, // Return full JWT to client
 		RefreshToken: refreshToken,
 		ExpiresIn:    int(accessTokenExpiresIn.Seconds()),
 		Scope:        scope,

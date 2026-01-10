@@ -28,15 +28,21 @@ INSERT INTO oauth_clients (
   name,
   redirect_uris,
   allowed_scopes,
-  is_confidential
+  is_confidential,
+  audience
 )
-VALUES ($1, $2, $3, $4, $5, $6)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
 
 -- name: GetOAuthClientByClientID :one
 SELECT *
 FROM oauth_clients
 WHERE client_id = $1;
+
+-- name: GetOAuthClientByID :one
+SELECT *
+FROM oauth_clients
+WHERE id = $1;
 
 -- name: ListOAuthClients :many
 SELECT *
@@ -50,6 +56,7 @@ SET
   redirect_uris = COALESCE(sqlc.narg(redirect_uris)::text[], redirect_uris),
   allowed_scopes = COALESCE(sqlc.narg(allowed_scopes)::text[], allowed_scopes),
   is_confidential = COALESCE(sqlc.narg(is_confidential), is_confidential),
+  audience = COALESCE(NULLIF(sqlc.narg(audience)::text, ''), audience),
   updated_at = now()
 WHERE client_id = sqlc.arg(client_id)
 RETURNING *;
@@ -92,7 +99,7 @@ INSERT INTO oauth_tokens (
   expires_at,
   refresh_expires_at
 )
-VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'bearer'), $7, $8)
+VALUES ($1, $2, $3, $4, $5, COALESCE(sqlc.narg(token_type)::text, 'bearer'), $6, $7)
 RETURNING *;
 
 -- name: GetTokenByAccessToken :one

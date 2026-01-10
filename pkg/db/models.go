@@ -19,13 +19,13 @@ type AuthSession struct {
 }
 
 type AuthUser struct {
-	ID           uuid.UUID   `json:"id"`
-	Username     string      `json:"username"`
-	PasswordHash string      `json:"password_hash"`
-	Email        interface{} `json:"email"`
-	IsActive     bool        `json:"is_active"`
-	CreatedAt    time.Time   `json:"created_at"`
-	UpdatedAt    time.Time   `json:"updated_at"`
+	ID           uuid.UUID `json:"id"`
+	Username     string    `json:"username"`
+	PasswordHash string    `json:"password_hash"`
+	Email        string    `json:"email"`
+	IsActive     bool      `json:"is_active"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type OauthAuthorizationCode struct {
@@ -49,6 +49,7 @@ type OauthClient struct {
 	RedirectUris   []string       `json:"redirect_uris"`
 	AllowedScopes  []string       `json:"allowed_scopes"`
 	IsConfidential bool           `json:"is_confidential"`
+	Audience       string         `json:"audience"`
 	CreatedAt      time.Time      `json:"created_at"`
 	UpdatedAt      time.Time      `json:"updated_at"`
 }
