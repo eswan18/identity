@@ -41,19 +41,11 @@ SESSION_SECRET=your-random-secret-key-at-least-32-chars
 
 ## Setup
 
-1. **Start PostgreSQL** (via Docker or local install):
-   ```shell
-   docker run -d --name identity-db \
-     -e POSTGRES_USER=identity \
-     -e POSTGRES_PASSWORD=identity \
-     -e POSTGRES_DB=identity \
-     -p 5432:5432 \
-     postgres:15
-   ```
+1. Set DATABASE_URL to a non-prod database in `.env.dev`(I usually copy the connection string for the dev branch of the main db in Neon, but you could also spin up local postgres).
 
 2. **Run database migrations:**
    ```shell
-   DATABASE_URL="postgresql://identity:identity@localhost:5432/identity?sslmode=disable" make migrate-up
+   DATABASE_URL="..." make migrate-up
    ```
 
 3. **Build the server and CLI:**
@@ -239,7 +231,7 @@ For a Single Page Application (SPA) using PKCE:
 
 Start the server in development mode:
 ```shell
-ENV=dev ./identity
+ENV=dev make run
 ```
 
 Watch logs for debugging:
