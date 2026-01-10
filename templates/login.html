@@ -3,251 +3,259 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sign In - Forecasting App</title>
+    <title>Sign In</title>
     <style>
-        * {
+        *, *::before, *::after {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: #f7fafc;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 20px;
+            padding: 1.5rem;
+            line-height: 1.5;
+            color: #1f2937;
         }
 
-        .login-container {
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            padding: 40px;
+        .card {
+            background: #fff;
+            border-radius: 1rem;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+            padding: 2.5rem;
             width: 100%;
-            max-width: 420px;
+            max-width: 400px;
         }
 
-        .login-header {
+        .header {
             text-align: center;
-            margin-bottom: 32px;
+            margin-bottom: 2rem;
         }
 
-        .login-header h1 {
-            color: #1a202c;
-            font-size: 28px;
+        .header h1 {
+            font-size: 1.75rem;
             font-weight: 600;
-            margin-bottom: 8px;
+            color: #111827;
+            margin-bottom: 0.5rem;
         }
 
-        .login-header p {
-            color: #718096;
-            font-size: 14px;
+        .header p {
+            font-size: 0.938rem;
+            color: #6b7280;
         }
 
-        .error-message {
-            background-color: #fed7d7;
-            border: 1px solid #fc8181;
-            color: #c53030;
-            padding: 12px 16px;
-            border-radius: 8px;
-            margin-bottom: 24px;
-            font-size: 14px;
+        .alert {
+            padding: 0.875rem 1rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1.5rem;
+            font-size: 0.875rem;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
+            gap: 0.625rem;
         }
 
-        .error-message::before {
-            content: "⚠️";
-            margin-right: 8px;
-            font-size: 18px;
+        .alert svg {
+            flex-shrink: 0;
+            margin-top: 1px;
         }
 
-        .success-message {
-            background-color: #c6f6d5;
-            border: 1px solid #68d391;
-            color: #22543d;
-            padding: 12px 16px;
-            border-radius: 8px;
-            margin-bottom: 24px;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
+        .alert-error {
+            background: #fef2f2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
         }
 
-        .success-message::before {
-            content: "✓";
-            margin-right: 8px;
-            font-size: 18px;
-            font-weight: bold;
+        .alert-success {
+            background: #f0fdf4;
+            color: #166534;
+            border: 1px solid #bbf7d0;
         }
 
         .form-group {
-            margin-bottom: 20px;
+            margin-bottom: 1.25rem;
         }
 
         .form-group label {
             display: block;
-            color: #4a5568;
-            font-size: 14px;
+            font-size: 0.875rem;
             font-weight: 500;
-            margin-bottom: 8px;
+            color: #374151;
+            margin-bottom: 0.5rem;
         }
 
         .form-group input {
             width: 100%;
-            padding: 12px 16px;
-            border: 2px solid #e2e8f0;
-            border-radius: 8px;
-            font-size: 16px;
-            transition: all 0.2s;
-            background-color: #fff;
-            color: #1a202c;
+            padding: 0.75rem 1rem;
+            font-size: 1rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.5rem;
+            background: #fff;
+            color: #1f2937;
+            transition: border-color 0.15s, box-shadow 0.15s;
         }
 
         .form-group input:focus {
             outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            border-color: #6366f1;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
         }
 
         .form-group input::placeholder {
-            color: #a0aec0;
+            color: #9ca3af;
         }
 
-        .submit-button {
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             width: 100%;
-            padding: 14px;
-            background: #667eea;
-            color: white;
+            padding: 0.875rem 1.5rem;
+            font-size: 1rem;
+            font-weight: 500;
             border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
+            border-radius: 0.5rem;
             cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s;
-            margin-top: 8px;
+            transition: background-color 0.15s, transform 0.1s;
         }
 
-        .submit-button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
-            background-color: #5568d3;
+        .btn-primary {
+            background: #4f46e5;
+            color: #fff;
         }
 
-        .submit-button:active {
-            transform: translateY(0);
+        .btn-primary:hover {
+            background: #4338ca;
         }
 
-        .submit-button:focus {
-            outline: none;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.3);
+        .btn-primary:active {
+            transform: scale(0.98);
         }
 
-        .login-link {
+        .footer-link {
             text-align: center;
-            margin-top: 20px;
-            font-size: 14px;
-            color: #718096;
+            margin-top: 1.5rem;
+            font-size: 0.875rem;
+            color: #6b7280;
         }
 
-        .login-link a {
-            color: #667eea;
+        .footer-link a {
+            color: #4f46e5;
             text-decoration: none;
             font-weight: 500;
         }
 
-        .login-link a:hover {
+        .footer-link a:hover {
             text-decoration: underline;
         }
 
-        .footer-text {
+        .branding {
             text-align: center;
-            margin-top: 24px;
-            color: #718096;
-            font-size: 12px;
+            margin-top: 1.5rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #e5e7eb;
+            font-size: 0.75rem;
+            color: #9ca3af;
         }
 
         @media (prefers-color-scheme: dark) {
             body {
-                background: #1a202c;
+                background: linear-gradient(135deg, #111827 0%, #1f2937 100%);
+                color: #f3f4f6;
             }
 
-            .login-container {
-                background: #2d3748;
-                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            .card {
+                background: #1f2937;
+                box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
             }
 
-            .login-header h1 {
-                color: #f7fafc;
+            .header h1 {
+                color: #f9fafb;
             }
 
-            .login-header p {
-                color: #a0aec0;
+            .header p {
+                color: #9ca3af;
+            }
+
+            .alert-error {
+                background: rgba(239, 68, 68, 0.15);
+                border-color: rgba(239, 68, 68, 0.3);
+                color: #fca5a5;
+            }
+
+            .alert-success {
+                background: rgba(34, 197, 94, 0.15);
+                border-color: rgba(34, 197, 94, 0.3);
+                color: #86efac;
             }
 
             .form-group label {
-                color: #e2e8f0;
+                color: #d1d5db;
             }
 
             .form-group input {
-                background-color: #4a5568;
-                border-color: #4a5568;
-                color: #f7fafc;
+                background: #374151;
+                border-color: #4b5563;
+                color: #f3f4f6;
             }
 
             .form-group input:focus {
-                border-color: #667eea;
-                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+                border-color: #818cf8;
+                box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.2);
             }
 
             .form-group input::placeholder {
-                color: #718096;
+                color: #6b7280;
             }
 
-            .error-message {
-                background-color: #742a2a;
-                border-color: #e53e3e;
-                color: #fc8181;
+            .btn-primary {
+                background: #6366f1;
             }
 
-            .success-message {
-                background-color: #22543d;
-                border-color: #38a169;
-                color: #9ae6b4;
+            .btn-primary:hover {
+                background: #4f46e5;
             }
 
-            .login-link {
-                color: #a0aec0;
+            .footer-link {
+                color: #9ca3af;
             }
 
-            .login-link a {
-                color: #667eea;
+            .footer-link a {
+                color: #818cf8;
             }
 
-            .footer-text {
-                color: #a0aec0;
+            .branding {
+                border-top-color: #374151;
+                color: #6b7280;
             }
         }
     </style>
 </head>
 <body>
-    <div class="login-container">
-        <div class="login-header">
+    <div class="card">
+        <div class="header">
             <h1>Sign In</h1>
             <p>Enter your credentials to continue</p>
         </div>
 
         {{if .Error}}
         {{if eq .Error "Account created successfully! Please sign in."}}
-        <div class="success-message">
-            {{.Error}}
+        <div class="alert alert-success">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.78 5.28-4.5 6a.75.75 0 0 1-1.18.02l-2.25-2.5a.75.75 0 1 1 1.12-1l1.63 1.81 3.92-5.23a.75.75 0 1 1 1.26.9z"/>
+            </svg>
+            <span>{{.Error}}</span>
         </div>
         {{else}}
-        <div class="error-message">
-            {{.Error}}
+        <div class="alert alert-error">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm-.75 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 12a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
+            </svg>
+            <span>{{.Error}}</span>
         </div>
         {{end}}
         {{end}}
@@ -255,12 +263,12 @@
         <form method="POST" action="/oauth/login">
             <div class="form-group">
                 <label for="username">Username</label>
-                <input 
-                    type="text" 
-                    id="username" 
-                    name="username" 
-                    placeholder="Enter your username" 
-                    required 
+                <input
+                    type="text"
+                    id="username"
+                    name="username"
+                    placeholder="Enter your username"
+                    required
                     autofocus
                     autocomplete="username"
                 >
@@ -268,17 +276,16 @@
 
             <div class="form-group">
                 <label for="password">Password</label>
-                <input 
-                    type="password" 
-                    id="password" 
-                    name="password" 
-                    placeholder="Enter your password" 
+                <input
+                    type="password"
+                    id="password"
+                    name="password"
+                    placeholder="Enter your password"
                     required
                     autocomplete="current-password"
                 >
             </div>
 
-            <!-- Preserve OAuth params -->
             <input type="hidden" name="client_id" value="{{.ClientID}}">
             <input type="hidden" name="redirect_uri" value="{{.RedirectURI}}">
             <input type="hidden" name="state" value="{{.State}}">
@@ -288,17 +295,16 @@
             <input type="hidden" name="code_challenge" value="{{.CodeChallenge}}">
             <input type="hidden" name="code_challenge_method" value="{{.CodeChallengeMethod}}">
 
-            <button type="submit" class="submit-button">Sign In</button>
+            <button type="submit" class="btn btn-primary">Sign In</button>
         </form>
 
-        <div class="login-link">
-            Don't have an account? <a href="/oauth/register?redirect_uri={{.RedirectURI}}&client_id={{.ClientID}}&state={{.State}}&scope={{.Scope}}&code_challenge={{.CodeChallenge}}&code_challenge_method={{.CodeChallengeMethod}}">Sign up</a>
+        <div class="footer-link">
+            Don't have an account? <a href="/oauth/register?client_id={{.ClientID}}&redirect_uri={{.RedirectURI}}&state={{.State}}{{range .Scope}}&scope={{.}}{{end}}&code_challenge={{.CodeChallenge}}&code_challenge_method={{.CodeChallengeMethod}}">Sign up</a>
         </div>
 
-        <div class="footer-text">
-            Forecasting Authentication Service
+        <div class="branding">
+            Identity Service
         </div>
     </div>
 </body>
 </html>
-
