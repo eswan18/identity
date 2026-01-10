@@ -13,3 +13,6 @@ sql:
         emit_json_tags: true
         emit_prepared_queries: false
         emit_interface: false
+        overrides:
+          - db_type: "public.citext"
+            go_type: "string"

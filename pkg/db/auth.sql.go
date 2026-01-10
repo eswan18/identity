@@ -98,9 +98,9 @@ RETURNING id, username, password_hash, email, is_active, created_at, updated_at
 `
 
 type CreateUserParams struct {
-	Username     string      `json:"username"`
-	Email        interface{} `json:"email"`
-	PasswordHash string      `json:"password_hash"`
+	Username     string `json:"username"`
+	Email        string `json:"email"`
+	PasswordHash string `json:"password_hash"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (AuthUser, error) {
@@ -289,7 +289,7 @@ WHERE email = $1
   AND is_active = true
 `
 
-func (q *Queries) GetUserByEmail(ctx context.Context, email interface{}) (AuthUser, error) {
+func (q *Queries) GetUserByEmail(ctx context.Context, email string) (AuthUser, error) {
 	row := q.db.QueryRowContext(ctx, getUserByEmail, email)
 	var i AuthUser
 	err := row.Scan(
