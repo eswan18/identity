@@ -140,8 +140,9 @@ func padTo32Bytes(b []byte) []byte {
 	return padded
 }
 
-// ValidateToken validates a JWT and returns its claims
-func (g *Generator) ValidateToken(tokenString string) (*Claims, error) {
+// ValidateToken validates a JWT and returns its claims.
+// If expectedAudience is non-empty, it validates that the token's audience contains it.
+func (g *Generator) ValidateToken(tokenString string, expectedAudience string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		// Verify signing method is ES256
 		if _, ok := token.Method.(*jwt.SigningMethodECDSA); !ok {
@@ -161,6 +162,20 @@ func (g *Generator) ValidateToken(tokenString string) (*Claims, error) {
 	// Validate issuer
 	if claims.Issuer != g.issuer {
 		return nil, fmt.Errorf("invalid issuer: expected %s, got %s", g.issuer, claims.Issuer)
+	}
+
+	// Validate audience if expected audience is provided
+	if expectedAudience != "" {
+		audienceValid := false
+		for _, aud := range claims.Audience {
+			if aud == expectedAudience {
+				audienceValid = true
+				break
+			}
+		}
+		if !audienceValid {
+			return nil, fmt.Errorf("invalid audience: token not intended for %s", expectedAudience)
+		}
 	}
 
 	return claims, nil

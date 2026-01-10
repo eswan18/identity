@@ -364,7 +364,9 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 	accessToken := strings.TrimPrefix(authHeader, "Bearer ")
 
 	// Validate the JWT and extract claims
-	claims, err := s.jwtGenerator.ValidateToken(accessToken)
+	// Note: We don't validate audience here since this is the identity provider's own endpoint.
+	// Audience validation is done by resource servers (like the fitness API).
+	claims, err := s.jwtGenerator.ValidateToken(accessToken, "")
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
