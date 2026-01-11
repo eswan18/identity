@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 // Run `go generate ./...` to regenerate CSS from Tailwind.
