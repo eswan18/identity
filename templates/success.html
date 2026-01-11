@@ -4,244 +4,36 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login Successful</title>
-    <style>
-        *, *::before, *::after {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 1.5rem;
-            line-height: 1.5;
-            color: #1f2937;
-        }
-
-        .card {
-            background: #fff;
-            border-radius: 1rem;
-            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
-            padding: 2.5rem;
-            width: 100%;
-            max-width: 440px;
-        }
-
-        .icon {
-            width: 56px;
-            height: 56px;
-            margin: 0 auto 1.5rem;
-            background: #f0fdf4;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .icon svg {
-            color: #16a34a;
-        }
-
-        .header {
-            text-align: center;
-            margin-bottom: 1.5rem;
-        }
-
-        .header h1 {
-            font-size: 1.5rem;
-            font-weight: 600;
-            color: #111827;
-            margin-bottom: 0.5rem;
-        }
-
-        .header p {
-            font-size: 0.938rem;
-            color: #6b7280;
-        }
-
-        .info-box {
-            background: #f9fafb;
-            border: 1px solid #e5e7eb;
-            border-radius: 0.5rem;
-            padding: 1rem 1.25rem;
-            margin-bottom: 1.5rem;
-        }
-
-        .info-box h2 {
-            font-size: 0.875rem;
-            font-weight: 600;
-            color: #374151;
-            margin-bottom: 0.5rem;
-        }
-
-        .info-box p {
-            font-size: 0.875rem;
-            color: #6b7280;
-        }
-
-        .info-box code {
-            background: #e5e7eb;
-            padding: 0.125rem 0.375rem;
-            border-radius: 0.25rem;
-            font-family: ui-monospace, 'SF Mono', Monaco, 'Courier New', monospace;
-            font-size: 0.813rem;
-            color: #374151;
-        }
-
-        .actions {
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-        }
-
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 100%;
-            padding: 0.75rem 1.5rem;
-            font-size: 0.938rem;
-            font-weight: 500;
-            border: none;
-            border-radius: 0.5rem;
-            cursor: pointer;
-            text-decoration: none;
-            transition: background-color 0.15s, transform 0.1s;
-        }
-
-        .btn-primary {
-            background: #4f46e5;
-            color: #fff;
-        }
-
-        .btn-primary:hover {
-            background: #4338ca;
-        }
-
-        .btn-secondary {
-            background: #f3f4f6;
-            color: #374151;
-        }
-
-        .btn-secondary:hover {
-            background: #e5e7eb;
-        }
-
-        .btn:active {
-            transform: scale(0.98);
-        }
-
-        .branding {
-            text-align: center;
-            margin-top: 1.5rem;
-            padding-top: 1.5rem;
-            border-top: 1px solid #e5e7eb;
-            font-size: 0.75rem;
-            color: #9ca3af;
-        }
-
-        @media (prefers-color-scheme: dark) {
-            body {
-                background: linear-gradient(135deg, #111827 0%, #1f2937 100%);
-                color: #f3f4f6;
-            }
-
-            .card {
-                background: #1f2937;
-                box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
-            }
-
-            .icon {
-                background: rgba(34, 197, 94, 0.15);
-            }
-
-            .icon svg {
-                color: #4ade80;
-            }
-
-            .header h1 {
-                color: #f9fafb;
-            }
-
-            .header p {
-                color: #9ca3af;
-            }
-
-            .info-box {
-                background: #374151;
-                border-color: #4b5563;
-            }
-
-            .info-box h2 {
-                color: #e5e7eb;
-            }
-
-            .info-box p {
-                color: #9ca3af;
-            }
-
-            .info-box code {
-                background: #4b5563;
-                color: #d1d5db;
-            }
-
-            .btn-primary {
-                background: #6366f1;
-            }
-
-            .btn-primary:hover {
-                background: #4f46e5;
-            }
-
-            .btn-secondary {
-                background: #374151;
-                color: #d1d5db;
-            }
-
-            .btn-secondary:hover {
-                background: #4b5563;
-            }
-
-            .branding {
-                border-top-color: #374151;
-                color: #6b7280;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <div class="card">
-        <div class="icon">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <div class="w-14 h-14 mx-auto mb-6 bg-green-50 dark:bg-green-900/20 rounded-full flex items-center justify-center">
+            <svg class="text-green-600 dark:text-green-400" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="20 6 9 17 4 12"/>
             </svg>
         </div>
 
-        <div class="header">
-            <h1>Login Successful</h1>
-            <p>You are now authenticated</p>
+        <div class="text-center mb-6">
+            <h1 class="text-xl font-semibold text-gray-900 dark:text-gray-50 mb-2">Login Successful</h1>
+            <p class="text-sm text-gray-500 dark:text-gray-400">You are now authenticated</p>
         </div>
 
-        <div class="info-box">
-            <h2>What's next?</h2>
-            <p>
-                This is an identity provider service. To access applications, log in through a client that uses OAuth2/OIDC. Clients redirect to <code>/oauth/authorize</code> to complete authentication.
+        <div class="bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg p-4 mb-6">
+            <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">What's next?</h2>
+            <p class="text-sm text-gray-500 dark:text-gray-400">
+                This is an identity provider service. To access applications, log in through a client that uses OAuth2/OIDC. Clients redirect to <code class="bg-gray-200 dark:bg-gray-600 px-1.5 py-0.5 rounded text-sm font-mono text-gray-700 dark:text-gray-300">/oauth/authorize</code> to complete authentication.
             </p>
         </div>
 
-        <div class="actions">
-            <form method="POST" action="/oauth/logout" style="margin: 0;">
+        <div class="flex flex-col gap-3">
+            <form method="POST" action="/oauth/logout" class="m-0">
                 <button type="submit" class="btn btn-primary">Log Out</button>
             </form>
             <a href="/oauth/login" class="btn btn-secondary">Back to Login</a>
         </div>
 
-        <div class="branding">
+        <div class="text-center mt-6 pt-6 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500">
             Identity Service
         </div>
     </div>

@@ -4,353 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Account Settings</title>
-    <style>
-        *, *::before, *::after {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 1.5rem;
-            line-height: 1.5;
-            color: #1f2937;
-        }
-
-        .card {
-            background: #fff;
-            border-radius: 1rem;
-            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
-            padding: 2.5rem;
-            width: 100%;
-            max-width: 400px;
-        }
-
-        .header {
-            text-align: center;
-            margin-bottom: 2rem;
-        }
-
-        .header h1 {
-            font-size: 1.75rem;
-            font-weight: 600;
-            color: #111827;
-            margin-bottom: 0.5rem;
-        }
-
-        .header p {
-            font-size: 0.938rem;
-            color: #6b7280;
-        }
-
-        .alert {
-            padding: 0.875rem 1rem;
-            border-radius: 0.5rem;
-            margin-bottom: 1.5rem;
-            font-size: 0.875rem;
-            display: flex;
-            align-items: flex-start;
-            gap: 0.625rem;
-        }
-
-        .alert svg {
-            flex-shrink: 0;
-            margin-top: 1px;
-        }
-
-        .alert-error {
-            background: #fef2f2;
-            color: #991b1b;
-            border: 1px solid #fecaca;
-        }
-
-        .alert-success {
-            background: #f0fdf4;
-            color: #166534;
-            border: 1px solid #bbf7d0;
-        }
-
-        .section {
-            margin-bottom: 2rem;
-        }
-
-        .section-title {
-            font-size: 1rem;
-            font-weight: 600;
-            color: #374151;
-            margin-bottom: 1rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 1px solid #e5e7eb;
-        }
-
-        .info-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0.75rem 0;
-        }
-
-        .info-label {
-            font-size: 0.875rem;
-            color: #6b7280;
-        }
-
-        .info-value {
-            font-size: 0.875rem;
-            font-weight: 500;
-            color: #1f2937;
-        }
-
-        .form-group {
-            margin-bottom: 1.25rem;
-        }
-
-        .form-group label {
-            display: block;
-            font-size: 0.875rem;
-            font-weight: 500;
-            color: #374151;
-            margin-bottom: 0.5rem;
-        }
-
-        .form-group input {
-            width: 100%;
-            padding: 0.75rem 1rem;
-            font-size: 1rem;
-            border: 1px solid #d1d5db;
-            border-radius: 0.5rem;
-            background: #fff;
-            color: #1f2937;
-            transition: border-color 0.15s, box-shadow 0.15s;
-        }
-
-        .form-group input:focus {
-            outline: none;
-            border-color: #6366f1;
-            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
-        }
-
-        .form-group input::placeholder {
-            color: #9ca3af;
-        }
-
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 100%;
-            padding: 0.875rem 1.5rem;
-            font-size: 1rem;
-            font-weight: 500;
-            border: none;
-            border-radius: 0.5rem;
-            cursor: pointer;
-            transition: background-color 0.15s, transform 0.1s;
-        }
-
-        .btn-primary {
-            background: #4f46e5;
-            color: #fff;
-        }
-
-        .btn-primary:hover {
-            background: #4338ca;
-        }
-
-        .btn-primary:active {
-            transform: scale(0.98);
-        }
-
-        .btn-secondary {
-            background: #f3f4f6;
-            color: #374151;
-            text-decoration: none;
-        }
-
-        .btn-secondary:hover {
-            background: #e5e7eb;
-        }
-
-        .action-buttons {
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-        }
-
-        .btn-danger {
-            background: #dc2626;
-            color: #fff;
-            text-decoration: none;
-        }
-
-        .btn-danger:hover {
-            background: #b91c1c;
-        }
-
-        .logout-section {
-            margin-bottom: 1.5rem;
-            padding-bottom: 1.5rem;
-            border-bottom: 1px solid #e5e7eb;
-        }
-
-        .branding {
-            text-align: center;
-            margin-top: 1.5rem;
-            padding-top: 1.5rem;
-            border-top: 1px solid #e5e7eb;
-            font-size: 0.75rem;
-            color: #9ca3af;
-        }
-
-        .deactivate-section {
-            margin-top: 2rem;
-            padding-top: 1.5rem;
-            border-top: 1px solid #fecaca;
-        }
-
-        .deactivate-section .section-title {
-            color: #991b1b;
-            border-bottom-color: #fecaca;
-        }
-
-        .deactivate-warning {
-            font-size: 0.875rem;
-            color: #6b7280;
-            margin-bottom: 1rem;
-        }
-
-        .deactivate-form {
-            margin-top: 1rem;
-        }
-
-        @media (prefers-color-scheme: dark) {
-            body {
-                background: linear-gradient(135deg, #111827 0%, #1f2937 100%);
-                color: #f3f4f6;
-            }
-
-            .card {
-                background: #1f2937;
-                box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
-            }
-
-            .header h1 {
-                color: #f9fafb;
-            }
-
-            .header p {
-                color: #9ca3af;
-            }
-
-            .alert-error {
-                background: rgba(239, 68, 68, 0.15);
-                border-color: rgba(239, 68, 68, 0.3);
-                color: #fca5a5;
-            }
-
-            .alert-success {
-                background: rgba(34, 197, 94, 0.15);
-                border-color: rgba(34, 197, 94, 0.3);
-                color: #86efac;
-            }
-
-            .section-title {
-                color: #d1d5db;
-                border-bottom-color: #374151;
-            }
-
-            .info-label {
-                color: #9ca3af;
-            }
-
-            .info-value {
-                color: #f3f4f6;
-            }
-
-            .form-group label {
-                color: #d1d5db;
-            }
-
-            .form-group input {
-                background: #374151;
-                border-color: #4b5563;
-                color: #f3f4f6;
-            }
-
-            .form-group input:focus {
-                border-color: #818cf8;
-                box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.2);
-            }
-
-            .form-group input::placeholder {
-                color: #6b7280;
-            }
-
-            .btn-primary {
-                background: #6366f1;
-            }
-
-            .btn-primary:hover {
-                background: #4f46e5;
-            }
-
-            .btn-secondary {
-                background: #374151;
-                color: #d1d5db;
-            }
-
-            .btn-secondary:hover {
-                background: #4b5563;
-            }
-
-            .btn-danger {
-                background: #dc2626;
-            }
-
-            .btn-danger:hover {
-                background: #b91c1c;
-            }
-
-            .logout-section {
-                border-bottom-color: #374151;
-            }
-
-            .branding {
-                border-top-color: #374151;
-                color: #6b7280;
-            }
-
-            .deactivate-section {
-                border-top-color: rgba(239, 68, 68, 0.3);
-            }
-
-            .deactivate-section .section-title {
-                color: #fca5a5;
-                border-bottom-color: rgba(239, 68, 68, 0.3);
-            }
-
-            .deactivate-warning {
-                color: #9ca3af;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <div class="card">
-        <div class="header">
-            <h1>Account Settings</h1>
-            <p>Manage your account details</p>
+        <div class="text-center mb-8">
+            <h1 class="text-2xl font-semibold text-gray-900 dark:text-gray-50 mb-2">Account Settings</h1>
+            <p class="text-sm text-gray-500 dark:text-gray-400">Manage your account details</p>
         </div>
 
         {{if .Error}}
         <div class="alert alert-error">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <svg class="flex-shrink-0 mt-px" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm-.75 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 12a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
             </svg>
             <span>{{.Error}}</span>
@@ -359,34 +24,34 @@
 
         {{if .Success}}
         <div class="alert alert-success">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <svg class="flex-shrink-0 mt-px" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.78 5.28-4.5 6a.75.75 0 0 1-1.18.02l-2.25-2.5a.75.75 0 1 1 1.12-1l1.63 1.81 3.92-5.23a.75.75 0 1 1 1.26.9z"/>
             </svg>
             <span>{{.Success}}</span>
         </div>
         {{end}}
 
-        <div class="section">
+        <div class="mb-8">
             <h2 class="section-title">Account Information</h2>
-            <div class="info-row">
-                <span class="info-label">Username</span>
-                <span class="info-value">{{.Username}}</span>
+            <div class="flex justify-between items-center py-3">
+                <span class="text-sm text-gray-500 dark:text-gray-400">Username</span>
+                <span class="text-sm font-medium text-gray-800 dark:text-gray-100">{{.Username}}</span>
             </div>
-            <div class="info-row">
-                <span class="info-label">Email</span>
-                <span class="info-value">{{.Email}}</span>
+            <div class="flex justify-between items-center py-3">
+                <span class="text-sm text-gray-500 dark:text-gray-400">Email</span>
+                <span class="text-sm font-medium text-gray-800 dark:text-gray-100">{{.Email}}</span>
             </div>
         </div>
 
-        <div class="logout-section">
+        <div class="mb-6 pb-6 border-b border-gray-200 dark:border-gray-700">
             <form method="POST" action="/oauth/logout">
                 <button type="submit" class="btn btn-danger">Log Out</button>
             </form>
         </div>
 
-        <div class="section">
+        <div class="mb-8">
             <h2 class="section-title">Account Actions</h2>
-            <div class="action-buttons">
+            <div class="flex flex-col gap-3">
                 <a href="/oauth/change-username" class="btn btn-secondary">Change Username</a>
                 <a href="/oauth/change-password" class="btn btn-secondary">Change Password</a>
                 <a href="/oauth/change-email" class="btn btn-secondary">Change Email</a>
@@ -394,27 +59,27 @@
         </div>
 
         {{if .IsInactive}}
-        <div class="alert alert-error" style="margin-top: 1.5rem;">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+        <div class="alert alert-error mt-6">
+            <svg class="flex-shrink-0 mt-px" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm-.75 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 12a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
             </svg>
             <span>Your account is deactivated. You cannot log in to applications until you reactivate your account.</span>
         </div>
         {{else}}
-        <div class="section deactivate-section">
-            <h2 class="section-title">Danger Zone</h2>
-            <p class="deactivate-warning">Deactivating your account will prevent you from logging in to any applications. You will only be able to access this settings page.</p>
-            <form method="POST" action="/oauth/deactivate-account" class="deactivate-form">
-                <div class="form-group">
-                    <label for="password">Confirm your password to deactivate</label>
-                    <input type="password" id="password" name="password" placeholder="Enter your password" required>
+        <div class="mt-8 pt-6 border-t border-red-200 dark:border-red-800/30">
+            <h2 class="text-base font-semibold text-red-800 dark:text-red-300 mb-4 pb-2 border-b border-red-200 dark:border-red-800/30">Danger Zone</h2>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">Deactivating your account will prevent you from logging in to any applications. You will only be able to access this settings page.</p>
+            <form method="POST" action="/oauth/deactivate-account" class="mt-4">
+                <div class="mb-5">
+                    <label for="password" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Confirm your password to deactivate</label>
+                    <input type="password" id="password" name="password" placeholder="Enter your password" required class="form-input">
                 </div>
                 <button type="submit" class="btn btn-danger">Deactivate Account</button>
             </form>
         </div>
         {{end}}
 
-        <div class="branding">
+        <div class="text-center mt-6 pt-6 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500">
             Identity Service
         </div>
     </div>

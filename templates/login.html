@@ -4,255 +4,26 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign In</title>
-    <style>
-        *, *::before, *::after {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 1.5rem;
-            line-height: 1.5;
-            color: #1f2937;
-        }
-
-        .card {
-            background: #fff;
-            border-radius: 1rem;
-            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
-            padding: 2.5rem;
-            width: 100%;
-            max-width: 400px;
-        }
-
-        .header {
-            text-align: center;
-            margin-bottom: 2rem;
-        }
-
-        .header h1 {
-            font-size: 1.75rem;
-            font-weight: 600;
-            color: #111827;
-            margin-bottom: 0.5rem;
-        }
-
-        .header p {
-            font-size: 0.938rem;
-            color: #6b7280;
-        }
-
-        .alert {
-            padding: 0.875rem 1rem;
-            border-radius: 0.5rem;
-            margin-bottom: 1.5rem;
-            font-size: 0.875rem;
-            display: flex;
-            align-items: flex-start;
-            gap: 0.625rem;
-        }
-
-        .alert svg {
-            flex-shrink: 0;
-            margin-top: 1px;
-        }
-
-        .alert-error {
-            background: #fef2f2;
-            color: #991b1b;
-            border: 1px solid #fecaca;
-        }
-
-        .alert-success {
-            background: #f0fdf4;
-            color: #166534;
-            border: 1px solid #bbf7d0;
-        }
-
-        .form-group {
-            margin-bottom: 1.25rem;
-        }
-
-        .form-group label {
-            display: block;
-            font-size: 0.875rem;
-            font-weight: 500;
-            color: #374151;
-            margin-bottom: 0.5rem;
-        }
-
-        .form-group input {
-            width: 100%;
-            padding: 0.75rem 1rem;
-            font-size: 1rem;
-            border: 1px solid #d1d5db;
-            border-radius: 0.5rem;
-            background: #fff;
-            color: #1f2937;
-            transition: border-color 0.15s, box-shadow 0.15s;
-        }
-
-        .form-group input:focus {
-            outline: none;
-            border-color: #6366f1;
-            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
-        }
-
-        .form-group input::placeholder {
-            color: #9ca3af;
-        }
-
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 100%;
-            padding: 0.875rem 1.5rem;
-            font-size: 1rem;
-            font-weight: 500;
-            border: none;
-            border-radius: 0.5rem;
-            cursor: pointer;
-            transition: background-color 0.15s, transform 0.1s;
-        }
-
-        .btn-primary {
-            background: #4f46e5;
-            color: #fff;
-        }
-
-        .btn-primary:hover {
-            background: #4338ca;
-        }
-
-        .btn-primary:active {
-            transform: scale(0.98);
-        }
-
-        .footer-link {
-            text-align: center;
-            margin-top: 1.5rem;
-            font-size: 0.875rem;
-            color: #6b7280;
-        }
-
-        .footer-link a {
-            color: #4f46e5;
-            text-decoration: none;
-            font-weight: 500;
-        }
-
-        .footer-link a:hover {
-            text-decoration: underline;
-        }
-
-        .branding {
-            text-align: center;
-            margin-top: 1.5rem;
-            padding-top: 1.5rem;
-            border-top: 1px solid #e5e7eb;
-            font-size: 0.75rem;
-            color: #9ca3af;
-        }
-
-        @media (prefers-color-scheme: dark) {
-            body {
-                background: linear-gradient(135deg, #111827 0%, #1f2937 100%);
-                color: #f3f4f6;
-            }
-
-            .card {
-                background: #1f2937;
-                box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
-            }
-
-            .header h1 {
-                color: #f9fafb;
-            }
-
-            .header p {
-                color: #9ca3af;
-            }
-
-            .alert-error {
-                background: rgba(239, 68, 68, 0.15);
-                border-color: rgba(239, 68, 68, 0.3);
-                color: #fca5a5;
-            }
-
-            .alert-success {
-                background: rgba(34, 197, 94, 0.15);
-                border-color: rgba(34, 197, 94, 0.3);
-                color: #86efac;
-            }
-
-            .form-group label {
-                color: #d1d5db;
-            }
-
-            .form-group input {
-                background: #374151;
-                border-color: #4b5563;
-                color: #f3f4f6;
-            }
-
-            .form-group input:focus {
-                border-color: #818cf8;
-                box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.2);
-            }
-
-            .form-group input::placeholder {
-                color: #6b7280;
-            }
-
-            .btn-primary {
-                background: #6366f1;
-            }
-
-            .btn-primary:hover {
-                background: #4f46e5;
-            }
-
-            .footer-link {
-                color: #9ca3af;
-            }
-
-            .footer-link a {
-                color: #818cf8;
-            }
-
-            .branding {
-                border-top-color: #374151;
-                color: #6b7280;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <div class="card">
-        <div class="header">
-            <h1>Sign In</h1>
-            <p>Enter your credentials to continue</p>
+        <div class="text-center mb-8">
+            <h1 class="text-2xl font-semibold text-gray-900 dark:text-gray-50 mb-2">Sign In</h1>
+            <p class="text-sm text-gray-500 dark:text-gray-400">Enter your credentials to continue</p>
         </div>
 
         {{if .Error}}
         {{if eq .Error "Account created successfully! Please sign in."}}
         <div class="alert alert-success">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <svg class="flex-shrink-0 mt-px" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.78 5.28-4.5 6a.75.75 0 0 1-1.18.02l-2.25-2.5a.75.75 0 1 1 1.12-1l1.63 1.81 3.92-5.23a.75.75 0 1 1 1.26.9z"/>
             </svg>
             <span>{{.Error}}</span>
         </div>
         {{else}}
         <div class="alert alert-error">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <svg class="flex-shrink-0 mt-px" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm-.75 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 12a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
             </svg>
             <span>{{.Error}}</span>
@@ -261,8 +32,8 @@
         {{end}}
 
         <form method="POST" action="/oauth/login">
-            <div class="form-group">
-                <label for="username">Username</label>
+            <div class="mb-5">
+                <label for="username" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Username</label>
                 <input
                     type="text"
                     id="username"
@@ -271,11 +42,12 @@
                     required
                     autofocus
                     autocomplete="username"
+                    class="form-input"
                 >
             </div>
 
-            <div class="form-group">
-                <label for="password">Password</label>
+            <div class="mb-5">
+                <label for="password" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Password</label>
                 <input
                     type="password"
                     id="password"
@@ -283,6 +55,7 @@
                     placeholder="Enter your password"
                     required
                     autocomplete="current-password"
+                    class="form-input"
                 >
             </div>
 
@@ -298,11 +71,11 @@
             <button type="submit" class="btn btn-primary">Sign In</button>
         </form>
 
-        <div class="footer-link">
-            Don't have an account? <a href="/oauth/register?client_id={{.ClientID}}&redirect_uri={{.RedirectURI}}&state={{.State}}{{range .Scope}}&scope={{.}}{{end}}&code_challenge={{.CodeChallenge}}&code_challenge_method={{.CodeChallengeMethod}}">Sign up</a>
+        <div class="text-center mt-6 text-sm text-gray-500 dark:text-gray-400">
+            Don't have an account? <a href="/oauth/register?client_id={{.ClientID}}&redirect_uri={{.RedirectURI}}&state={{.State}}{{range .Scope}}&scope={{.}}{{end}}&code_challenge={{.CodeChallenge}}&code_challenge_method={{.CodeChallengeMethod}}" class="link font-medium">Sign up</a>
         </div>
 
-        <div class="branding">
+        <div class="text-center mt-6 pt-6 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500">
             Identity Service
         </div>
     </div>
