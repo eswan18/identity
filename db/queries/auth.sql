@@ -121,6 +121,12 @@ SET revoked_at = now()
 WHERE refresh_token = $1
   AND revoked_at IS NULL;
 
+-- name: RevokeAllUserTokens :exec
+UPDATE oauth_tokens
+SET revoked_at = now()
+WHERE user_id = $1
+  AND revoked_at IS NULL;
+
 -- name: CreateSession :exec
 INSERT INTO auth_sessions (id, user_id, expires_at)
 VALUES ($1, $2, $3);
@@ -149,3 +155,23 @@ WHERE id = $2;
 UPDATE auth_users
 SET email = $1, updated_at = now()
 WHERE id = $2;
+
+-- name: DeactivateUser :exec
+UPDATE auth_users
+SET is_active = false, updated_at = now()
+WHERE id = $1;
+
+-- name: ReactivateUser :exec
+UPDATE auth_users
+SET is_active = true, updated_at = now()
+WHERE id = $1;
+
+-- name: GetUserByIDIncludingInactive :one
+SELECT *
+FROM auth_users
+WHERE id = $1;
+
+-- name: GetUserByUsernameIncludingInactive :one
+SELECT *
+FROM auth_users
+WHERE username = $1;

@@ -90,6 +90,20 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if the user is deactivated - they should not be able to authorize OAuth clients
+	user, err := s.datastore.Q.GetUserByIDIncludingInactive(r.Context(), session.UserID)
+	if err != nil {
+		http.Error(w, "An error occurred", http.StatusInternalServerError)
+		return
+	}
+	if !user.IsActive {
+		// Deactivated users cannot authorize OAuth clients
+		// Redirect to login page with error message
+		loginURL := "/oauth/login?error=account_deactivated&" + r.URL.RawQuery
+		http.Redirect(w, r, loginURL, http.StatusFound)
+		return
+	}
+
 	client, err := s.validateOAuthClient(r.Context(), clientID, redirectURI, scope)
 	if err != nil {
 		// All OAuth client validation errors are 400 Bad Request
@@ -294,6 +308,19 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 	if token.RefreshExpiresAt.Valid && token.RefreshExpiresAt.Time.Before(time.Now()) {
 		s.writeTokenError(w, "invalid_grant", "Refresh token has expired")
 		return
+	}
+
+	// Check if user is still active (deactivated users cannot refresh tokens)
+	if token.UserID.Valid {
+		user, err := s.datastore.Q.GetUserByIDIncludingInactive(r.Context(), token.UserID.UUID)
+		if err != nil {
+			s.writeTokenError(w, "server_error", "Failed to verify user status")
+			return
+		}
+		if !user.IsActive {
+			s.writeTokenError(w, "invalid_grant", "Account deactivated")
+			return
+		}
 	}
 
 	// Revoke the old token

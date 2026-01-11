@@ -27,6 +27,19 @@ go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
 ```
 
+### Tailwind CSS
+
+The project uses Tailwind CSS v4 for styling. This requires Node.js (v18+):
+
+```shell
+npm install  # install Tailwind dependencies
+```
+
+The CSS is built automatically when you run `make build` or `make run`. For development with live reload:
+```shell
+make css-watch  # in a separate terminal
+```
+
 ## Environment Variables
 
 Create a `.env` file (or `.env.dev` for development) in the project root:

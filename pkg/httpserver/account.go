@@ -6,6 +6,7 @@ import (
 
 	"github.com/eswan18/identity/pkg/auth"
 	"github.com/eswan18/identity/pkg/db"
+	"github.com/google/uuid"
 )
 
 // HandleRoot godoc
@@ -34,17 +35,24 @@ func (s *Server) HandleRoot(w http.ResponseWriter, r *http.Request) {
 // @Failure      401 {string} string "Unauthorized - no valid session"
 // @Router       /account-settings [get]
 func (s *Server) HandleAccountSettingsGet(w http.ResponseWriter, r *http.Request) {
-	// Get user from session
-	user, err := s.getUserFromSession(r)
+	// Get user from session - including inactive users so they can see their account settings
+	user, err := s.getUserFromSessionIncludingInactive(r)
 	if err != nil {
 		log.Printf("[DEBUG] HandleAccountSettingsGet: Failed to get user from session: %v", err)
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
 
+	var success string
+	if r.URL.Query().Get("reactivated") == "true" {
+		success = "Your account has been reactivated."
+	}
+
 	s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
-		Username: user.Username,
-		Email:    user.Email,
+		Username:   user.Username,
+		Email:      user.Email,
+		IsInactive: !user.IsActive,
+		Success:    success,
 	})
 }
 
@@ -331,6 +339,7 @@ func (s *Server) renderChangePasswordError(w http.ResponseWriter, statusCode int
 }
 
 // getUserFromSession retrieves the authenticated user from the session cookie
+// This only returns active users - deactivated users will get an error
 func (s *Server) getUserFromSession(r *http.Request) (db.AuthUser, error) {
 	cookie, err := r.Cookie("session_id")
 	if err != nil {
@@ -348,4 +357,190 @@ func (s *Server) getUserFromSession(r *http.Request) (db.AuthUser, error) {
 	}
 
 	return user, nil
+}
+
+// getUserFromSessionIncludingInactive retrieves the authenticated user from the session cookie
+// including deactivated users. This is used for the account settings page so deactivated
+// users can still access their account settings.
+func (s *Server) getUserFromSessionIncludingInactive(r *http.Request) (db.AuthUser, error) {
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		return db.AuthUser{}, err
+	}
+
+	session, err := s.datastore.Q.GetSession(r.Context(), cookie.Value)
+	if err != nil {
+		return db.AuthUser{}, err
+	}
+
+	user, err := s.datastore.Q.GetUserByIDIncludingInactive(r.Context(), session.UserID)
+	if err != nil {
+		return db.AuthUser{}, err
+	}
+
+	return user, nil
+}
+
+// HandleDeactivateAccountPost godoc
+// @Summary      Deactivate user account
+// @Description  Deactivates the user's account by setting is_active to false
+// @Tags         account
+// @Accept       application/x-www-form-urlencoded
+// @Produce      html
+// @Param        password formData string true "Password for verification"
+// @Success      302 {string} string "Redirect to login page after deactivation"
+// @Failure      400 {string} string "Invalid request"
+// @Failure      401 {string} string "Unauthorized - invalid password"
+// @Router       /deactivate-account [post]
+func (s *Server) HandleDeactivateAccountPost(w http.ResponseWriter, r *http.Request) {
+	user, err := s.getUserFromSessionIncludingInactive(r)
+	if err != nil {
+		http.Redirect(w, r, "/oauth/login", http.StatusFound)
+		return
+	}
+
+	password := r.FormValue("password")
+
+	// Validate that password is provided
+	if password == "" {
+		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+			Username: user.Username,
+			Email:    user.Email,
+			Error:    "Password is required to deactivate your account",
+		})
+		return
+	}
+
+	// Validate password
+	valid, err := auth.VerifyPassword(password, user.PasswordHash)
+	if err != nil {
+		log.Printf("[ERROR] HandleDeactivateAccountPost: Failed to verify password: %v", err)
+		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+			Username: user.Username,
+			Email:    user.Email,
+			Error:    "An error occurred",
+		})
+		return
+	}
+	if !valid {
+		w.WriteHeader(http.StatusUnauthorized)
+		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+			Username: user.Username,
+			Email:    user.Email,
+			Error:    "Password is incorrect",
+		})
+		return
+	}
+
+	// Deactivate the user
+	err = s.datastore.Q.DeactivateUser(r.Context(), user.ID)
+	if err != nil {
+		log.Printf("[ERROR] HandleDeactivateAccountPost: Failed to deactivate user: %v", err)
+		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+			Username: user.Username,
+			Email:    user.Email,
+			Error:    "An error occurred while deactivating your account",
+		})
+		return
+	}
+
+	// Revoke all OAuth tokens for this user
+	userIDNullable := uuid.NullUUID{UUID: user.ID, Valid: true}
+	if err := s.datastore.Q.RevokeAllUserTokens(r.Context(), userIDNullable); err != nil {
+		log.Printf("[ERROR] HandleDeactivateAccountPost: Failed to revoke tokens: %v", err)
+		// Continue anyway - account is deactivated, tokens will be rejected on use
+	}
+
+	log.Printf("[DEBUG] HandleDeactivateAccountPost: User %s deactivated successfully", user.Username)
+
+	// Delete the session and clear the cookie
+	cookie, _ := r.Cookie("session_id")
+	if cookie != nil {
+		s.datastore.Q.DeleteSession(r.Context(), cookie.Value)
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session_id",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	// Redirect to login with a message
+	http.Redirect(w, r, "/oauth/login?deactivated=true", http.StatusFound)
+}
+
+// HandleReactivateAccountPost godoc
+// @Summary      Reactivate user account
+// @Description  Reactivates the user's account by setting is_active to true
+// @Tags         account
+// @Accept       application/x-www-form-urlencoded
+// @Produce      html
+// @Param        password formData string true "Password for verification"
+// @Success      302 {string} string "Redirect to account settings after reactivation"
+// @Failure      400 {string} string "Invalid request"
+// @Failure      401 {string} string "Unauthorized - invalid password"
+// @Router       /reactivate-account [post]
+func (s *Server) HandleReactivateAccountPost(w http.ResponseWriter, r *http.Request) {
+	user, err := s.getUserFromSessionIncludingInactive(r)
+	if err != nil {
+		http.Redirect(w, r, "/oauth/login", http.StatusFound)
+		return
+	}
+
+	password := r.FormValue("password")
+
+	// Validate that password is provided
+	if password == "" {
+		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+			Username:   user.Username,
+			Email:      user.Email,
+			IsInactive: !user.IsActive,
+			Error:      "Password is required to reactivate your account",
+		})
+		return
+	}
+
+	// Validate password
+	valid, err := auth.VerifyPassword(password, user.PasswordHash)
+	if err != nil {
+		log.Printf("[ERROR] HandleReactivateAccountPost: Failed to verify password: %v", err)
+		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+			Username:   user.Username,
+			Email:      user.Email,
+			IsInactive: !user.IsActive,
+			Error:      "An error occurred",
+		})
+		return
+	}
+	if !valid {
+		w.WriteHeader(http.StatusUnauthorized)
+		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+			Username:   user.Username,
+			Email:      user.Email,
+			IsInactive: !user.IsActive,
+			Error:      "Password is incorrect",
+		})
+		return
+	}
+
+	// Reactivate the user
+	err = s.datastore.Q.ReactivateUser(r.Context(), user.ID)
+	if err != nil {
+		log.Printf("[ERROR] HandleReactivateAccountPost: Failed to reactivate user: %v", err)
+		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+			Username:   user.Username,
+			Email:      user.Email,
+			IsInactive: !user.IsActive,
+			Error:      "An error occurred while reactivating your account",
+		})
+		return
+	}
+
+	log.Printf("[DEBUG] HandleReactivateAccountPost: User %s reactivated successfully", user.Username)
+
+	// Redirect to account settings with success message
+	http.Redirect(w, r, "/oauth/account-settings?reactivated=true", http.StatusFound)
 }

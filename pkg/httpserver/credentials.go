@@ -24,9 +24,10 @@ const refreshTokenExpiresIn = 30 * 24 * time.Hour
 
 // Sentinel errors for credential validation
 var (
-	ErrMissingCredentials = errors.New("username and password are required")
-	ErrInvalidCredentials = errors.New("invalid username or password")
-	ErrInternal           = errors.New("an error occurred")
+	ErrMissingCredentials    = errors.New("username and password are required")
+	ErrInvalidCredentials    = errors.New("invalid username or password")
+	ErrAccountDeactivated    = errors.New("account deactivated")
+	ErrInternal              = errors.New("an error occurred")
 )
 
 // Sentinel errors for OAuth client validation
@@ -67,6 +68,7 @@ func (s *Server) validateOAuthClient(ctx context.Context, clientID, redirectURI 
 // Security: Always returns ErrInvalidCredentials for invalid username/password
 // to prevent username enumeration attacks. The specific reason (user not found vs
 // wrong password) is logged for debugging but not exposed to the client.
+// Note: This function only returns active users.
 func (s *Server) validateCredentials(ctx context.Context, username, password string) (db.AuthUser, error) {
 	if username == "" || password == "" {
 		return db.AuthUser{}, ErrMissingCredentials
@@ -90,6 +92,43 @@ func (s *Server) validateCredentials(ctx context.Context, username, password str
 	if !valid {
 		// Wrong password - log for debugging but return generic error to prevent enumeration
 		log.Printf("validateCredentials: invalid password for user: %s", username)
+		return db.AuthUser{}, ErrInvalidCredentials
+	}
+
+	return user, nil
+}
+
+// validateCredentialsIncludingInactive validates a username and password against the database,
+// including deactivated users. Returns the user on success. On failure, returns one of:
+//   - ErrMissingCredentials (400)
+//   - ErrInvalidCredentials (401)
+//   - ErrInternal (500)
+//
+// This function is used for direct login to the account settings page, where deactivated
+// users should still be able to log in.
+func (s *Server) validateCredentialsIncludingInactive(ctx context.Context, username, password string) (db.AuthUser, error) {
+	if username == "" || password == "" {
+		return db.AuthUser{}, ErrMissingCredentials
+	}
+
+	user, err := s.datastore.Q.GetUserByUsernameIncludingInactive(ctx, username)
+	if err == sql.ErrNoRows {
+		// User doesn't exist - log for debugging but return generic error to prevent enumeration
+		log.Printf("validateCredentialsIncludingInactive: user not found: %s", username)
+		return db.AuthUser{}, ErrInvalidCredentials
+	}
+	if err != nil {
+		return db.AuthUser{}, ErrInternal
+	}
+
+	valid, err := auth.VerifyPassword(password, user.PasswordHash)
+	if err != nil {
+		log.Printf("validateCredentialsIncludingInactive: password verification error for user %s: %v", username, err)
+		return db.AuthUser{}, ErrInternal
+	}
+	if !valid {
+		// Wrong password - log for debugging but return generic error to prevent enumeration
+		log.Printf("validateCredentialsIncludingInactive: invalid password for user: %s", username)
 		return db.AuthUser{}, ErrInvalidCredentials
 	}
 

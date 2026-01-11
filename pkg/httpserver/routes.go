@@ -51,6 +51,10 @@ func (s *Server) registerRoutes() {
 	// Root redirect - sends to login or account settings based on auth status
 	s.router.Get("/", s.HandleRoot)
 
+	// Static files (CSS, JS, images)
+	fileServer := http.FileServer(http.Dir("static"))
+	s.router.Handle("/static/*", http.StripPrefix("/static/", fileServer))
+
 	// Health check with CORS enabled for all origins (safe - no sensitive data)
 	s.router.With(corsMiddleware).Get("/health", s.HandleHealthCheck)
 
@@ -88,6 +92,10 @@ func (s *Server) registerRoutes() {
 		// Change email
 		r.Get("/change-email", s.HandleChangeEmailGet)
 		r.Post("/change-email", s.HandleChangeEmailPost)
+		// Deactivate account
+		r.Post("/deactivate-account", s.HandleDeactivateAccountPost)
+		// Reactivate account
+		r.Post("/reactivate-account", s.HandleReactivateAccountPost)
 	})
 
 	// Swagger

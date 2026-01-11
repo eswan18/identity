@@ -1,6 +1,7 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 GO_SOURCES := $(shell find . -name '*.go' -not -path './docs/*' -not -path './vendor/*')
+TEMPLATES := $(wildcard templates/*.html)
 MIGRATIONS := $(wildcard db/migrations/*.up.sql)
 ENV ?= local
 
@@ -11,11 +12,19 @@ docs: docs/docs.go docs/swagger.json docs/swagger.yaml
 docs/docs.go docs/swagger.json docs/swagger.yaml: $(GO_SOURCES)
 	swag init -g cmd/auth-service/main.go
 
-run: docs
+css: static/style.css
+
+static/style.css: static/input.css $(TEMPLATES)
+	npx @tailwindcss/cli -i static/input.css -o static/style.css --minify
+
+css-watch:
+	npx @tailwindcss/cli -i static/input.css -o static/style.css --watch
+
+run: docs css
 	@echo "Running with ENV=$(ENV)"
 	go run cmd/auth-service/main.go
 
-build: docs
+build: docs css
 	go build -o identity-cli ./cmd/identity-cli
 	go build -o identity cmd/auth-service/main.go
 

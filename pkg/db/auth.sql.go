@@ -493,6 +493,18 @@ func (q *Queries) RevokeTokenByRefreshToken(ctx context.Context, refreshToken sq
 	return err
 }
 
+const revokeAllUserTokens = `-- name: RevokeAllUserTokens :exec
+UPDATE oauth_tokens
+SET revoked_at = now()
+WHERE user_id = $1
+  AND revoked_at IS NULL
+`
+
+func (q *Queries) RevokeAllUserTokens(ctx context.Context, userID uuid.NullUUID) error {
+	_, err := q.db.ExecContext(ctx, revokeAllUserTokens, userID)
+	return err
+}
+
 const updateUserPassword = `-- name: UpdateUserPassword :exec
 UPDATE auth_users
 SET password_hash = $1, updated_at = now()
@@ -582,6 +594,70 @@ func (q *Queries) UpdateOAuthClient(ctx context.Context, arg UpdateOAuthClientPa
 		pq.Array(&i.AllowedScopes),
 		&i.IsConfidential,
 		&i.Audience,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const deactivateUser = `-- name: DeactivateUser :exec
+UPDATE auth_users
+SET is_active = false, updated_at = now()
+WHERE id = $1
+`
+
+func (q *Queries) DeactivateUser(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, deactivateUser, id)
+	return err
+}
+
+const reactivateUser = `-- name: ReactivateUser :exec
+UPDATE auth_users
+SET is_active = true, updated_at = now()
+WHERE id = $1
+`
+
+func (q *Queries) ReactivateUser(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, reactivateUser, id)
+	return err
+}
+
+const getUserByIDIncludingInactive = `-- name: GetUserByIDIncludingInactive :one
+SELECT id, username, password_hash, email, is_active, created_at, updated_at
+FROM auth_users
+WHERE id = $1
+`
+
+func (q *Queries) GetUserByIDIncludingInactive(ctx context.Context, id uuid.UUID) (AuthUser, error) {
+	row := q.db.QueryRowContext(ctx, getUserByIDIncludingInactive, id)
+	var i AuthUser
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.Email,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserByUsernameIncludingInactive = `-- name: GetUserByUsernameIncludingInactive :one
+SELECT id, username, password_hash, email, is_active, created_at, updated_at
+FROM auth_users
+WHERE username = $1
+`
+
+func (q *Queries) GetUserByUsernameIncludingInactive(ctx context.Context, username string) (AuthUser, error) {
+	row := q.db.QueryRowContext(ctx, getUserByUsernameIncludingInactive, username)
+	var i AuthUser
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.Email,
+		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
