@@ -15,10 +15,10 @@ docs/docs.go docs/swagger.json docs/swagger.yaml: $(GO_SOURCES)
 css: static/style.css
 
 static/style.css: static/input.css tailwind.config.js $(TEMPLATES)
-	tailwindcss -i static/input.css -o static/style.css --minify
+	npx @tailwindcss/cli -i static/input.css -o static/style.css --minify
 
 css-watch:
-	tailwindcss -i static/input.css -o static/style.css --watch
+	npx @tailwindcss/cli -i static/input.css -o static/style.css --watch
 
 run: docs css
 	@echo "Running with ENV=$(ENV)"
