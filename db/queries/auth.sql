@@ -155,6 +155,11 @@ UPDATE auth_users
 SET is_active = false, updated_at = now()
 WHERE id = $1;
 
+-- name: ReactivateUser :exec
+UPDATE auth_users
+SET is_active = true, updated_at = now()
+WHERE id = $1;
+
 -- name: GetUserByIDIncludingInactive :one
 SELECT *
 FROM auth_users

@@ -42,10 +42,16 @@ func (s *Server) HandleAccountSettingsGet(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	var success string
+	if r.URL.Query().Get("reactivated") == "true" {
+		success = "Your account has been reactivated."
+	}
+
 	s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
 		Username:   user.Username,
 		Email:      user.Email,
 		IsInactive: !user.IsActive,
+		Success:    success,
 	})
 }
 
@@ -456,4 +462,77 @@ func (s *Server) HandleDeactivateAccountPost(w http.ResponseWriter, r *http.Requ
 
 	// Redirect to login with a message
 	http.Redirect(w, r, "/oauth/login?deactivated=true", http.StatusFound)
+}
+
+// HandleReactivateAccountPost godoc
+// @Summary      Reactivate user account
+// @Description  Reactivates the user's account by setting is_active to true
+// @Tags         account
+// @Accept       application/x-www-form-urlencoded
+// @Produce      html
+// @Param        password formData string true "Password for verification"
+// @Success      302 {string} string "Redirect to account settings after reactivation"
+// @Failure      400 {string} string "Invalid request"
+// @Failure      401 {string} string "Unauthorized - invalid password"
+// @Router       /reactivate-account [post]
+func (s *Server) HandleReactivateAccountPost(w http.ResponseWriter, r *http.Request) {
+	user, err := s.getUserFromSessionIncludingInactive(r)
+	if err != nil {
+		http.Redirect(w, r, "/oauth/login", http.StatusFound)
+		return
+	}
+
+	password := r.FormValue("password")
+
+	// Validate that password is provided
+	if password == "" {
+		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+			Username:   user.Username,
+			Email:      user.Email,
+			IsInactive: !user.IsActive,
+			Error:      "Password is required to reactivate your account",
+		})
+		return
+	}
+
+	// Validate password
+	valid, err := auth.VerifyPassword(password, user.PasswordHash)
+	if err != nil {
+		log.Printf("[ERROR] HandleReactivateAccountPost: Failed to verify password: %v", err)
+		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+			Username:   user.Username,
+			Email:      user.Email,
+			IsInactive: !user.IsActive,
+			Error:      "An error occurred",
+		})
+		return
+	}
+	if !valid {
+		w.WriteHeader(http.StatusUnauthorized)
+		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+			Username:   user.Username,
+			Email:      user.Email,
+			IsInactive: !user.IsActive,
+			Error:      "Password is incorrect",
+		})
+		return
+	}
+
+	// Reactivate the user
+	err = s.datastore.Q.ReactivateUser(r.Context(), user.ID)
+	if err != nil {
+		log.Printf("[ERROR] HandleReactivateAccountPost: Failed to reactivate user: %v", err)
+		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+			Username:   user.Username,
+			Email:      user.Email,
+			IsInactive: !user.IsActive,
+			Error:      "An error occurred while reactivating your account",
+		})
+		return
+	}
+
+	log.Printf("[DEBUG] HandleReactivateAccountPost: User %s reactivated successfully", user.Username)
+
+	// Redirect to account settings with success message
+	http.Redirect(w, r, "/oauth/account-settings?reactivated=true", http.StatusFound)
 }

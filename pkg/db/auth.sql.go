@@ -599,6 +599,17 @@ func (q *Queries) DeactivateUser(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const reactivateUser = `-- name: ReactivateUser :exec
+UPDATE auth_users
+SET is_active = true, updated_at = now()
+WHERE id = $1
+`
+
+func (q *Queries) ReactivateUser(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, reactivateUser, id)
+	return err
+}
+
 const getUserByIDIncludingInactive = `-- name: GetUserByIDIncludingInactive :one
 SELECT id, username, password_hash, email, is_active, created_at, updated_at
 FROM auth_users
