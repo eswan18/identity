@@ -149,3 +149,18 @@ WHERE id = $2;
 UPDATE auth_users
 SET email = $1, updated_at = now()
 WHERE id = $2;
+
+-- name: DeactivateUser :exec
+UPDATE auth_users
+SET is_active = false, updated_at = now()
+WHERE id = $1;
+
+-- name: GetUserByIDIncludingInactive :one
+SELECT *
+FROM auth_users
+WHERE id = $1;
+
+-- name: GetUserByUsernameIncludingInactive :one
+SELECT *
+FROM auth_users
+WHERE username = $1;

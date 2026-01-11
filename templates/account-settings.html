@@ -208,6 +208,27 @@
             color: #9ca3af;
         }
 
+        .deactivate-section {
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #fecaca;
+        }
+
+        .deactivate-section .section-title {
+            color: #991b1b;
+            border-bottom-color: #fecaca;
+        }
+
+        .deactivate-warning {
+            font-size: 0.875rem;
+            color: #6b7280;
+            margin-bottom: 1rem;
+        }
+
+        .deactivate-form {
+            margin-top: 1rem;
+        }
+
         @media (prefers-color-scheme: dark) {
             body {
                 background: linear-gradient(135deg, #111827 0%, #1f2937 100%);
@@ -304,6 +325,19 @@
                 border-top-color: #374151;
                 color: #6b7280;
             }
+
+            .deactivate-section {
+                border-top-color: rgba(239, 68, 68, 0.3);
+            }
+
+            .deactivate-section .section-title {
+                color: #fca5a5;
+                border-bottom-color: rgba(239, 68, 68, 0.3);
+            }
+
+            .deactivate-warning {
+                color: #9ca3af;
+            }
         }
     </style>
 </head>
@@ -358,6 +392,27 @@
                 <a href="/oauth/change-email" class="btn btn-secondary">Change Email</a>
             </div>
         </div>
+
+        {{if .IsInactive}}
+        <div class="alert alert-error" style="margin-top: 1.5rem;">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm-.75 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 12a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
+            </svg>
+            <span>Your account is deactivated. You cannot log in to applications until you reactivate your account.</span>
+        </div>
+        {{else}}
+        <div class="section deactivate-section">
+            <h2 class="section-title">Danger Zone</h2>
+            <p class="deactivate-warning">Deactivating your account will prevent you from logging in to any applications. You will only be able to access this settings page.</p>
+            <form method="POST" action="/oauth/deactivate-account" class="deactivate-form">
+                <div class="form-group">
+                    <label for="password">Confirm your password to deactivate</label>
+                    <input type="password" id="password" name="password" placeholder="Enter your password" required>
+                </div>
+                <button type="submit" class="btn btn-danger">Deactivate Account</button>
+            </form>
+        </div>
+        {{end}}
 
         <div class="branding">
             Identity Service

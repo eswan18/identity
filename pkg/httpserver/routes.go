@@ -88,6 +88,8 @@ func (s *Server) registerRoutes() {
 		// Change email
 		r.Get("/change-email", s.HandleChangeEmailGet)
 		r.Post("/change-email", s.HandleChangeEmailPost)
+		// Deactivate account
+		r.Post("/deactivate-account", s.HandleDeactivateAccountPost)
 	})
 
 	// Swagger

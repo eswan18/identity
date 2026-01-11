@@ -587,3 +587,56 @@ func (q *Queries) UpdateOAuthClient(ctx context.Context, arg UpdateOAuthClientPa
 	)
 	return i, err
 }
+
+const deactivateUser = `-- name: DeactivateUser :exec
+UPDATE auth_users
+SET is_active = false, updated_at = now()
+WHERE id = $1
+`
+
+func (q *Queries) DeactivateUser(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, deactivateUser, id)
+	return err
+}
+
+const getUserByIDIncludingInactive = `-- name: GetUserByIDIncludingInactive :one
+SELECT id, username, password_hash, email, is_active, created_at, updated_at
+FROM auth_users
+WHERE id = $1
+`
+
+func (q *Queries) GetUserByIDIncludingInactive(ctx context.Context, id uuid.UUID) (AuthUser, error) {
+	row := q.db.QueryRowContext(ctx, getUserByIDIncludingInactive, id)
+	var i AuthUser
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.Email,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserByUsernameIncludingInactive = `-- name: GetUserByUsernameIncludingInactive :one
+SELECT id, username, password_hash, email, is_active, created_at, updated_at
+FROM auth_users
+WHERE username = $1
+`
+
+func (q *Queries) GetUserByUsernameIncludingInactive(ctx context.Context, username string) (AuthUser, error) {
+	row := q.db.QueryRowContext(ctx, getUserByUsernameIncludingInactive, username)
+	var i AuthUser
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.Email,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}

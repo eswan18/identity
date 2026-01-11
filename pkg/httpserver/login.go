@@ -56,11 +56,14 @@ func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if user just registered (show success message)
-	registered := r.URL.Query().Get("registered") == "true"
+	// Check for various messages to show
 	errorMsg := ""
-	if registered {
+	if r.URL.Query().Get("registered") == "true" {
 		errorMsg = "Account created successfully! Please sign in."
+	} else if r.URL.Query().Get("deactivated") == "true" {
+		errorMsg = "Your account has been deactivated."
+	} else if r.URL.Query().Get("error") == "account_deactivated" {
+		errorMsg = "Your account is deactivated. You cannot log in to applications."
 	}
 
 	s.loginTemplate.Execute(w, LoginPageData{
@@ -114,9 +117,10 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 		CodeChallenge:       codeChallenge,
 		CodeChallengeMethod: codeChallengeMethod,
 	}
-	// Validate credentials
+	// Validate credentials - use the function that includes inactive users
+	// so we can handle deactivated users appropriately based on the login type
 	log.Printf("[DEBUG] HandleLoginPost: Validating credentials for user: %s", username)
-	user, err := s.validateCredentials(r.Context(), username, password)
+	user, err := s.validateCredentialsIncludingInactive(r.Context(), username, password)
 	if err != nil {
 		log.Printf("[DEBUG] HandleLoginPost: Credential validation failed: %v", err)
 		status := http.StatusInternalServerError
@@ -129,6 +133,14 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("[DEBUG] HandleLoginPost: Credentials validated successfully for user ID: %v", user.ID)
+
+	// Check if user is deactivated and trying to use OAuth login
+	// Deactivated users can only log in directly (no client_id) to access account settings
+	if !user.IsActive && clientID != "" {
+		log.Printf("[DEBUG] HandleLoginPost: Deactivated user %s attempted OAuth login", username)
+		s.renderLoginError(w, http.StatusForbidden, ErrAccountDeactivated.Error(), oauthParams)
+		return
+	}
 
 	// Create authenticated session
 	log.Printf("[DEBUG] HandleLoginPost: Creating session for user ID: %v", user.ID)
