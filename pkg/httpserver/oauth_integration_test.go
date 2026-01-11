@@ -3,15 +3,19 @@
 package httpserver
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +23,7 @@ import (
 	"github.com/eswan18/identity/pkg/config"
 	"github.com/eswan18/identity/pkg/db"
 	"github.com/eswan18/identity/pkg/store"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -51,6 +56,13 @@ type StateAndCodeVerifier struct {
 	CodeVerifier        string
 	CodeChallenge       string
 	CodeChallengeMethod string
+}
+
+// OAuthFlowResult holds the result of completing an OAuth flow.
+type OAuthFlowResult struct {
+	Client        db.OauthClient
+	User          UserWithPassword
+	TokenResponse TokenResponse
 }
 
 type OAuthFlowSuite struct {
@@ -90,8 +102,10 @@ func (s *OAuthFlowSuite) SetupSuite() {
 }
 
 func (s *OAuthFlowSuite) TearDownTest() {
-	// Return to the snapshot of the DB from before any tests ran.
-	s.pgContainer.Restore(s.T().Context(), postgres.WithSnapshotName("post-migrations"))
+	// Snapshot restoration between tests terminates database connections, breaking
+	// the server's connection pool. Since each test uses unique random data and
+	// doesn't conflict with others, we skip restoration here. If cleanup becomes
+	// necessary, consider truncating specific tables instead.
 }
 
 func (s *OAuthFlowSuite) TearDownSuite() {
@@ -142,7 +156,82 @@ func (s *OAuthFlowSuite) mustCreateStateAndCodeVerifier() StateAndCodeVerifier {
 	return scv
 }
 
-func (s *OAuthFlowSuite) TestOAuthIntegrationForNonconfidentialClient() {
+// mustCompleteOAuthFlow performs the full OAuth flow and returns the tokens.
+// This helper enables tests to get tokens without duplicating the flow logic.
+func (s *OAuthFlowSuite) mustCompleteOAuthFlow(clientParams db.CreateOAuthClientParams) OAuthFlowResult {
+	s.T().Helper()
+
+	client := s.mustRegisterOAuthClient(clientParams)
+	user := s.mustRegisterUser(
+		s.mustGenerateRandomString(8),
+		s.mustGenerateRandomString(8),
+		fmt.Sprintf("%s@example.com", s.mustGenerateRandomString(8)),
+	)
+	scv := s.mustCreateStateAndCodeVerifier()
+
+	host := "localhost:8080"
+	redirectURI := clientParams.RedirectUris[0]
+
+	// Step 1: Login and get authorization code
+	loginQuery := url.Values{
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {redirectURI},
+		"response_type":         {"code"},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+		"state":                 {scv.State},
+		"scope":                 {"openid profile email"},
+	}
+	formValues := url.Values{
+		"username":              {user.Username},
+		"password":              {user.Password},
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {redirectURI},
+		"state":                 {scv.State},
+		"scope":                 {"openid profile email"},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	}
+	postLoginUrl := fmt.Sprintf("http://%s/oauth/login?%s", host, loginQuery.Encode())
+	resp, err := s.httpClient.PostForm(postLoginUrl, formValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode, "login should redirect")
+
+	location := resp.Header.Get("Location")
+	redirectUrl, err := url.ParseRequestURI(location)
+	s.Require().NoError(err)
+	authorizationCode := redirectUrl.Query().Get("code")
+	s.Require().NotEmpty(authorizationCode, "should receive authorization code")
+
+	// Step 2: Exchange authorization code for tokens
+	tokenQuery := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {authorizationCode},
+		"redirect_uri":  {redirectURI},
+		"client_id":     {client.ClientID},
+		"code_verifier": {scv.CodeVerifier},
+	}
+	postTokenUrl := fmt.Sprintf("http://%s/oauth/token", host)
+	resp, err = s.httpClient.PostForm(postTokenUrl, tokenQuery)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusOK, resp.StatusCode, "token exchange should succeed")
+
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	var tokenResponse TokenResponse
+	err = json.Unmarshal(body, &tokenResponse)
+	s.Require().NoError(err)
+
+	return OAuthFlowResult{
+		Client:        client,
+		User:          user,
+		TokenResponse: tokenResponse,
+	}
+}
+
+func (s *OAuthFlowSuite) TestFullOAuthFlow() {
 	clientCallbackURI := "http://localhost:8080/callback"
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
 		ClientID:       s.mustGenerateRandomString(8),
@@ -312,6 +401,212 @@ func (s *OAuthFlowSuite) TestOAuthIntegrationForNonconfidentialClient() {
 		s.NotEmpty(tokenResponse.RefreshToken)
 		s.Equal("openid profile email", tokenResponse.Scope)
 	})
+}
+
+// TestJWKSEndpoint verifies that clients can fetch and parse the public key.
+func (s *OAuthFlowSuite) TestJWKSEndpoint() {
+	resp, err := s.httpClient.Get("http://localhost:8080/.well-known/jwks.json")
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	// Verify content type
+	s.Contains(resp.Header.Get("Content-Type"), "application/json")
+
+	// Parse response
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+
+	var jwks struct {
+		Keys []map[string]any `json:"keys"`
+	}
+	err = json.Unmarshal(body, &jwks)
+	s.Require().NoError(err)
+
+	// Verify at least one key exists
+	s.Require().NotEmpty(jwks.Keys, "JWKS should contain at least one key")
+
+	// Verify key structure
+	key := jwks.Keys[0]
+	s.Equal("EC", key["kty"], "key type should be EC")
+	s.Equal("P-256", key["crv"], "curve should be P-256")
+	s.Equal("ES256", key["alg"], "algorithm should be ES256")
+	s.Equal("sig", key["use"], "use should be sig")
+	s.NotEmpty(key["kid"], "kid should be present")
+	s.NotEmpty(key["x"], "x coordinate should be present")
+	s.NotEmpty(key["y"], "y coordinate should be present")
+}
+
+// TestClientCanValidateAccessToken simulates what a real OAuth client does:
+// fetch the JWKS, parse the JWT, verify the signature, and validate claims.
+func (s *OAuthFlowSuite) TestClientCanValidateAccessToken() {
+	// Complete OAuth flow to get an access token
+	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "http://localhost:8000",
+	})
+
+	accessToken := result.TokenResponse.AccessToken
+	s.Require().NotEmpty(accessToken)
+
+	// Step 1: Fetch JWKS
+	resp, err := s.httpClient.Get("http://localhost:8080/.well-known/jwks.json")
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+
+	var jwks struct {
+		Keys []struct {
+			Kty string `json:"kty"`
+			Crv string `json:"crv"`
+			X   string `json:"x"`
+			Y   string `json:"y"`
+			Kid string `json:"kid"`
+			Alg string `json:"alg"`
+		} `json:"keys"`
+	}
+	err = json.Unmarshal(body, &jwks)
+	s.Require().NoError(err)
+	s.Require().NotEmpty(jwks.Keys)
+
+	// Step 2: Parse JWT header to get kid
+	parts := strings.Split(accessToken, ".")
+	s.Require().Len(parts, 3, "JWT should have 3 parts")
+
+	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	s.Require().NoError(err)
+
+	var header struct {
+		Alg string `json:"alg"`
+		Kid string `json:"kid"`
+		Typ string `json:"typ"`
+	}
+	err = json.Unmarshal(headerBytes, &header)
+	s.Require().NoError(err)
+	s.Equal("ES256", header.Alg)
+	s.Equal("JWT", header.Typ)
+
+	// Step 3: Find matching key in JWKS
+	var matchingKey *struct {
+		Kty string `json:"kty"`
+		Crv string `json:"crv"`
+		X   string `json:"x"`
+		Y   string `json:"y"`
+		Kid string `json:"kid"`
+		Alg string `json:"alg"`
+	}
+	for i := range jwks.Keys {
+		if jwks.Keys[i].Kid == header.Kid {
+			matchingKey = &jwks.Keys[i]
+			break
+		}
+	}
+	s.Require().NotNil(matchingKey, "should find matching key in JWKS")
+
+	// Step 4: Construct ECDSA public key from JWKS
+	xBytes, err := base64.RawURLEncoding.DecodeString(matchingKey.X)
+	s.Require().NoError(err)
+	yBytes, err := base64.RawURLEncoding.DecodeString(matchingKey.Y)
+	s.Require().NoError(err)
+
+	publicKey := &ecdsa.PublicKey{
+		Curve: elliptic.P256(),
+		X:     new(big.Int).SetBytes(xBytes),
+		Y:     new(big.Int).SetBytes(yBytes),
+	}
+
+	// Step 5: Parse and validate the JWT
+	token, err := jwt.Parse(accessToken, func(token *jwt.Token) (any, error) {
+		// Verify signing method
+		if _, ok := token.Method.(*jwt.SigningMethodECDSA); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return publicKey, nil
+	})
+	s.Require().NoError(err)
+	s.True(token.Valid, "token should be valid")
+
+	// Step 6: Validate claims
+	claims, ok := token.Claims.(jwt.MapClaims)
+	s.Require().True(ok, "claims should be MapClaims")
+
+	// Verify standard claims
+	s.Equal("http://localhost:8080", claims["iss"], "issuer should match")
+	// Audience can be a string or array depending on JWT library behavior
+	switch aud := claims["aud"].(type) {
+	case string:
+		s.Equal(result.Client.Audience, aud, "audience should match client's audience")
+	case []any:
+		s.Require().NotEmpty(aud, "audience array should not be empty")
+		s.Equal(result.Client.Audience, aud[0], "audience should match client's audience")
+	default:
+		s.Fail("unexpected audience type")
+	}
+	s.Equal(result.User.ID.String(), claims["sub"], "subject should be user ID")
+
+	// Verify expiration is in the future
+	exp, ok := claims["exp"].(float64)
+	s.Require().True(ok, "exp should be a number")
+	s.Greater(int64(exp), time.Now().Unix(), "token should not be expired")
+
+	// Verify custom claims
+	s.Equal(result.User.Username, claims["username"], "username should match")
+	s.Equal(result.User.Email, claims["email"], "email should match")
+	s.Equal("openid profile email", claims["scope"], "scope should match")
+}
+
+// TestUserInfoEndpoint verifies that clients can get user profile data with an access token.
+func (s *OAuthFlowSuite) TestUserInfoEndpoint() {
+	// Complete OAuth flow to get an access token
+	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "http://localhost:8000",
+	})
+
+	accessToken := result.TokenResponse.AccessToken
+	s.Require().NotEmpty(accessToken)
+
+	// Call userinfo endpoint with Bearer token
+	req, err := http.NewRequest("GET", "http://localhost:8080/oauth/userinfo", nil)
+	s.Require().NoError(err)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := s.httpClient.Do(req)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	// Parse response
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+
+	var userInfo struct {
+		Sub           string `json:"sub"`
+		Username      string `json:"username"`
+		Email         string `json:"email"`
+		EmailVerified bool   `json:"email_verified"`
+	}
+	err = json.Unmarshal(body, &userInfo)
+	s.Require().NoError(err)
+
+	// Verify claims match the test user
+	s.Equal(result.User.ID.String(), userInfo.Sub, "sub should be user ID")
+	s.Equal(result.User.Username, userInfo.Username, "username should match")
+	s.Equal(result.User.Email, userInfo.Email, "email should match")
+	s.True(userInfo.EmailVerified, "email_verified should be true")
 }
 
 func prepareDatabase(t *testing.T) *postgres.PostgresContainer {
