@@ -214,7 +214,7 @@ func (s *OAuthFlowSuite) TestOAuthIntegrationForNonconfidentialClient() {
 		// Verify we get something that looks like the login page.
 		body, err := io.ReadAll(resp.Body)
 		s.Require().NoError(err)
-		s.Contains(string(body), "login-container")
+		s.Contains(string(body), "Sign In")
 		// Submit the login form.
 		formValues := url.Values{
 			// Login creds...
