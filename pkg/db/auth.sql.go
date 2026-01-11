@@ -493,6 +493,18 @@ func (q *Queries) RevokeTokenByRefreshToken(ctx context.Context, refreshToken sq
 	return err
 }
 
+const revokeAllUserTokens = `-- name: RevokeAllUserTokens :exec
+UPDATE oauth_tokens
+SET revoked_at = now()
+WHERE user_id = $1
+  AND revoked_at IS NULL
+`
+
+func (q *Queries) RevokeAllUserTokens(ctx context.Context, userID uuid.NullUUID) error {
+	_, err := q.db.ExecContext(ctx, revokeAllUserTokens, userID)
+	return err
+}
+
 const updateUserPassword = `-- name: UpdateUserPassword :exec
 UPDATE auth_users
 SET password_hash = $1, updated_at = now()

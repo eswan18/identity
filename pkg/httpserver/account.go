@@ -6,6 +6,7 @@ import (
 
 	"github.com/eswan18/identity/pkg/auth"
 	"github.com/eswan18/identity/pkg/db"
+	"github.com/google/uuid"
 )
 
 // HandleRoot godoc
@@ -441,6 +442,13 @@ func (s *Server) HandleDeactivateAccountPost(w http.ResponseWriter, r *http.Requ
 			Error:    "An error occurred while deactivating your account",
 		})
 		return
+	}
+
+	// Revoke all OAuth tokens for this user
+	userIDNullable := uuid.NullUUID{UUID: user.ID, Valid: true}
+	if err := s.datastore.Q.RevokeAllUserTokens(r.Context(), userIDNullable); err != nil {
+		log.Printf("[ERROR] HandleDeactivateAccountPost: Failed to revoke tokens: %v", err)
+		// Continue anyway - account is deactivated, tokens will be rejected on use
 	}
 
 	log.Printf("[DEBUG] HandleDeactivateAccountPost: User %s deactivated successfully", user.Username)
