@@ -29,11 +29,10 @@ go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@lat
 
 ### Tailwind CSS
 
-The project uses Tailwind CSS v4 for styling. This requires Node.js and npm:
+The project uses Tailwind CSS v4 for styling. This requires Node.js (v18+):
 
 ```shell
-# Ensure you have Node.js installed, then the CSS will build via npx
-node --version  # should be v18+
+npm install  # install Tailwind dependencies
 ```
 
 The CSS is built automatically when you run `make build` or `make run`. For development with live reload:

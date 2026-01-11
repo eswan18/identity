@@ -7,3 +7,6 @@ auth-service
 
 # Generated CSS (built from Tailwind)
 static/style.css
+
+# Node modules (for Tailwind)
+node_modules/

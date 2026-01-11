@@ -14,7 +14,7 @@ docs/docs.go docs/swagger.json docs/swagger.yaml: $(GO_SOURCES)
 
 css: static/style.css
 
-static/style.css: static/input.css tailwind.config.js $(TEMPLATES)
+static/style.css: static/input.css $(TEMPLATES)
 	npx @tailwindcss/cli -i static/input.css -o static/style.css --minify
 
 css-watch:
