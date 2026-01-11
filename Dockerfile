@@ -1,16 +1,29 @@
-# Build stage
+# Tailwind CSS build stage
+FROM node:22-alpine AS tailwind
+
+WORKDIR /build
+
+# Copy package files and install dependencies
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# Copy source files needed for Tailwind
+COPY static/input.css ./static/
+COPY templates ./templates
+
+# Build Tailwind CSS
+RUN npx @tailwindcss/cli -i static/input.css -o static/style.css --minify
+
+# Go build stage
 FROM golang:1.25-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git
 
-# Set working directory
 WORKDIR /build
 
-# Copy go mod files
+# Copy go mod files and download dependencies
 COPY go.mod go.sum ./
-
-# Download dependencies
 RUN go mod download
 
 # Copy source code
@@ -32,6 +45,9 @@ COPY --from=builder /build/auth-service .
 
 # Copy templates directory
 COPY --from=builder /build/templates ./templates
+
+# Copy static directory with built CSS from tailwind stage
+COPY --from=tailwind /build/static ./static
 
 # Expose port (default 8080, can be overridden via HTTP_ADDRESS)
 EXPOSE 8080
