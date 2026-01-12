@@ -19,13 +19,29 @@ type AuthSession struct {
 }
 
 type AuthUser struct {
-	ID           uuid.UUID `json:"id"`
-	Username     string    `json:"username"`
-	PasswordHash string    `json:"password_hash"`
-	Email        string    `json:"email"`
-	IsActive     bool      `json:"is_active"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID           uuid.UUID      `json:"id"`
+	Username     string         `json:"username"`
+	PasswordHash string         `json:"password_hash"`
+	Email        string         `json:"email"`
+	IsActive     bool           `json:"is_active"`
+	MfaEnabled   bool           `json:"mfa_enabled"`
+	MfaSecret    sql.NullString `json:"mfa_secret"`
+	MfaVerifiedAt sql.NullTime  `json:"mfa_verified_at"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+}
+
+type AuthMfaPending struct {
+	ID                  string         `json:"id"`
+	UserID              uuid.UUID      `json:"user_id"`
+	ClientID            sql.NullString `json:"client_id"`
+	RedirectUri         sql.NullString `json:"redirect_uri"`
+	State               sql.NullString `json:"state"`
+	Scope               []string       `json:"scope"`
+	CodeChallenge       sql.NullString `json:"code_challenge"`
+	CodeChallengeMethod sql.NullString `json:"code_challenge_method"`
+	CreatedAt           time.Time      `json:"created_at"`
+	ExpiresAt           time.Time      `json:"expires_at"`
 }
 
 type OauthAuthorizationCode struct {

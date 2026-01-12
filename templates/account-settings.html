@@ -58,6 +58,38 @@
             </div>
         </div>
 
+        <div class="mb-8">
+            <h2 class="text-base font-semibold text-gray-700 dark:text-gray-300 mb-4 pb-2 border-b border-gray-200 dark:border-gray-700">Security</h2>
+            <div class="flex justify-between items-center py-3">
+                <div>
+                    <span class="text-sm text-gray-500 dark:text-gray-400">Two-Factor Authentication</span>
+                    {{if .MfaEnabled}}
+                    <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">Enabled</span>
+                    {{else}}
+                    <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400">Disabled</span>
+                    {{end}}
+                </div>
+            </div>
+            {{if .MfaEnabled}}
+            <details class="mt-3">
+                <summary class="text-sm text-red-600 dark:text-red-400 cursor-pointer hover:underline">Disable Two-Factor Authentication</summary>
+                <form method="POST" action="/oauth/mfa-disable" class="mt-4 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                    <div class="mb-4">
+                        <label for="mfa-password" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Password</label>
+                        <input type="password" id="mfa-password" name="password" placeholder="Enter your password" required autocomplete="current-password" class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20">
+                    </div>
+                    <div class="mb-4">
+                        <label for="mfa-code" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">MFA Code</label>
+                        <input type="text" id="mfa-code" name="code" placeholder="Enter 6-digit code" required autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20">
+                    </div>
+                    <button type="submit" class="w-full px-6 py-3 text-base font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 cursor-pointer">Disable MFA</button>
+                </form>
+            </details>
+            {{else}}
+            <a href="/oauth/mfa-setup" class="mt-3 w-full px-6 py-3 text-base font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-center no-underline inline-block">Enable Two-Factor Authentication</a>
+            {{end}}
+        </div>
+
         {{if .IsInactive}}
         <div class="mt-8 pt-6 border-t border-amber-200 dark:border-amber-800/30">
             <h2 class="text-base font-semibold text-amber-800 dark:text-amber-300 mb-4 pb-2 border-b border-amber-200 dark:border-amber-800/30">Account Deactivated</h2>

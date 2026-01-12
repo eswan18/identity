@@ -20,6 +20,219 @@ info:
   title: Identity Service
   version: "1.0"
 paths:
+  /:
+    get:
+      description: Redirects to account settings if logged in, or login page if not
+      responses:
+        "302":
+          description: Redirect to appropriate page
+          schema:
+            type: string
+      summary: Root redirect
+      tags:
+      - navigation
+  /account-settings:
+    get:
+      description: Displays the account settings page where users can view their account
+        info and change their password
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML account settings page
+          schema:
+            type: string
+        "401":
+          description: Unauthorized - no valid session
+          schema:
+            type: string
+      summary: Show account settings page
+      tags:
+      - account
+  /change-email:
+    get:
+      description: Displays the change email form
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML change email page
+          schema:
+            type: string
+        "401":
+          description: Unauthorized - no valid session
+          schema:
+            type: string
+      summary: Show change email page
+      tags:
+      - account
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Processes email change form submission
+      parameters:
+      - description: New email address
+        in: formData
+        name: new_email
+        required: true
+        type: string
+      - description: Password for verification
+        in: formData
+        name: password
+        required: true
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML change email page with success message
+          schema:
+            type: string
+        "400":
+          description: Invalid request
+          schema:
+            type: string
+        "401":
+          description: Unauthorized - invalid password
+          schema:
+            type: string
+      summary: Update email
+      tags:
+      - account
+  /change-password:
+    get:
+      description: Displays the change password form
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML change password page
+          schema:
+            type: string
+        "401":
+          description: Unauthorized - no valid session
+          schema:
+            type: string
+      summary: Show change password page
+      tags:
+      - account
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Processes password change form submission
+      parameters:
+      - description: Current password for verification
+        in: formData
+        name: current_password
+        required: true
+        type: string
+      - description: New password
+        in: formData
+        name: new_password
+        required: true
+        type: string
+      - description: Confirm new password
+        in: formData
+        name: confirm_password
+        required: true
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML change password page with success message
+          schema:
+            type: string
+        "400":
+          description: Invalid request - passwords don't match
+          schema:
+            type: string
+        "401":
+          description: Unauthorized - invalid current password
+          schema:
+            type: string
+      summary: Update password
+      tags:
+      - account
+  /change-username:
+    get:
+      description: Displays the change username form
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML change username page
+          schema:
+            type: string
+        "401":
+          description: Unauthorized - no valid session
+          schema:
+            type: string
+      summary: Show change username page
+      tags:
+      - account
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Processes username change form submission
+      parameters:
+      - description: New username
+        in: formData
+        name: new_username
+        required: true
+        type: string
+      - description: Password for verification
+        in: formData
+        name: password
+        required: true
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML change username page with success message
+          schema:
+            type: string
+        "400":
+          description: Invalid request
+          schema:
+            type: string
+        "401":
+          description: Unauthorized - invalid password
+          schema:
+            type: string
+      summary: Update username
+      tags:
+      - account
+  /deactivate-account:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Deactivates the user's account by setting is_active to false
+      parameters:
+      - description: Password for verification
+        in: formData
+        name: password
+        required: true
+        type: string
+      produces:
+      - text/html
+      responses:
+        "302":
+          description: Redirect to login page after deactivation
+          schema:
+            type: string
+        "400":
+          description: Invalid request
+          schema:
+            type: string
+        "401":
+          description: Unauthorized - invalid password
+          schema:
+            type: string
+      summary: Deactivate user account
+      tags:
+      - account
   /health:
     get:
       description: Returns service health status including database connectivity
@@ -446,6 +659,35 @@ paths:
       summary: OIDC UserInfo endpoint
       tags:
       - oidc
+  /reactivate-account:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Reactivates the user's account by setting is_active to true
+      parameters:
+      - description: Password for verification
+        in: formData
+        name: password
+        required: true
+        type: string
+      produces:
+      - text/html
+      responses:
+        "302":
+          description: Redirect to account settings after reactivation
+          schema:
+            type: string
+        "400":
+          description: Invalid request
+          schema:
+            type: string
+        "401":
+          description: Unauthorized - invalid password
+          schema:
+            type: string
+      summary: Reactivate user account
+      tags:
+      - account
   /register:
     get:
       description: Displays the registration form for creating a new user account.

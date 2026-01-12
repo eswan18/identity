@@ -94,7 +94,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) er
 const createUser = `-- name: CreateUser :one
 INSERT INTO auth_users (username, email, password_hash)
 VALUES ($1, $2, $3)
-RETURNING id, username, password_hash, email, is_active, created_at, updated_at
+RETURNING id, username, password_hash, email, is_active, mfa_enabled, mfa_secret, mfa_verified_at, created_at, updated_at
 `
 
 type CreateUserParams struct {
@@ -112,6 +112,9 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (AuthUse
 		&i.PasswordHash,
 		&i.Email,
 		&i.IsActive,
+		&i.MfaEnabled,
+		&i.MfaSecret,
+		&i.MfaVerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -283,7 +286,7 @@ func (q *Queries) GetTokenByRefreshToken(ctx context.Context, refreshToken sql.N
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at
+SELECT id, username, password_hash, email, is_active, mfa_enabled, mfa_secret, mfa_verified_at, created_at, updated_at
 FROM auth_users
 WHERE email = $1
   AND is_active = true
@@ -298,6 +301,9 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (AuthUser, e
 		&i.PasswordHash,
 		&i.Email,
 		&i.IsActive,
+		&i.MfaEnabled,
+		&i.MfaSecret,
+		&i.MfaVerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -305,7 +311,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (AuthUser, e
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at
+SELECT id, username, password_hash, email, is_active, mfa_enabled, mfa_secret, mfa_verified_at, created_at, updated_at
 FROM auth_users
 WHERE id = $1
   AND is_active = true
@@ -320,6 +326,9 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (AuthUser, erro
 		&i.PasswordHash,
 		&i.Email,
 		&i.IsActive,
+		&i.MfaEnabled,
+		&i.MfaSecret,
+		&i.MfaVerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -327,7 +336,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (AuthUser, erro
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at
+SELECT id, username, password_hash, email, is_active, mfa_enabled, mfa_secret, mfa_verified_at, created_at, updated_at
 FROM auth_users
 WHERE username = $1
   AND is_active = true
@@ -342,6 +351,9 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (AuthU
 		&i.PasswordHash,
 		&i.Email,
 		&i.IsActive,
+		&i.MfaEnabled,
+		&i.MfaSecret,
+		&i.MfaVerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -623,7 +635,7 @@ func (q *Queries) ReactivateUser(ctx context.Context, id uuid.UUID) error {
 }
 
 const getUserByIDIncludingInactive = `-- name: GetUserByIDIncludingInactive :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at
+SELECT id, username, password_hash, email, is_active, mfa_enabled, mfa_secret, mfa_verified_at, created_at, updated_at
 FROM auth_users
 WHERE id = $1
 `
@@ -637,6 +649,9 @@ func (q *Queries) GetUserByIDIncludingInactive(ctx context.Context, id uuid.UUID
 		&i.PasswordHash,
 		&i.Email,
 		&i.IsActive,
+		&i.MfaEnabled,
+		&i.MfaSecret,
+		&i.MfaVerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -644,7 +659,7 @@ func (q *Queries) GetUserByIDIncludingInactive(ctx context.Context, id uuid.UUID
 }
 
 const getUserByUsernameIncludingInactive = `-- name: GetUserByUsernameIncludingInactive :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at
+SELECT id, username, password_hash, email, is_active, mfa_enabled, mfa_secret, mfa_verified_at, created_at, updated_at
 FROM auth_users
 WHERE username = $1
 `
@@ -658,6 +673,9 @@ func (q *Queries) GetUserByUsernameIncludingInactive(ctx context.Context, userna
 		&i.PasswordHash,
 		&i.Email,
 		&i.IsActive,
+		&i.MfaEnabled,
+		&i.MfaSecret,
+		&i.MfaVerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

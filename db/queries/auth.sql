@@ -175,3 +175,32 @@ WHERE id = $1;
 SELECT *
 FROM auth_users
 WHERE username = $1;
+
+-- MFA queries
+
+-- name: GetUserMFAStatus :one
+SELECT id, mfa_enabled, mfa_secret FROM auth_users WHERE id = $1;
+
+-- name: EnableMFA :exec
+UPDATE auth_users
+SET mfa_enabled = true, mfa_secret = $2, mfa_verified_at = now(), updated_at = now()
+WHERE id = $1;
+
+-- name: DisableMFA :exec
+UPDATE auth_users
+SET mfa_enabled = false, mfa_secret = NULL, mfa_verified_at = NULL, updated_at = now()
+WHERE id = $1;
+
+-- name: CreateMFAPending :exec
+INSERT INTO auth_mfa_pending (id, user_id, client_id, redirect_uri, state, scope, code_challenge, code_challenge_method, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+
+-- name: GetMFAPending :one
+SELECT * FROM auth_mfa_pending
+WHERE id = $1 AND expires_at > now();
+
+-- name: DeleteMFAPending :exec
+DELETE FROM auth_mfa_pending WHERE id = $1;
+
+-- name: DeleteExpiredMFAPending :exec
+DELETE FROM auth_mfa_pending WHERE expires_at <= now();

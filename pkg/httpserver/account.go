@@ -46,12 +46,17 @@ func (s *Server) HandleAccountSettingsGet(w http.ResponseWriter, r *http.Request
 	var success string
 	if r.URL.Query().Get("reactivated") == "true" {
 		success = "Your account has been reactivated."
+	} else if r.URL.Query().Get("mfa_enabled") == "true" {
+		success = "Two-factor authentication has been enabled."
+	} else if r.URL.Query().Get("mfa_disabled") == "true" {
+		success = "Two-factor authentication has been disabled."
 	}
 
 	s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
 		Username:   user.Username,
 		Email:      user.Email,
 		IsInactive: !user.IsActive,
+		MfaEnabled: user.MfaEnabled,
 		Success:    success,
 	})
 }

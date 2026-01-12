@@ -29,9 +29,12 @@ Save the returned `client_id` (and `client_secret` if using `--confidential`).
 See the main [README](../README.md#oauth-flow-example) for the full OAuth/PKCE flow. In summary:
 
 1. Redirect user to `/oauth/authorize` with your `client_id` and PKCE challenge
-2. User logs in and is redirected back with an authorization code
-3. Exchange the code for tokens at `/oauth/token`
-4. Use the access token to call `/oauth/userinfo` or your own APIs
+2. User logs in (and enters MFA code if they have two-factor authentication enabled)
+3. User is redirected back with an authorization code
+4. Exchange the code for tokens at `/oauth/token`
+5. Use the access token to call `/oauth/userinfo` or your own APIs
+
+**Note:** MFA is handled entirely within the IdP. Your client application doesn't need to do anything special — the user will be prompted for their MFA code during the login flow before being redirected back to your app.
 
 ## Step 3: Understanding the Access Token
 
