@@ -22,8 +22,10 @@ import (
 	"github.com/eswan18/identity/pkg/auth"
 	"github.com/eswan18/identity/pkg/config"
 	"github.com/eswan18/identity/pkg/db"
+	"github.com/eswan18/identity/pkg/mfa"
 	"github.com/eswan18/identity/pkg/store"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -139,6 +141,16 @@ func (s *OAuthFlowSuite) mustRegisterUser(username, password, email string) User
 	s.Require().NoError(err)
 	s.T().Logf("user created: %s", authUser.Username)
 	return UserWithPassword{AuthUser: authUser, Password: password}
+}
+
+func (s *OAuthFlowSuite) mustEnableMFAForUser(user UserWithPassword, secret string) {
+	// Enable MFA directly in the database
+	err := s.datastore.Q.EnableMFA(s.T().Context(), db.EnableMFAParams{
+		ID:        user.ID,
+		MfaSecret: secret,
+	})
+	s.Require().NoError(err)
+	s.T().Logf("MFA enabled for user: %s", user.Username)
 }
 
 func (s *OAuthFlowSuite) mustCreateStateAndCodeVerifier() StateAndCodeVerifier {
@@ -607,6 +619,201 @@ func (s *OAuthFlowSuite) TestUserInfoEndpoint() {
 	s.Equal(result.User.Username, userInfo.Username, "username should match")
 	s.Equal(result.User.Email, userInfo.Email, "email should match")
 	s.True(userInfo.EmailVerified, "email_verified should be true")
+}
+
+// TestOAuthFlowWithMFA verifies that users with MFA enabled are redirected to the MFA page
+// and can complete the flow by entering a valid TOTP code.
+func (s *OAuthFlowSuite) TestOAuthFlowWithMFA() {
+	clientCallbackURI := "http://localhost:8080/callback"
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{clientCallbackURI},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "http://localhost:8000",
+	})
+	user := s.mustRegisterUser(
+		s.mustGenerateRandomString(8),
+		s.mustGenerateRandomString(8),
+		fmt.Sprintf("%s@example.com", s.mustGenerateRandomString(8)),
+	)
+
+	// Generate a TOTP secret and enable MFA for the user
+	totpKey, err := mfa.GenerateSecret(user.Username)
+	s.Require().NoError(err)
+	totpSecret := mfa.GetSecret(totpKey)
+	s.mustEnableMFAForUser(user, totpSecret)
+
+	scv := s.mustCreateStateAndCodeVerifier()
+	host := "localhost:8080"
+
+	// Step 1: Submit login - should redirect to MFA page instead of callback
+	loginQuery := url.Values{
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {clientCallbackURI},
+		"response_type":         {"code"},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+		"state":                 {scv.State},
+		"scope":                 {"openid profile email"},
+	}
+	formValues := url.Values{
+		"username":              {user.Username},
+		"password":              {user.Password},
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {clientCallbackURI},
+		"state":                 {scv.State},
+		"scope":                 {"openid profile email"},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	}
+	postLoginUrl := fmt.Sprintf("http://%s/oauth/login?%s", host, loginQuery.Encode())
+	resp, err := s.httpClient.PostForm(postLoginUrl, formValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode, "login should redirect")
+
+	// Verify redirect is to MFA page, not callback
+	location := resp.Header.Get("Location")
+	s.Contains(location, "/oauth/mfa", "should redirect to MFA page")
+
+	// Extract pending ID from redirect URL
+	redirectUrl, err := url.ParseRequestURI(location)
+	s.Require().NoError(err)
+	pendingID := redirectUrl.Query().Get("pending")
+	s.NotEmpty(pendingID, "should have pending ID")
+
+	// Step 2: GET MFA page - should show form
+	mfaPageUrl := fmt.Sprintf("http://%s%s", host, location)
+	resp, err = s.httpClient.Get(mfaPageUrl)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+	body, _ := io.ReadAll(resp.Body)
+	s.Contains(string(body), "Two-Factor Authentication")
+
+	// Step 3: Submit valid MFA code - should redirect to callback with auth code
+	// Generate a valid TOTP code
+	validCode, err := generateTOTPCode(totpSecret)
+	s.Require().NoError(err)
+
+	mfaFormValues := url.Values{
+		"pending_id": {pendingID},
+		"code":       {validCode},
+	}
+	postMfaUrl := fmt.Sprintf("http://%s/oauth/mfa", host)
+	resp, err = s.httpClient.PostForm(postMfaUrl, mfaFormValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode, "MFA verification should redirect")
+
+	// Verify redirect is to callback with authorization code
+	location = resp.Header.Get("Location")
+	redirectUrl, err = url.ParseRequestURI(location)
+	s.Require().NoError(err)
+	s.Equal("/callback", redirectUrl.Path)
+	authorizationCode := redirectUrl.Query().Get("code")
+	s.NotEmpty(authorizationCode, "should receive authorization code")
+
+	// Step 4: Exchange authorization code for tokens (verify flow completes)
+	tokenQuery := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {authorizationCode},
+		"redirect_uri":  {clientCallbackURI},
+		"client_id":     {client.ClientID},
+		"code_verifier": {scv.CodeVerifier},
+	}
+	postTokenUrl := fmt.Sprintf("http://%s/oauth/token", host)
+	resp, err = s.httpClient.PostForm(postTokenUrl, tokenQuery)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusOK, resp.StatusCode, "token exchange should succeed")
+
+	body, err = io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	var tokenResponse TokenResponse
+	err = json.Unmarshal(body, &tokenResponse)
+	s.Require().NoError(err)
+	s.NotEmpty(tokenResponse.AccessToken)
+}
+
+// TestMFAWithInvalidCode verifies that an invalid MFA code is rejected.
+func (s *OAuthFlowSuite) TestMFAWithInvalidCode() {
+	clientCallbackURI := "http://localhost:8080/callback"
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{clientCallbackURI},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "http://localhost:8000",
+	})
+	user := s.mustRegisterUser(
+		s.mustGenerateRandomString(8),
+		s.mustGenerateRandomString(8),
+		fmt.Sprintf("%s@example.com", s.mustGenerateRandomString(8)),
+	)
+
+	// Generate a TOTP secret and enable MFA for the user
+	totpKey, err := mfa.GenerateSecret(user.Username)
+	s.Require().NoError(err)
+	totpSecret := mfa.GetSecret(totpKey)
+	s.mustEnableMFAForUser(user, totpSecret)
+
+	scv := s.mustCreateStateAndCodeVerifier()
+	host := "localhost:8080"
+
+	// Submit login to get to MFA page
+	formValues := url.Values{
+		"username":              {user.Username},
+		"password":              {user.Password},
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {clientCallbackURI},
+		"state":                 {scv.State},
+		"scope":                 {"openid profile email"},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	}
+	postLoginUrl := fmt.Sprintf("http://%s/oauth/login", host)
+	resp, err := s.httpClient.PostForm(postLoginUrl, formValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode)
+
+	location := resp.Header.Get("Location")
+	redirectUrl, err := url.ParseRequestURI(location)
+	s.Require().NoError(err)
+	pendingID := redirectUrl.Query().Get("pending")
+
+	// Submit invalid MFA code
+	mfaFormValues := url.Values{
+		"pending_id": {pendingID},
+		"code":       {"000000"}, // Invalid code
+	}
+	postMfaUrl := fmt.Sprintf("http://%s/oauth/mfa", host)
+	resp, err = s.httpClient.PostForm(postMfaUrl, mfaFormValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	// Should return error page, not redirect
+	s.Equal(http.StatusUnauthorized, resp.StatusCode)
+	body, _ := io.ReadAll(resp.Body)
+	s.Contains(string(body), "Invalid verification code")
+}
+
+// generateTOTPCode generates a valid TOTP code for the given secret.
+// This uses the same library as the server to ensure compatibility.
+func generateTOTPCode(secret string) (string, error) {
+	// Use the pquerna/otp library to generate a code
+	// We need to import it properly
+	code, err := totp.GenerateCode(secret, time.Now())
+	if err != nil {
+		return "", err
+	}
+	return code, nil
 }
 
 func prepareDatabase(t *testing.T) *postgres.PostgresContainer {
