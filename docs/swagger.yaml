@@ -233,6 +233,39 @@ paths:
       summary: Deactivate user account
       tags:
       - account
+  /forgot-password:
+    get:
+      description: Displays the forgot password form
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML forgot password page
+          schema:
+            type: string
+      summary: Show forgot password page
+      tags:
+      - authentication
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Sends a password reset email if the account exists
+      parameters:
+      - description: Email address
+        in: formData
+        name: email
+        required: true
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML forgot password page with success message
+          schema:
+            type: string
+      summary: Request password reset
+      tags:
+      - authentication
   /health:
     get:
       description: Returns service health status including database connectivity
@@ -768,6 +801,64 @@ paths:
           schema:
             type: string
       summary: Register new user
+      tags:
+      - authentication
+  /reset-password:
+    get:
+      description: Displays the reset password form for users who clicked a reset
+        link
+      parameters:
+      - description: Password reset token
+        in: query
+        name: token
+        required: true
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML reset password page
+          schema:
+            type: string
+        "400":
+          description: Invalid or expired token
+          schema:
+            type: string
+      summary: Show reset password page
+      tags:
+      - authentication
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Sets a new password using a valid reset token
+      parameters:
+      - description: Password reset token
+        in: formData
+        name: token
+        required: true
+        type: string
+      - description: New password
+        in: formData
+        name: new_password
+        required: true
+        type: string
+      - description: Confirm new password
+        in: formData
+        name: confirm_password
+        required: true
+        type: string
+      produces:
+      - text/html
+      responses:
+        "302":
+          description: Redirect to login page on success
+          schema:
+            type: string
+        "400":
+          description: Invalid token or password mismatch
+          schema:
+            type: string
+      summary: Reset password
       tags:
       - authentication
   /success:

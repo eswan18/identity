@@ -63,3 +63,15 @@ type ChangeEmailPageData struct {
 	Success      string
 	CurrentEmail string
 }
+
+// ForgotPasswordPageData holds the data needed to render the forgot password page template.
+type ForgotPasswordPageData struct {
+	Error   string
+	Success string
+}
+
+// ResetPasswordPageData holds the data needed to render the reset password page template.
+type ResetPasswordPageData struct {
+	Error string
+	Token string
+}

@@ -20,9 +20,9 @@ type Config struct {
 	JWTIssuer     string
 
 	// Email configuration
-	EmailProvider   string // "resend" or "log"
-	ResendAPIKey    string // Required when EmailProvider is "resend"
-	EmailFrom       string // Sender address (e.g., "noreply@example.com")
+	EmailProvider string // "resend" or "log"
+	ResendAPIKey  string // Required when EmailProvider is "resend"
+	EmailFrom     string // Sender address (e.g., "noreply@example.com")
 }
 
 func NewFromEnv() *Config {
