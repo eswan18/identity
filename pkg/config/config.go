@@ -18,6 +18,11 @@ type Config struct {
 	TemplatesDir  string
 	JWTPrivateKey string
 	JWTIssuer     string
+
+	// Email configuration
+	EmailProvider   string // "resend" or "log"
+	ResendAPIKey    string // Required when EmailProvider is "resend"
+	EmailFrom       string // Sender address (e.g., "noreply@example.com")
 }
 
 func NewFromEnv() *Config {
@@ -32,6 +37,9 @@ func NewFromEnv() *Config {
 			HTTPAddress:   os.Getenv("HTTP_ADDRESS"),
 			JWTPrivateKey: os.Getenv("JWT_PRIVATE_KEY"),
 			JWTIssuer:     os.Getenv("JWT_ISSUER"),
+			EmailProvider: os.Getenv("EMAIL_PROVIDER"),
+			ResendAPIKey:  os.Getenv("RESEND_API_KEY"),
+			EmailFrom:     os.Getenv("EMAIL_FROM"),
 		}
 	} else {
 		// Local development: load from .env files
@@ -48,6 +56,9 @@ func NewFromEnv() *Config {
 			TemplatesDir:  os.Getenv("TEMPLATES_DIR"),
 			JWTPrivateKey: os.Getenv("JWT_PRIVATE_KEY"),
 			JWTIssuer:     os.Getenv("JWT_ISSUER"),
+			EmailProvider: os.Getenv("EMAIL_PROVIDER"),
+			ResendAPIKey:  os.Getenv("RESEND_API_KEY"),
+			EmailFrom:     os.Getenv("EMAIL_FROM"),
 		}
 	}
 
@@ -79,6 +90,23 @@ func NewFromEnv() *Config {
 	// Validate JWT_ISSUER is a valid URL
 	if err := validateIssuerURL(config.JWTIssuer); err != nil {
 		log.Fatalf("JWT_ISSUER is invalid: %v", err)
+	}
+
+	// Default email provider to "log" for development
+	if config.EmailProvider == "" {
+		config.EmailProvider = "log"
+	}
+
+	// Validate email configuration
+	if config.EmailProvider == "resend" {
+		if config.ResendAPIKey == "" {
+			log.Fatal("RESEND_API_KEY is required when EMAIL_PROVIDER is 'resend'")
+		}
+		if config.EmailFrom == "" {
+			log.Fatal("EMAIL_FROM is required when EMAIL_PROVIDER is 'resend'")
+		}
+	} else if config.EmailProvider != "log" {
+		log.Fatalf("EMAIL_PROVIDER must be 'resend' or 'log', got: %s", config.EmailProvider)
 	}
 
 	return config

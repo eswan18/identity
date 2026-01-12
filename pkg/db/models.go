@@ -11,24 +11,14 @@ import (
 	"github.com/google/uuid"
 )
 
-type AuthSession struct {
-	ID        string    `json:"id"`
-	UserID    uuid.UUID `json:"user_id"`
-	ExpiresAt time.Time `json:"expires_at"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type AuthUser struct {
-	ID           uuid.UUID      `json:"id"`
-	Username     string         `json:"username"`
-	PasswordHash string         `json:"password_hash"`
-	Email        string         `json:"email"`
-	IsActive     bool           `json:"is_active"`
-	MfaEnabled   bool           `json:"mfa_enabled"`
-	MfaSecret    sql.NullString `json:"mfa_secret"`
-	MfaVerifiedAt sql.NullTime  `json:"mfa_verified_at"`
-	CreatedAt    time.Time      `json:"created_at"`
-	UpdatedAt    time.Time      `json:"updated_at"`
+type AuthEmailToken struct {
+	ID        uuid.UUID    `json:"id"`
+	UserID    uuid.UUID    `json:"user_id"`
+	TokenHash string       `json:"token_hash"`
+	TokenType string       `json:"token_type"`
+	ExpiresAt time.Time    `json:"expires_at"`
+	UsedAt    sql.NullTime `json:"used_at"`
+	CreatedAt time.Time    `json:"created_at"`
 }
 
 type AuthMfaPending struct {
@@ -42,6 +32,28 @@ type AuthMfaPending struct {
 	CodeChallengeMethod sql.NullString `json:"code_challenge_method"`
 	CreatedAt           time.Time      `json:"created_at"`
 	ExpiresAt           time.Time      `json:"expires_at"`
+}
+
+type AuthSession struct {
+	ID        string    `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type AuthUser struct {
+	ID              uuid.UUID      `json:"id"`
+	Username        string         `json:"username"`
+	PasswordHash    string         `json:"password_hash"`
+	Email           string         `json:"email"`
+	IsActive        bool           `json:"is_active"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+	MfaEnabled      bool           `json:"mfa_enabled"`
+	MfaSecret       sql.NullString `json:"mfa_secret"`
+	MfaVerifiedAt   sql.NullTime   `json:"mfa_verified_at"`
+	EmailVerified   bool           `json:"email_verified"`
+	EmailVerifiedAt sql.NullTime   `json:"email_verified_at"`
 }
 
 type OauthAuthorizationCode struct {

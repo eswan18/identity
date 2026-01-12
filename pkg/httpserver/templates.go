@@ -35,12 +35,13 @@ type ErrorPageData struct {
 
 // AccountSettingsPageData holds the data needed to render the account settings page template.
 type AccountSettingsPageData struct {
-	Error      string
-	Success    string
-	Username   string
-	Email      string
-	IsInactive bool
-	MfaEnabled bool
+	Error         string
+	Success       string
+	Username      string
+	Email         string
+	IsInactive    bool
+	MfaEnabled    bool
+	EmailVerified bool
 }
 
 // ChangePasswordPageData holds the data needed to render the change password page template.

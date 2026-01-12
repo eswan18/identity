@@ -204,3 +204,27 @@ DELETE FROM auth_mfa_pending WHERE id = $1;
 
 -- name: DeleteExpiredMFAPending :exec
 DELETE FROM auth_mfa_pending WHERE expires_at <= now();
+
+-- Email verification queries
+
+-- name: SetEmailVerified :exec
+UPDATE auth_users
+SET email_verified = true, email_verified_at = now(), updated_at = now()
+WHERE id = $1;
+
+-- name: CreateEmailToken :exec
+INSERT INTO auth_email_tokens (user_id, token_hash, token_type, expires_at)
+VALUES ($1, $2, $3, $4);
+
+-- name: GetEmailToken :one
+SELECT * FROM auth_email_tokens
+WHERE token_hash = $1 AND token_type = $2 AND expires_at > now() AND used_at IS NULL;
+
+-- name: MarkEmailTokenUsed :exec
+UPDATE auth_email_tokens SET used_at = now() WHERE id = $1;
+
+-- name: DeleteExpiredEmailTokens :exec
+DELETE FROM auth_email_tokens WHERE expires_at <= now();
+
+-- name: DeleteUserEmailTokens :exec
+DELETE FROM auth_email_tokens WHERE user_id = $1 AND token_type = $2;

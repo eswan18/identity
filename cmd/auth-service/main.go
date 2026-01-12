@@ -15,18 +15,31 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/eswan18/identity/pkg/config"
+	"github.com/eswan18/identity/pkg/email"
 	"github.com/eswan18/identity/pkg/httpserver"
 	"github.com/eswan18/identity/pkg/store"
 )
 
 func main() {
 
-	config := config.NewFromEnv()
-	datastore, err := store.New(config.DatabaseURL)
+	cfg := config.NewFromEnv()
+	datastore, err := store.New(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("Failed to create datastore: %v", err)
 	}
-	server := httpserver.New(config, datastore)
+
+	// Create email sender based on configuration
+	var emailSender email.Sender
+	switch cfg.EmailProvider {
+	case "resend":
+		emailSender = email.NewResendSender(cfg.ResendAPIKey, cfg.EmailFrom)
+		log.Println("Using Resend email provider")
+	default:
+		emailSender = email.NewLogSender()
+		log.Println("Using log email provider (emails will be logged, not sent)")
+	}
+
+	server := httpserver.New(cfg, datastore, emailSender)
 
 	if err := server.Run(); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

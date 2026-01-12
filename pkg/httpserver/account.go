@@ -43,7 +43,18 @@ func (s *Server) HandleAccountSettingsGet(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var success string
+	var success, errorMsg string
+	switch r.URL.Query().Get("success") {
+	case "verification_sent":
+		success = "Verification email sent. Please check your inbox."
+	case "email_already_verified":
+		success = "Your email is already verified."
+	}
+	switch r.URL.Query().Get("error") {
+	case "email_send_failed":
+		errorMsg = "Failed to send verification email. Please try again later."
+	}
+	// Legacy query params
 	if r.URL.Query().Get("reactivated") == "true" {
 		success = "Your account has been reactivated."
 	} else if r.URL.Query().Get("mfa_enabled") == "true" {
@@ -53,11 +64,13 @@ func (s *Server) HandleAccountSettingsGet(w http.ResponseWriter, r *http.Request
 	}
 
 	s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
-		Username:   user.Username,
-		Email:      user.Email,
-		IsInactive: !user.IsActive,
-		MfaEnabled: user.MfaEnabled,
-		Success:    success,
+		Username:      user.Username,
+		Email:         user.Email,
+		IsInactive:    !user.IsActive,
+		MfaEnabled:    user.MfaEnabled,
+		EmailVerified: user.EmailVerified,
+		Success:       success,
+		Error:         errorMsg,
 	})
 }
 

@@ -46,6 +46,7 @@ func TestGenerateAccessToken(t *testing.T) {
 		"testuser",
 		"test@example.com",
 		"https://api.example.com",
+		true, // emailVerified
 		[]string{"openid", "profile"},
 		time.Hour,
 	)
@@ -76,6 +77,7 @@ func TestGenerateAndValidateToken(t *testing.T) {
 		"testuser",
 		"test@example.com",
 		"https://api.example.com",
+		true, // emailVerified
 		[]string{"openid", "profile"},
 		time.Hour,
 	)
@@ -119,6 +121,7 @@ func TestValidateTokenRejectsExpired(t *testing.T) {
 		"testuser",
 		"test@example.com",
 		"https://api.example.com",
+		false, // emailVerified
 		[]string{"openid"},
 		-time.Hour, // negative duration = already expired
 	)
@@ -143,6 +146,7 @@ func TestValidateTokenRejectsWrongAudience(t *testing.T) {
 		"testuser",
 		"test@example.com",
 		"https://api.example.com",
+		false, // emailVerified
 		[]string{"openid"},
 		time.Hour,
 	)
@@ -177,6 +181,7 @@ func TestValidateTokenRejectsWrongIssuer(t *testing.T) {
 		"testuser",
 		"test@example.com",
 		"https://api.example.com",
+		false, // emailVerified
 		[]string{"openid"},
 		time.Hour,
 	)
@@ -205,6 +210,7 @@ func TestValidateTokenAcceptsEmptyExpectedAudience(t *testing.T) {
 		"testuser",
 		"test@example.com",
 		"https://api.example.com",
+		false, // emailVerified
 		[]string{"openid"},
 		time.Hour,
 	)
@@ -233,6 +239,7 @@ func TestValidateTokenRejectsInvalidSignature(t *testing.T) {
 		"testuser",
 		"test@example.com",
 		"https://api.example.com",
+		false, // emailVerified
 		[]string{"openid"},
 		time.Hour,
 	)

@@ -236,6 +236,7 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 		user.Username,
 		user.Email,
 		client.Audience,
+		user.EmailVerified,
 		scope,
 		accessTokenExpiresIn,
 	)
