@@ -277,3 +277,79 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 	// Redirect to login with success message
 	http.Redirect(w, r, "/oauth/login?password_reset=true", http.StatusFound)
 }
+
+// HandleForgotUsernameGet godoc
+// @Summary      Show forgot username page
+// @Description  Displays the forgot username form
+// @Tags         authentication
+// @Produce      html
+// @Success      200 {string} string "HTML forgot username page"
+// @Router       /forgot-username [get]
+func (s *Server) HandleForgotUsernameGet(w http.ResponseWriter, r *http.Request) {
+	s.forgotUsernameTemplate.Execute(w, ForgotPasswordPageData{})
+}
+
+// HandleForgotUsernamePost godoc
+// @Summary      Request username reminder
+// @Description  Sends a username reminder email if the account exists
+// @Tags         authentication
+// @Accept       application/x-www-form-urlencoded
+// @Produce      html
+// @Param        email formData string true "Email address"
+// @Success      200 {string} string "HTML forgot username page with success message"
+// @Router       /forgot-username [post]
+func (s *Server) HandleForgotUsernamePost(w http.ResponseWriter, r *http.Request) {
+	emailAddr := r.FormValue("email")
+
+	if emailAddr == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		s.forgotUsernameTemplate.Execute(w, ForgotPasswordPageData{
+			Error: "Email address is required",
+		})
+		return
+	}
+
+	// Always show success message to prevent email enumeration
+	successMsg := "If an account with that email exists, we've sent your username."
+
+	// Look up user by email
+	user, err := s.datastore.Q.GetUserByEmail(r.Context(), emailAddr)
+	if err != nil {
+		// User not found - still show success message (no email enumeration)
+		log.Printf("[DEBUG] HandleForgotUsernamePost: No user found for email %s", emailAddr)
+		s.forgotUsernameTemplate.Execute(w, ForgotPasswordPageData{
+			Success: successMsg,
+		})
+		return
+	}
+
+	// Send username reminder email
+	err = s.emailSender.Send(r.Context(), email.Message{
+		To:      emailAddr,
+		Subject: "Your Username Reminder",
+		HTML: fmt.Sprintf(`
+			<h2>Username Reminder</h2>
+			<p>You requested a reminder of your username for your account.</p>
+			<p>Your username is: <strong>%s</strong></p>
+			<p>If you didn't request this, you can safely ignore this email.</p>
+		`, user.Username),
+		Text: fmt.Sprintf(`
+Username Reminder
+
+You requested a reminder of your username for your account.
+
+Your username is: %s
+
+If you didn't request this, you can safely ignore this email.
+		`, user.Username),
+	})
+	if err != nil {
+		log.Printf("[ERROR] HandleForgotUsernamePost: Failed to send email: %v", err)
+		// Still show success to prevent enumeration, but log the error
+	}
+
+	log.Printf("[DEBUG] HandleForgotUsernamePost: Username reminder email sent to %s", emailAddr)
+	s.forgotUsernameTemplate.Execute(w, ForgotPasswordPageData{
+		Success: successMsg,
+	})
+}

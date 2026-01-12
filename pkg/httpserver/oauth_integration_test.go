@@ -970,6 +970,278 @@ func (s *OAuthFlowSuite) TestResendVerificationRequiresAuth() {
 	s.Contains(location, "/oauth/login")
 }
 
+// Password Reset Tests
+
+func (s *OAuthFlowSuite) TestPasswordResetFlow() {
+	// Register a user
+	username := s.mustGenerateRandomString(10)
+	emailAddr := username + "@example.com"
+	originalPassword := "originalpassword123"
+	newPassword := "newpassword456"
+
+	// Create a user directly in the database
+	passwordHash, err := auth.HashPassword(originalPassword)
+	s.Require().NoError(err)
+
+	user, err := s.datastore.Q.CreateUser(s.T().Context(), db.CreateUserParams{
+		Username:     username,
+		Email:        emailAddr,
+		PasswordHash: passwordHash,
+	})
+	s.Require().NoError(err)
+
+	// Request password reset
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/forgot-password", url.Values{
+		"email": {emailAddr},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	// Get the token from the database (in real scenario, user would get it from email)
+	tokens, err := s.datastore.DB.QueryContext(s.T().Context(),
+		"SELECT token_hash FROM auth_email_tokens WHERE user_id = $1 AND token_type = 'password_reset' ORDER BY created_at DESC LIMIT 1",
+		user.ID)
+	s.Require().NoError(err)
+	defer tokens.Close()
+
+	s.True(tokens.Next(), "should have a password reset token")
+	var storedHash string
+	err = tokens.Scan(&storedHash)
+	s.Require().NoError(err)
+
+	// Generate a token that hashes to the stored hash (we need the raw token)
+	// Since we can't reverse the hash, we'll create a new token for testing
+	rawToken, tokenHash, err := generateResetToken()
+	s.Require().NoError(err)
+
+	// Store our test token
+	_, err = s.datastore.DB.ExecContext(s.T().Context(),
+		"INSERT INTO auth_email_tokens (user_id, token_hash, token_type, expires_at) VALUES ($1, $2, 'password_reset', NOW() + INTERVAL '1 hour')",
+		user.ID, tokenHash)
+	s.Require().NoError(err)
+
+	// Visit reset password page with token
+	resp, err = s.httpClient.Get("http://localhost:8080/oauth/reset-password?token=" + rawToken)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	// Submit new password
+	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/reset-password", url.Values{
+		"token":            {rawToken},
+		"new_password":     {newPassword},
+		"confirm_password": {newPassword},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusFound, resp.StatusCode)
+	s.Contains(resp.Header.Get("Location"), "/oauth/login?password_reset=true")
+
+	// Verify old password no longer works by trying to login
+	// First, create an OAuth client for testing login
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid"},
+		IsConfidential: false,
+		Audience:       "https://api.example.com",
+	})
+	scv := s.mustCreateStateAndCodeVerifier()
+
+	// Try login with old password (should fail)
+	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/login", url.Values{
+		"username":              {username},
+		"password":              {originalPassword},
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {client.RedirectUris[0]},
+		"state":                 {scv.State},
+		"scope":                 {"openid"},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusUnauthorized, resp.StatusCode)
+
+	// Try login with new password (should succeed)
+	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/login", url.Values{
+		"username":              {username},
+		"password":              {newPassword},
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {client.RedirectUris[0]},
+		"state":                 {scv.State},
+		"scope":                 {"openid"},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusFound, resp.StatusCode)
+	s.Contains(resp.Header.Get("Location"), "code=")
+}
+
+func (s *OAuthFlowSuite) TestPasswordResetWithInvalidToken() {
+	resp, err := s.httpClient.Get("http://localhost:8080/oauth/reset-password?token=invalid-token-123")
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusBadRequest, resp.StatusCode)
+}
+
+func (s *OAuthFlowSuite) TestPasswordResetWithMissingToken() {
+	resp, err := s.httpClient.Get("http://localhost:8080/oauth/reset-password")
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusBadRequest, resp.StatusCode)
+}
+
+func (s *OAuthFlowSuite) TestPasswordResetPasswordMismatch() {
+	// Create a valid token
+	rawToken, tokenHash, err := generateResetToken()
+	s.Require().NoError(err)
+
+	// Create a user and token
+	username := s.mustGenerateRandomString(10)
+	emailAddr := username + "@example.com"
+	passwordHash, err := auth.HashPassword("password123")
+	s.Require().NoError(err)
+
+	user, err := s.datastore.Q.CreateUser(s.T().Context(), db.CreateUserParams{
+		Username:     username,
+		Email:        emailAddr,
+		PasswordHash: passwordHash,
+	})
+	s.Require().NoError(err)
+
+	_, err = s.datastore.DB.ExecContext(s.T().Context(),
+		"INSERT INTO auth_email_tokens (user_id, token_hash, token_type, expires_at) VALUES ($1, $2, 'password_reset', NOW() + INTERVAL '1 hour')",
+		user.ID, tokenHash)
+	s.Require().NoError(err)
+
+	// Submit with mismatched passwords
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/reset-password", url.Values{
+		"token":            {rawToken},
+		"new_password":     {"newpassword123"},
+		"confirm_password": {"differentpassword"},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusBadRequest, resp.StatusCode)
+}
+
+func (s *OAuthFlowSuite) TestPasswordResetTooShort() {
+	// Create a valid token
+	rawToken, tokenHash, err := generateResetToken()
+	s.Require().NoError(err)
+
+	// Create a user and token
+	username := s.mustGenerateRandomString(10)
+	emailAddr := username + "@example.com"
+	passwordHash, err := auth.HashPassword("password123")
+	s.Require().NoError(err)
+
+	user, err := s.datastore.Q.CreateUser(s.T().Context(), db.CreateUserParams{
+		Username:     username,
+		Email:        emailAddr,
+		PasswordHash: passwordHash,
+	})
+	s.Require().NoError(err)
+
+	_, err = s.datastore.DB.ExecContext(s.T().Context(),
+		"INSERT INTO auth_email_tokens (user_id, token_hash, token_type, expires_at) VALUES ($1, $2, 'password_reset', NOW() + INTERVAL '1 hour')",
+		user.ID, tokenHash)
+	s.Require().NoError(err)
+
+	// Submit with too short password
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/reset-password", url.Values{
+		"token":            {rawToken},
+		"new_password":     {"short"},
+		"confirm_password": {"short"},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusBadRequest, resp.StatusCode)
+}
+
+func (s *OAuthFlowSuite) TestForgotPasswordNoEmailEnumeration() {
+	// Request reset for non-existent email - should return same response as valid email
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/forgot-password", url.Values{
+		"email": {"nonexistent@example.com"},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	// Should return 200 OK with success message (not an error)
+	s.Equal(http.StatusOK, resp.StatusCode)
+}
+
+func (s *OAuthFlowSuite) TestForgotPasswordGetPage() {
+	resp, err := s.httpClient.Get("http://localhost:8080/oauth/forgot-password")
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+}
+
+// Forgot Username Tests
+
+func (s *OAuthFlowSuite) TestForgotUsernameFlow() {
+	// Create a user
+	username := s.mustGenerateRandomString(10)
+	emailAddr := username + "@example.com"
+	passwordHash, err := auth.HashPassword("password123")
+	s.Require().NoError(err)
+
+	_, err = s.datastore.Q.CreateUser(s.T().Context(), db.CreateUserParams{
+		Username:     username,
+		Email:        emailAddr,
+		PasswordHash: passwordHash,
+	})
+	s.Require().NoError(err)
+
+	// Request username reminder
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/forgot-username", url.Values{
+		"email": {emailAddr},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	// Check response contains success message (we can't easily check email was sent)
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	s.Contains(string(body), "If an account with that email exists")
+}
+
+func (s *OAuthFlowSuite) TestForgotUsernameNoEmailEnumeration() {
+	// Request reminder for non-existent email - should return same response as valid email
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/forgot-username", url.Values{
+		"email": {"nonexistent@example.com"},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	// Should return 200 OK with success message (not an error)
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	s.Contains(string(body), "If an account with that email exists")
+}
+
+func (s *OAuthFlowSuite) TestForgotUsernameGetPage() {
+	resp, err := s.httpClient.Get("http://localhost:8080/oauth/forgot-username")
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+}
+
+func (s *OAuthFlowSuite) TestForgotUsernameMissingEmail() {
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/forgot-username", url.Values{})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusBadRequest, resp.StatusCode)
+}
+
 func TestOAuthFlowSuite(t *testing.T) {
 	suite.Run(t, new(OAuthFlowSuite))
 }
