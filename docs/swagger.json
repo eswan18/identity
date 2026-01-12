@@ -10,6 +10,325 @@
     "host": "localhost:8080",
     "basePath": "/",
     "paths": {
+        "/": {
+            "get": {
+                "description": "Redirects to account settings if logged in, or login page if not",
+                "tags": [
+                    "navigation"
+                ],
+                "summary": "Root redirect",
+                "responses": {
+                    "302": {
+                        "description": "Redirect to appropriate page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/account-settings": {
+            "get": {
+                "description": "Displays the account settings page where users can view their account info and change their password",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "account"
+                ],
+                "summary": "Show account settings page",
+                "responses": {
+                    "200": {
+                        "description": "HTML account settings page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - no valid session",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/change-email": {
+            "get": {
+                "description": "Displays the change email form",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "account"
+                ],
+                "summary": "Show change email page",
+                "responses": {
+                    "200": {
+                        "description": "HTML change email page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - no valid session",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Processes email change form submission",
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "account"
+                ],
+                "summary": "Update email",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "New email address",
+                        "name": "new_email",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Password for verification",
+                        "name": "password",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "HTML change email page with success message",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - invalid password",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/change-password": {
+            "get": {
+                "description": "Displays the change password form",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "account"
+                ],
+                "summary": "Show change password page",
+                "responses": {
+                    "200": {
+                        "description": "HTML change password page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - no valid session",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Processes password change form submission",
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "account"
+                ],
+                "summary": "Update password",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Current password for verification",
+                        "name": "current_password",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "New password",
+                        "name": "new_password",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Confirm new password",
+                        "name": "confirm_password",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "HTML change password page with success message",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request - passwords don't match",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - invalid current password",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/change-username": {
+            "get": {
+                "description": "Displays the change username form",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "account"
+                ],
+                "summary": "Show change username page",
+                "responses": {
+                    "200": {
+                        "description": "HTML change username page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - no valid session",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Processes username change form submission",
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "account"
+                ],
+                "summary": "Update username",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "New username",
+                        "name": "new_username",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Password for verification",
+                        "name": "password",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "HTML change username page with success message",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - invalid password",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/deactivate-account": {
+            "post": {
+                "description": "Deactivates the user's account by setting is_active to false",
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "account"
+                ],
+                "summary": "Deactivate user account",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Password for verification",
+                        "name": "password",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Redirect to login page after deactivation",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - invalid password",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/health": {
             "get": {
                 "description": "Returns service health status including database connectivity",
@@ -612,6 +931,50 @@
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/reactivate-account": {
+            "post": {
+                "description": "Reactivates the user's account by setting is_active to true",
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "account"
+                ],
+                "summary": "Reactivate user account",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Password for verification",
+                        "name": "password",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Redirect to account settings after reactivation",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - invalid password",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }
