@@ -7,6 +7,7 @@ OAuth 2.0 / OpenID Connect identity provider built with Go, PostgreSQL, and HTMX
 - OAuth 2.0 Authorization Code flow with PKCE
 - OpenID Connect UserInfo endpoint
 - User registration and authentication
+- **Two-factor authentication (TOTP)** — optional MFA via authenticator apps
 - Client management via CLI
 - Session management with secure cookies
 - Token refresh and revocation
@@ -95,6 +96,21 @@ Login page (standalone or via OAuth flow):
 http://localhost:8080/login
 ```
 
+### Two-Factor Authentication (MFA)
+
+Users can enable TOTP-based two-factor authentication from their account settings:
+```
+http://localhost:8080/oauth/account-settings
+```
+
+When MFA is enabled:
+1. User enters username/password as normal
+2. User is redirected to MFA verification page
+3. User enters 6-digit code from their authenticator app (Google Authenticator, Authy, etc.)
+4. On success, the OAuth flow continues as normal
+
+MFA is off by default. Users can enable/disable it themselves via account settings.
+
 ## Commands
 
 Build binary:
@@ -180,6 +196,14 @@ make sqlc
 - `GET /oauth/register` - User registration page
 - `POST /oauth/register` - Create new user account
 - `GET /oauth/success` - Post-login success page
+
+### MFA Endpoints
+
+- `GET /oauth/mfa` - MFA code entry page (during login, if MFA enabled)
+- `POST /oauth/mfa` - Validate MFA code and complete login
+- `GET /oauth/mfa-setup` - Setup MFA with QR code (from account settings)
+- `POST /oauth/mfa-setup` - Verify setup code and enable MFA
+- `POST /oauth/mfa-disable` - Disable MFA (requires password + current MFA code)
 
 ### Health & Documentation
 
