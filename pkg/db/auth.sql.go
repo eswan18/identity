@@ -129,6 +129,24 @@ func (q *Queries) CreateOAuthClient(ctx context.Context, arg CreateOAuthClientPa
 	return i, err
 }
 
+const createPasswordResetToken = `-- name: CreatePasswordResetToken :exec
+
+INSERT INTO auth_email_tokens (user_id, token_hash, token_type, expires_at)
+VALUES ($1, $2, 'password_reset', $3)
+`
+
+type CreatePasswordResetTokenParams struct {
+	UserID    uuid.UUID `json:"user_id"`
+	TokenHash string    `json:"token_hash"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// Password reset token queries (using auth_email_tokens table)
+func (q *Queries) CreatePasswordResetToken(ctx context.Context, arg CreatePasswordResetTokenParams) error {
+	_, err := q.db.ExecContext(ctx, createPasswordResetToken, arg.UserID, arg.TokenHash, arg.ExpiresAt)
+	return err
+}
+
 const createSession = `-- name: CreateSession :exec
 INSERT INTO auth_sessions (id, user_id, expires_at)
 VALUES ($1, $2, $3)
@@ -203,6 +221,17 @@ DELETE FROM auth_mfa_pending WHERE expires_at <= now()
 
 func (q *Queries) DeleteExpiredMFAPending(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteExpiredMFAPending)
+	return err
+}
+
+const deleteExpiredPasswordResetTokens = `-- name: DeleteExpiredPasswordResetTokens :exec
+DELETE FROM auth_email_tokens
+WHERE token_type = 'password_reset'
+  AND (expires_at <= now() OR used_at IS NOT NULL)
+`
+
+func (q *Queries) DeleteExpiredPasswordResetTokens(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteExpiredPasswordResetTokens)
 	return err
 }
 
@@ -392,6 +421,49 @@ func (q *Queries) GetOAuthClientByID(ctx context.Context, id uuid.UUID) (OauthCl
 		&i.Audience,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getPasswordResetTokenByHash = `-- name: GetPasswordResetTokenByHash :one
+SELECT et.id, et.user_id, et.token_hash, et.token_type, et.expires_at, et.used_at, et.created_at, u.id as uid, u.username, u.email, u.password_hash
+FROM auth_email_tokens et
+JOIN auth_users u ON et.user_id = u.id
+WHERE et.token_hash = $1
+  AND et.token_type = 'password_reset'
+  AND et.expires_at > now()
+  AND et.used_at IS NULL
+`
+
+type GetPasswordResetTokenByHashRow struct {
+	ID           uuid.UUID    `json:"id"`
+	UserID       uuid.UUID    `json:"user_id"`
+	TokenHash    string       `json:"token_hash"`
+	TokenType    string       `json:"token_type"`
+	ExpiresAt    time.Time    `json:"expires_at"`
+	UsedAt       sql.NullTime `json:"used_at"`
+	CreatedAt    time.Time    `json:"created_at"`
+	Uid          uuid.UUID    `json:"uid"`
+	Username     string       `json:"username"`
+	Email        string       `json:"email"`
+	PasswordHash string       `json:"password_hash"`
+}
+
+func (q *Queries) GetPasswordResetTokenByHash(ctx context.Context, tokenHash string) (GetPasswordResetTokenByHashRow, error) {
+	row := q.db.QueryRowContext(ctx, getPasswordResetTokenByHash, tokenHash)
+	var i GetPasswordResetTokenByHashRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.TokenType,
+		&i.ExpiresAt,
+		&i.UsedAt,
+		&i.CreatedAt,
+		&i.Uid,
+		&i.Username,
+		&i.Email,
+		&i.PasswordHash,
 	)
 	return i, err
 }
@@ -759,6 +831,17 @@ UPDATE auth_email_tokens SET used_at = now() WHERE id = $1
 
 func (q *Queries) MarkEmailTokenUsed(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.ExecContext(ctx, markEmailTokenUsed, id)
+	return err
+}
+
+const markPasswordResetTokenUsed = `-- name: MarkPasswordResetTokenUsed :exec
+UPDATE auth_email_tokens
+SET used_at = now()
+WHERE token_hash = $1 AND token_type = 'password_reset'
+`
+
+func (q *Queries) MarkPasswordResetTokenUsed(ctx context.Context, tokenHash string) error {
+	_, err := q.db.ExecContext(ctx, markPasswordResetTokenUsed, tokenHash)
 	return err
 }
 

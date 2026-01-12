@@ -228,3 +228,28 @@ DELETE FROM auth_email_tokens WHERE expires_at <= now();
 
 -- name: DeleteUserEmailTokens :exec
 DELETE FROM auth_email_tokens WHERE user_id = $1 AND token_type = $2;
+
+-- Password reset token queries (using auth_email_tokens table)
+
+-- name: CreatePasswordResetToken :exec
+INSERT INTO auth_email_tokens (user_id, token_hash, token_type, expires_at)
+VALUES ($1, $2, 'password_reset', $3);
+
+-- name: GetPasswordResetTokenByHash :one
+SELECT et.*, u.id as uid, u.username, u.email, u.password_hash
+FROM auth_email_tokens et
+JOIN auth_users u ON et.user_id = u.id
+WHERE et.token_hash = $1
+  AND et.token_type = 'password_reset'
+  AND et.expires_at > now()
+  AND et.used_at IS NULL;
+
+-- name: MarkPasswordResetTokenUsed :exec
+UPDATE auth_email_tokens
+SET used_at = now()
+WHERE token_hash = $1 AND token_type = 'password_reset';
+
+-- name: DeleteExpiredPasswordResetTokens :exec
+DELETE FROM auth_email_tokens
+WHERE token_type = 'password_reset'
+  AND (expires_at <= now() OR used_at IS NOT NULL);

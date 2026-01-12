@@ -106,6 +106,11 @@ func (s *Server) registerRoutes() {
 		// Email verification
 		r.Get("/verify-email", s.HandleVerifyEmail)
 		r.Post("/resend-verification", s.HandleResendVerification)
+		// Password reset
+		r.Get("/forgot-password", s.HandleForgotPasswordGet)
+		r.Post("/forgot-password", s.HandleForgotPasswordPost)
+		r.Get("/reset-password", s.HandleResetPasswordGet)
+		r.Post("/reset-password", s.HandleResetPasswordPost)
 	})
 
 	// Swagger
