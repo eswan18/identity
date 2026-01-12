@@ -25,9 +25,10 @@ type Generator struct {
 // Claims represents the JWT claims structure
 type Claims struct {
 	jwt.RegisteredClaims
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Scope    string `json:"scope"`
+	Username      string `json:"username"`
+	Email         string `json:"email"`
+	EmailVerified bool   `json:"email_verified"`
+	Scope         string `json:"scope"`
 }
 
 // NewGenerator creates a new JWT generator from a PEM-encoded ECDSA private key
@@ -55,6 +56,7 @@ func NewGenerator(privateKeyPEM, issuer, keyID string) (*Generator, error) {
 // GenerateAccessToken creates a signed JWT access token
 func (g *Generator) GenerateAccessToken(
 	userID, username, email, audience string,
+	emailVerified bool,
 	scope []string,
 	expiresIn time.Duration,
 ) (token string, jti string, err error) {
@@ -70,9 +72,10 @@ func (g *Generator) GenerateAccessToken(
 			IssuedAt:  jwt.NewNumericDate(now),
 			ID:        jti,
 		},
-		Username: username,
-		Email:    email,
-		Scope:    joinScope(scope),
+		Username:      username,
+		Email:         email,
+		EmailVerified: emailVerified,
+		Scope:         joinScope(scope),
 	}
 
 	// Create token with ES256 signing method

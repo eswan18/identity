@@ -29,6 +29,13 @@ func (r *rateLimitStore) Stop() {
 	}
 }
 
+// Reset clears all rate limiters (useful for testing)
+func (r *rateLimitStore) Reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.limiters = make(map[string]*rateLimiterEntry)
+}
+
 // newRateLimitStore creates a new rate limit store with automatic cleanup
 func newRateLimitStore() *rateLimitStore {
 	store := &rateLimitStore{

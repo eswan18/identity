@@ -25,6 +25,60 @@ func (q *Queries) ConsumeAuthorizationCode(ctx context.Context, code string) err
 	return err
 }
 
+const createEmailToken = `-- name: CreateEmailToken :exec
+INSERT INTO auth_email_tokens (user_id, token_hash, token_type, expires_at)
+VALUES ($1, $2, $3, $4)
+`
+
+type CreateEmailTokenParams struct {
+	UserID    uuid.UUID `json:"user_id"`
+	TokenHash string    `json:"token_hash"`
+	TokenType string    `json:"token_type"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+func (q *Queries) CreateEmailToken(ctx context.Context, arg CreateEmailTokenParams) error {
+	_, err := q.db.ExecContext(ctx, createEmailToken,
+		arg.UserID,
+		arg.TokenHash,
+		arg.TokenType,
+		arg.ExpiresAt,
+	)
+	return err
+}
+
+const createMFAPending = `-- name: CreateMFAPending :exec
+INSERT INTO auth_mfa_pending (id, user_id, client_id, redirect_uri, state, scope, code_challenge, code_challenge_method, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+`
+
+type CreateMFAPendingParams struct {
+	ID                  string         `json:"id"`
+	UserID              uuid.UUID      `json:"user_id"`
+	ClientID            sql.NullString `json:"client_id"`
+	RedirectUri         sql.NullString `json:"redirect_uri"`
+	State               sql.NullString `json:"state"`
+	Scope               []string       `json:"scope"`
+	CodeChallenge       sql.NullString `json:"code_challenge"`
+	CodeChallengeMethod sql.NullString `json:"code_challenge_method"`
+	ExpiresAt           time.Time      `json:"expires_at"`
+}
+
+func (q *Queries) CreateMFAPending(ctx context.Context, arg CreateMFAPendingParams) error {
+	_, err := q.db.ExecContext(ctx, createMFAPending,
+		arg.ID,
+		arg.UserID,
+		arg.ClientID,
+		arg.RedirectUri,
+		arg.State,
+		pq.Array(arg.Scope),
+		arg.CodeChallenge,
+		arg.CodeChallengeMethod,
+		arg.ExpiresAt,
+	)
+	return err
+}
+
 const createOAuthClient = `-- name: CreateOAuthClient :one
 INSERT INTO oauth_clients (
   client_id,
@@ -94,7 +148,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) er
 const createUser = `-- name: CreateUser :one
 INSERT INTO auth_users (username, email, password_hash)
 VALUES ($1, $2, $3)
-RETURNING id, username, password_hash, email, is_active, mfa_enabled, mfa_secret, mfa_verified_at, created_at, updated_at
+RETURNING id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at
 `
 
 type CreateUserParams struct {
@@ -112,13 +166,53 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (AuthUse
 		&i.PasswordHash,
 		&i.Email,
 		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.MfaEnabled,
 		&i.MfaSecret,
 		&i.MfaVerifiedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
+		&i.EmailVerified,
+		&i.EmailVerifiedAt,
 	)
 	return i, err
+}
+
+const deactivateUser = `-- name: DeactivateUser :exec
+UPDATE auth_users
+SET is_active = false, updated_at = now()
+WHERE id = $1
+`
+
+func (q *Queries) DeactivateUser(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, deactivateUser, id)
+	return err
+}
+
+const deleteExpiredEmailTokens = `-- name: DeleteExpiredEmailTokens :exec
+DELETE FROM auth_email_tokens WHERE expires_at <= now()
+`
+
+func (q *Queries) DeleteExpiredEmailTokens(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteExpiredEmailTokens)
+	return err
+}
+
+const deleteExpiredMFAPending = `-- name: DeleteExpiredMFAPending :exec
+DELETE FROM auth_mfa_pending WHERE expires_at <= now()
+`
+
+func (q *Queries) DeleteExpiredMFAPending(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteExpiredMFAPending)
+	return err
+}
+
+const deleteMFAPending = `-- name: DeleteMFAPending :exec
+DELETE FROM auth_mfa_pending WHERE id = $1
+`
+
+func (q *Queries) DeleteMFAPending(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteMFAPending, id)
+	return err
 }
 
 const deleteOAuthClient = `-- name: DeleteOAuthClient :exec
@@ -138,6 +232,47 @@ WHERE id = $1
 
 func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	_, err := q.db.ExecContext(ctx, deleteSession, id)
+	return err
+}
+
+const deleteUserEmailTokens = `-- name: DeleteUserEmailTokens :exec
+DELETE FROM auth_email_tokens WHERE user_id = $1 AND token_type = $2
+`
+
+type DeleteUserEmailTokensParams struct {
+	UserID    uuid.UUID `json:"user_id"`
+	TokenType string    `json:"token_type"`
+}
+
+func (q *Queries) DeleteUserEmailTokens(ctx context.Context, arg DeleteUserEmailTokensParams) error {
+	_, err := q.db.ExecContext(ctx, deleteUserEmailTokens, arg.UserID, arg.TokenType)
+	return err
+}
+
+const disableMFA = `-- name: DisableMFA :exec
+UPDATE auth_users
+SET mfa_enabled = false, mfa_secret = NULL, mfa_verified_at = NULL, updated_at = now()
+WHERE id = $1
+`
+
+func (q *Queries) DisableMFA(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, disableMFA, id)
+	return err
+}
+
+const enableMFA = `-- name: EnableMFA :exec
+UPDATE auth_users
+SET mfa_enabled = true, mfa_secret = $2, mfa_verified_at = now(), updated_at = now()
+WHERE id = $1
+`
+
+type EnableMFAParams struct {
+	ID        uuid.UUID      `json:"id"`
+	MfaSecret sql.NullString `json:"mfa_secret"`
+}
+
+func (q *Queries) EnableMFA(ctx context.Context, arg EnableMFAParams) error {
+	_, err := q.db.ExecContext(ctx, enableMFA, arg.ID, arg.MfaSecret)
 	return err
 }
 
@@ -161,6 +296,54 @@ func (q *Queries) GetAuthorizationCode(ctx context.Context, code string) (OauthA
 		&i.ExpiresAt,
 		&i.ConsumedAt,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getEmailToken = `-- name: GetEmailToken :one
+SELECT id, user_id, token_hash, token_type, expires_at, used_at, created_at FROM auth_email_tokens
+WHERE token_hash = $1 AND token_type = $2 AND expires_at > now() AND used_at IS NULL
+`
+
+type GetEmailTokenParams struct {
+	TokenHash string `json:"token_hash"`
+	TokenType string `json:"token_type"`
+}
+
+func (q *Queries) GetEmailToken(ctx context.Context, arg GetEmailTokenParams) (AuthEmailToken, error) {
+	row := q.db.QueryRowContext(ctx, getEmailToken, arg.TokenHash, arg.TokenType)
+	var i AuthEmailToken
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.TokenType,
+		&i.ExpiresAt,
+		&i.UsedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getMFAPending = `-- name: GetMFAPending :one
+SELECT id, user_id, client_id, redirect_uri, state, scope, code_challenge, code_challenge_method, created_at, expires_at FROM auth_mfa_pending
+WHERE id = $1 AND expires_at > now()
+`
+
+func (q *Queries) GetMFAPending(ctx context.Context, id string) (AuthMfaPending, error) {
+	row := q.db.QueryRowContext(ctx, getMFAPending, id)
+	var i AuthMfaPending
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ClientID,
+		&i.RedirectUri,
+		&i.State,
+		pq.Array(&i.Scope),
+		&i.CodeChallenge,
+		&i.CodeChallengeMethod,
+		&i.CreatedAt,
+		&i.ExpiresAt,
 	)
 	return i, err
 }
@@ -286,7 +469,7 @@ func (q *Queries) GetTokenByRefreshToken(ctx context.Context, refreshToken sql.N
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, username, password_hash, email, is_active, mfa_enabled, mfa_secret, mfa_verified_at, created_at, updated_at
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at
 FROM auth_users
 WHERE email = $1
   AND is_active = true
@@ -301,17 +484,19 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (AuthUser, e
 		&i.PasswordHash,
 		&i.Email,
 		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.MfaEnabled,
 		&i.MfaSecret,
 		&i.MfaVerifiedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
+		&i.EmailVerified,
+		&i.EmailVerifiedAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, password_hash, email, is_active, mfa_enabled, mfa_secret, mfa_verified_at, created_at, updated_at
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at
 FROM auth_users
 WHERE id = $1
   AND is_active = true
@@ -326,17 +511,45 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (AuthUser, erro
 		&i.PasswordHash,
 		&i.Email,
 		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.MfaEnabled,
 		&i.MfaSecret,
 		&i.MfaVerifiedAt,
+		&i.EmailVerified,
+		&i.EmailVerifiedAt,
+	)
+	return i, err
+}
+
+const getUserByIDIncludingInactive = `-- name: GetUserByIDIncludingInactive :one
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at
+FROM auth_users
+WHERE id = $1
+`
+
+func (q *Queries) GetUserByIDIncludingInactive(ctx context.Context, id uuid.UUID) (AuthUser, error) {
+	row := q.db.QueryRowContext(ctx, getUserByIDIncludingInactive, id)
+	var i AuthUser
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.Email,
+		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MfaEnabled,
+		&i.MfaSecret,
+		&i.MfaVerifiedAt,
+		&i.EmailVerified,
+		&i.EmailVerifiedAt,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, password_hash, email, is_active, mfa_enabled, mfa_secret, mfa_verified_at, created_at, updated_at
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at
 FROM auth_users
 WHERE username = $1
   AND is_active = true
@@ -351,12 +564,59 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (AuthU
 		&i.PasswordHash,
 		&i.Email,
 		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.MfaEnabled,
 		&i.MfaSecret,
 		&i.MfaVerifiedAt,
+		&i.EmailVerified,
+		&i.EmailVerifiedAt,
+	)
+	return i, err
+}
+
+const getUserByUsernameIncludingInactive = `-- name: GetUserByUsernameIncludingInactive :one
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at
+FROM auth_users
+WHERE username = $1
+`
+
+func (q *Queries) GetUserByUsernameIncludingInactive(ctx context.Context, username string) (AuthUser, error) {
+	row := q.db.QueryRowContext(ctx, getUserByUsernameIncludingInactive, username)
+	var i AuthUser
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.Email,
+		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MfaEnabled,
+		&i.MfaSecret,
+		&i.MfaVerifiedAt,
+		&i.EmailVerified,
+		&i.EmailVerifiedAt,
 	)
+	return i, err
+}
+
+const getUserMFAStatus = `-- name: GetUserMFAStatus :one
+
+SELECT id, mfa_enabled, mfa_secret FROM auth_users WHERE id = $1
+`
+
+type GetUserMFAStatusRow struct {
+	ID         uuid.UUID      `json:"id"`
+	MfaEnabled bool           `json:"mfa_enabled"`
+	MfaSecret  sql.NullString `json:"mfa_secret"`
+}
+
+// MFA queries
+func (q *Queries) GetUserMFAStatus(ctx context.Context, id uuid.UUID) (GetUserMFAStatusRow, error) {
+	row := q.db.QueryRowContext(ctx, getUserMFAStatus, id)
+	var i GetUserMFAStatusRow
+	err := row.Scan(&i.ID, &i.MfaEnabled, &i.MfaSecret)
 	return i, err
 }
 
@@ -493,15 +753,23 @@ func (q *Queries) ListOAuthClients(ctx context.Context) ([]OauthClient, error) {
 	return items, nil
 }
 
-const revokeTokenByRefreshToken = `-- name: RevokeTokenByRefreshToken :exec
-UPDATE oauth_tokens
-SET revoked_at = now()
-WHERE refresh_token = $1
-  AND revoked_at IS NULL
+const markEmailTokenUsed = `-- name: MarkEmailTokenUsed :exec
+UPDATE auth_email_tokens SET used_at = now() WHERE id = $1
 `
 
-func (q *Queries) RevokeTokenByRefreshToken(ctx context.Context, refreshToken sql.NullString) error {
-	_, err := q.db.ExecContext(ctx, revokeTokenByRefreshToken, refreshToken)
+func (q *Queries) MarkEmailTokenUsed(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, markEmailTokenUsed, id)
+	return err
+}
+
+const reactivateUser = `-- name: ReactivateUser :exec
+UPDATE auth_users
+SET is_active = true, updated_at = now()
+WHERE id = $1
+`
+
+func (q *Queries) ReactivateUser(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, reactivateUser, id)
 	return err
 }
 
@@ -517,51 +785,28 @@ func (q *Queries) RevokeAllUserTokens(ctx context.Context, userID uuid.NullUUID)
 	return err
 }
 
-const updateUserPassword = `-- name: UpdateUserPassword :exec
-UPDATE auth_users
-SET password_hash = $1, updated_at = now()
-WHERE id = $2
+const revokeTokenByRefreshToken = `-- name: RevokeTokenByRefreshToken :exec
+UPDATE oauth_tokens
+SET revoked_at = now()
+WHERE refresh_token = $1
+  AND revoked_at IS NULL
 `
 
-type UpdateUserPasswordParams struct {
-	PasswordHash string    `json:"password_hash"`
-	ID           uuid.UUID `json:"id"`
-}
-
-func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
-	_, err := q.db.ExecContext(ctx, updateUserPassword, arg.PasswordHash, arg.ID)
+func (q *Queries) RevokeTokenByRefreshToken(ctx context.Context, refreshToken sql.NullString) error {
+	_, err := q.db.ExecContext(ctx, revokeTokenByRefreshToken, refreshToken)
 	return err
 }
 
-const updateUserUsername = `-- name: UpdateUserUsername :exec
+const setEmailVerified = `-- name: SetEmailVerified :exec
+
 UPDATE auth_users
-SET username = $1, updated_at = now()
-WHERE id = $2
+SET email_verified = true, email_verified_at = now(), updated_at = now()
+WHERE id = $1
 `
 
-type UpdateUserUsernameParams struct {
-	Username string    `json:"username"`
-	ID       uuid.UUID `json:"id"`
-}
-
-func (q *Queries) UpdateUserUsername(ctx context.Context, arg UpdateUserUsernameParams) error {
-	_, err := q.db.ExecContext(ctx, updateUserUsername, arg.Username, arg.ID)
-	return err
-}
-
-const updateUserEmail = `-- name: UpdateUserEmail :exec
-UPDATE auth_users
-SET email = $1, updated_at = now()
-WHERE id = $2
-`
-
-type UpdateUserEmailParams struct {
-	Email string    `json:"email"`
-	ID    uuid.UUID `json:"id"`
-}
-
-func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) error {
-	_, err := q.db.ExecContext(ctx, updateUserEmail, arg.Email, arg.ID)
+// Email verification queries
+func (q *Queries) SetEmailVerified(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, setEmailVerified, id)
 	return err
 }
 
@@ -612,72 +857,50 @@ func (q *Queries) UpdateOAuthClient(ctx context.Context, arg UpdateOAuthClientPa
 	return i, err
 }
 
-const deactivateUser = `-- name: DeactivateUser :exec
+const updateUserEmail = `-- name: UpdateUserEmail :exec
 UPDATE auth_users
-SET is_active = false, updated_at = now()
-WHERE id = $1
+SET email = $1, updated_at = now()
+WHERE id = $2
 `
 
-func (q *Queries) DeactivateUser(ctx context.Context, id uuid.UUID) error {
-	_, err := q.db.ExecContext(ctx, deactivateUser, id)
+type UpdateUserEmailParams struct {
+	Email string    `json:"email"`
+	ID    uuid.UUID `json:"id"`
+}
+
+func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) error {
+	_, err := q.db.ExecContext(ctx, updateUserEmail, arg.Email, arg.ID)
 	return err
 }
 
-const reactivateUser = `-- name: ReactivateUser :exec
+const updateUserPassword = `-- name: UpdateUserPassword :exec
 UPDATE auth_users
-SET is_active = true, updated_at = now()
-WHERE id = $1
+SET password_hash = $1, updated_at = now()
+WHERE id = $2
 `
 
-func (q *Queries) ReactivateUser(ctx context.Context, id uuid.UUID) error {
-	_, err := q.db.ExecContext(ctx, reactivateUser, id)
+type UpdateUserPasswordParams struct {
+	PasswordHash string    `json:"password_hash"`
+	ID           uuid.UUID `json:"id"`
+}
+
+func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
+	_, err := q.db.ExecContext(ctx, updateUserPassword, arg.PasswordHash, arg.ID)
 	return err
 }
 
-const getUserByIDIncludingInactive = `-- name: GetUserByIDIncludingInactive :one
-SELECT id, username, password_hash, email, is_active, mfa_enabled, mfa_secret, mfa_verified_at, created_at, updated_at
-FROM auth_users
-WHERE id = $1
+const updateUserUsername = `-- name: UpdateUserUsername :exec
+UPDATE auth_users
+SET username = $1, updated_at = now()
+WHERE id = $2
 `
 
-func (q *Queries) GetUserByIDIncludingInactive(ctx context.Context, id uuid.UUID) (AuthUser, error) {
-	row := q.db.QueryRowContext(ctx, getUserByIDIncludingInactive, id)
-	var i AuthUser
-	err := row.Scan(
-		&i.ID,
-		&i.Username,
-		&i.PasswordHash,
-		&i.Email,
-		&i.IsActive,
-		&i.MfaEnabled,
-		&i.MfaSecret,
-		&i.MfaVerifiedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
+type UpdateUserUsernameParams struct {
+	Username string    `json:"username"`
+	ID       uuid.UUID `json:"id"`
 }
 
-const getUserByUsernameIncludingInactive = `-- name: GetUserByUsernameIncludingInactive :one
-SELECT id, username, password_hash, email, is_active, mfa_enabled, mfa_secret, mfa_verified_at, created_at, updated_at
-FROM auth_users
-WHERE username = $1
-`
-
-func (q *Queries) GetUserByUsernameIncludingInactive(ctx context.Context, username string) (AuthUser, error) {
-	row := q.db.QueryRowContext(ctx, getUserByUsernameIncludingInactive, username)
-	var i AuthUser
-	err := row.Scan(
-		&i.ID,
-		&i.Username,
-		&i.PasswordHash,
-		&i.Email,
-		&i.IsActive,
-		&i.MfaEnabled,
-		&i.MfaSecret,
-		&i.MfaVerifiedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
+func (q *Queries) UpdateUserUsername(ctx context.Context, arg UpdateUserUsernameParams) error {
+	_, err := q.db.ExecContext(ctx, updateUserUsername, arg.Username, arg.ID)
+	return err
 }

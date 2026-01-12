@@ -103,6 +103,9 @@ func (s *Server) registerRoutes() {
 		r.Get("/mfa-setup", s.HandleMFASetupGet)
 		r.Post("/mfa-setup", s.HandleMFASetupPost)
 		r.Post("/mfa-disable", s.HandleMFADisablePost)
+		// Email verification
+		r.Get("/verify-email", s.HandleVerifyEmail)
+		r.Post("/resend-verification", s.HandleResendVerification)
 	})
 
 	// Swagger

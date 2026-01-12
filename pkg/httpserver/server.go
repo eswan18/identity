@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/eswan18/identity/pkg/config"
+	"github.com/eswan18/identity/pkg/email"
 	"github.com/eswan18/identity/pkg/jwt"
 	"github.com/eswan18/identity/pkg/store"
 	"github.com/go-chi/chi/v5"
@@ -22,6 +23,7 @@ type Server struct {
 	httpServer              *http.Server
 	rateLimitStore          *rateLimitStore
 	jwtGenerator            *jwt.Generator
+	emailSender             email.Sender
 	loginTemplate           *template.Template
 	registerTemplate        *template.Template
 	errorTemplate           *template.Template
@@ -34,7 +36,7 @@ type Server struct {
 	mfaSetupTemplate        *template.Template
 }
 
-func New(config *config.Config, datastore *store.Store) *Server {
+func New(config *config.Config, datastore *store.Store, emailSender email.Sender) *Server {
 	r := chi.NewRouter()
 	loginTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/login.html"))
 	registerTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/register.html"))
@@ -73,6 +75,7 @@ func New(config *config.Config, datastore *store.Store) *Server {
 		router:                  r,
 		rateLimitStore:          rateLimitStore,
 		jwtGenerator:            jwtGen,
+		emailSender:             emailSender,
 		loginTemplate:           loginTemplate,
 		registerTemplate:        registerTemplate,
 		errorTemplate:           errorTemplate,
@@ -123,4 +126,11 @@ func (s *Server) Close() error {
 		s.rateLimitStore.Stop()
 	}
 	return err
+}
+
+// ResetRateLimits clears all rate limiters (useful for testing)
+func (s *Server) ResetRateLimits() {
+	if s.rateLimitStore != nil {
+		s.rateLimitStore.Reset()
+	}
 }

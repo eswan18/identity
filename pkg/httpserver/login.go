@@ -59,7 +59,9 @@ func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
 	// Check for various messages to show
 	errorMsg := ""
 	if r.URL.Query().Get("registered") == "true" {
-		errorMsg = "Account created successfully! Please sign in."
+		errorMsg = "Account created successfully! Please check your email to verify your account."
+	} else if r.URL.Query().Get("email_verified") == "true" {
+		errorMsg = "Email verified successfully! Please sign in."
 	} else if r.URL.Query().Get("deactivated") == "true" {
 		errorMsg = "Your account has been deactivated."
 	} else if r.URL.Query().Get("error") == "account_deactivated" {

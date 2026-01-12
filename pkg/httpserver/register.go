@@ -105,7 +105,7 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 	codeChallengeMethod := r.FormValue("code_challenge_method")
 
 	// Create user
-	_, err = s.datastore.Q.CreateUser(context.Background(), db.CreateUserParams{
+	user, err := s.datastore.Q.CreateUser(context.Background(), db.CreateUserParams{
 		Username:     username,
 		Email:        email,
 		PasswordHash: hash,
@@ -123,6 +123,12 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 			CodeChallengeMethod: codeChallengeMethod,
 		})
 		return
+	}
+
+	// Send verification email (don't block registration on failure)
+	if err := s.sendVerificationEmail(r.Context(), user.ID, user.Email, user.Username); err != nil {
+		log.Printf("Failed to send verification email to %s: %v", user.Email, err)
+		// Continue with registration - user can request new verification email later
 	}
 
 	// Build redirect URL to login with OAuth params preserved

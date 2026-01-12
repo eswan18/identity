@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
 
@@ -104,7 +105,7 @@ func (s *Server) HandleMFASetupPost(w http.ResponseWriter, r *http.Request) {
 	// Enable MFA for the user
 	err = s.datastore.Q.EnableMFA(r.Context(), db.EnableMFAParams{
 		ID:        user.ID,
-		MfaSecret: secret,
+		MfaSecret: sql.NullString{String: secret, Valid: true},
 	})
 	if err != nil {
 		log.Printf("[ERROR] HandleMFASetupPost: Failed to enable MFA: %v", err)
