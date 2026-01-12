@@ -142,6 +142,20 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if MFA is enabled for this user
+	if user.MfaEnabled {
+		log.Printf("[DEBUG] HandleLoginPost: MFA enabled for user %s, creating pending session", username)
+		pendingID, err := s.createMFAPendingSession(r, user.ID, oauthParams)
+		if err != nil {
+			log.Printf("[ERROR] HandleLoginPost: Failed to create MFA pending session: %v", err)
+			s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
+			return
+		}
+		// Redirect to MFA verification page
+		http.Redirect(w, r, "/oauth/mfa?pending="+pendingID, http.StatusFound)
+		return
+	}
+
 	// Create authenticated session
 	log.Printf("[DEBUG] HandleLoginPost: Creating session for user ID: %v", user.ID)
 	session, err := s.createSession(r.Context(), user.ID)

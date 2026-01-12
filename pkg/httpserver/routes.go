@@ -96,6 +96,13 @@ func (s *Server) registerRoutes() {
 		r.Post("/deactivate-account", s.HandleDeactivateAccountPost)
 		// Reactivate account
 		r.Post("/reactivate-account", s.HandleReactivateAccountPost)
+		// MFA verification (during login)
+		r.Get("/mfa", s.HandleMFAGet)
+		r.Post("/mfa", s.HandleMFAPost)
+		// MFA setup (from account settings)
+		r.Get("/mfa-setup", s.HandleMFASetupGet)
+		r.Post("/mfa-setup", s.HandleMFASetupPost)
+		r.Post("/mfa-disable", s.HandleMFADisablePost)
 	})
 
 	// Swagger

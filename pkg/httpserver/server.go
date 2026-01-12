@@ -30,6 +30,8 @@ type Server struct {
 	changePasswordTemplate  *template.Template
 	changeUsernameTemplate  *template.Template
 	changeEmailTemplate     *template.Template
+	mfaTemplate             *template.Template
+	mfaSetupTemplate        *template.Template
 }
 
 func New(config *config.Config, datastore *store.Store) *Server {
@@ -42,6 +44,8 @@ func New(config *config.Config, datastore *store.Store) *Server {
 	changePasswordTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/change-password.html"))
 	changeUsernameTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/change-username.html"))
 	changeEmailTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/change-email.html"))
+	mfaTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/mfa.html"))
+	mfaSetupTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/mfa-setup.html"))
 
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -77,6 +81,8 @@ func New(config *config.Config, datastore *store.Store) *Server {
 		changePasswordTemplate:  changePasswordTemplate,
 		changeUsernameTemplate:  changeUsernameTemplate,
 		changeEmailTemplate:     changeEmailTemplate,
+		mfaTemplate:             mfaTemplate,
+		mfaSetupTemplate:        mfaSetupTemplate,
 	}
 	s.registerRoutes()
 

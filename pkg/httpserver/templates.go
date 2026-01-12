@@ -40,6 +40,7 @@ type AccountSettingsPageData struct {
 	Username   string
 	Email      string
 	IsInactive bool
+	MfaEnabled bool
 }
 
 // ChangePasswordPageData holds the data needed to render the change password page template.
