@@ -127,3 +127,10 @@ func (s *Server) Close() error {
 	}
 	return err
 }
+
+// ResetRateLimits clears all rate limiters (useful for testing)
+func (s *Server) ResetRateLimits() {
+	if s.rateLimitStore != nil {
+		s.rateLimitStore.Reset()
+	}
+}

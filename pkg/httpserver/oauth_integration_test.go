@@ -106,6 +106,9 @@ func (s *OAuthFlowSuite) SetupSuite() {
 }
 
 func (s *OAuthFlowSuite) TearDownTest() {
+	// Reset rate limits between tests to prevent rate limit errors
+	s.server.ResetRateLimits()
+
 	// Snapshot restoration between tests terminates database connections, breaking
 	// the server's connection pool. Since each test uses unique random data and
 	// doesn't conflict with others, we skip restoration here. If cleanup becomes
