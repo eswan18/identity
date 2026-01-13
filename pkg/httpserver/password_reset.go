@@ -217,16 +217,7 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if len(newPassword) < 8 {
-		w.WriteHeader(http.StatusBadRequest)
-		s.resetPasswordTemplate.Execute(w, ResetPasswordPageData{
-			Error: "Password must be at least 8 characters.",
-			Token: token,
-		})
-		return
-	}
-
-	// Validate and get token record
+	// Validate and get token record first (need username for password validation)
 	tokenHash := hashToken(token)
 	tokenRecord, err := s.datastore.Q.GetPasswordResetTokenByHash(r.Context(), tokenHash)
 	if err != nil {
@@ -234,6 +225,16 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 		w.WriteHeader(http.StatusBadRequest)
 		s.resetPasswordTemplate.Execute(w, ResetPasswordPageData{
 			Error: "This password reset link is invalid or has expired. Please request a new one.",
+		})
+		return
+	}
+
+	// Validate password requirements
+	if err := auth.ValidatePassword(newPassword, tokenRecord.Username); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		s.resetPasswordTemplate.Execute(w, ResetPasswordPageData{
+			Error: err.Error(),
+			Token: token,
 		})
 		return
 	}
