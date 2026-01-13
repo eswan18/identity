@@ -21,6 +21,7 @@ const authorizationCodeExpiresIn = 10 * time.Minute
 const sessionExpiresIn = 24 * time.Hour
 const accessTokenExpiresIn = 1 * time.Hour
 const refreshTokenExpiresIn = 30 * 24 * time.Hour
+const serviceAccountTokenExpiresIn = 15 * time.Minute
 
 // Sentinel errors for credential validation
 var (
@@ -272,6 +273,54 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 		AccessToken:  accessToken, // Return full JWT to client
 		RefreshToken: refreshToken,
 		ExpiresIn:    int(accessTokenExpiresIn.Seconds()),
+		Scope:        scope,
+	}, nil
+}
+
+// generateServiceAccountTokens creates an access token for service accounts (client credentials grant).
+// No user is involved - the client authenticates as itself. No refresh token is issued per OAuth2 spec.
+func (s *Server) generateServiceAccountTokens(ctx context.Context, clientID uuid.UUID, scope []string) (TokenPair, error) {
+	// Fetch client information for audience
+	client, err := s.datastore.Q.GetOAuthClientByID(ctx, clientID)
+	if err != nil {
+		return TokenPair{}, fmt.Errorf("failed to get client: %w", err)
+	}
+	if client.Audience == "" {
+		return TokenPair{}, fmt.Errorf("client %s has no audience configured", client.ClientID)
+	}
+
+	// Generate JWT access token with client_id as subject
+	accessToken, jti, err := s.jwtGenerator.GenerateServiceAccountToken(
+		client.ClientID,
+		client.Audience,
+		scope,
+		serviceAccountTokenExpiresIn,
+	)
+	if err != nil {
+		return TokenPair{}, fmt.Errorf("failed to generate access token: %w", err)
+	}
+
+	accessExpiresAt := time.Now().Add(serviceAccountTokenExpiresIn)
+
+	// Store token record in database (no refresh token, null user_id)
+	_, err = s.datastore.Q.InsertToken(ctx, db.InsertTokenParams{
+		AccessToken:      sql.NullString{String: jti, Valid: true},
+		RefreshToken:     sql.NullString{Valid: false}, // No refresh token per OAuth spec
+		UserID:           uuid.NullUUID{Valid: false},  // No user for service accounts
+		ClientID:         clientID,
+		Scope:            scope,
+		TokenType:        sql.NullString{String: "Bearer", Valid: true},
+		ExpiresAt:        accessExpiresAt,
+		RefreshExpiresAt: sql.NullTime{Valid: false}, // No refresh token
+	})
+	if err != nil {
+		return TokenPair{}, err
+	}
+
+	return TokenPair{
+		AccessToken:  accessToken,
+		RefreshToken: "", // Empty per OAuth spec for client_credentials
+		ExpiresIn:    int(serviceAccountTokenExpiresIn.Seconds()),
 		Scope:        scope,
 	}, nil
 }

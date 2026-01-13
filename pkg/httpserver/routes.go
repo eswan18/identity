@@ -119,6 +119,18 @@ func (s *Server) registerRoutes() {
 		r.Post("/forgot-username", s.HandleForgotUsernamePost)
 	})
 
+	// Admin API endpoints (require Bearer token with admin scopes)
+	s.router.Route("/admin", func(r chi.Router) {
+		// Apply CORS middleware for API access
+		r.Use(oauthCorsMiddleware)
+
+		// User management
+		r.With(s.AdminAuthMiddleware("admin:users:write")).Post("/users", s.HandleAdminCreateUser)
+		// Future endpoints:
+		// r.With(s.AdminAuthMiddleware("admin:users:read")).Get("/users", s.HandleAdminListUsers)
+		// r.With(s.AdminAuthMiddleware("admin:users:read")).Get("/users/{id}", s.HandleAdminGetUser)
+	})
+
 	// Swagger
 	s.router.Get("/openapi/*", httpSwagger.Handler(
 		httpSwagger.URL("http://localhost:8080/openapi.json"),

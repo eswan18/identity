@@ -137,6 +137,39 @@ func padTo32Bytes(b []byte) []byte {
 	return padded
 }
 
+// GenerateServiceAccountToken creates a signed JWT for service accounts (client credentials grant).
+// Uses client_id as subject, omits user-specific claims (username, email).
+func (g *Generator) GenerateServiceAccountToken(
+	clientID, audience string,
+	scope []string,
+	expiresIn time.Duration,
+) (token string, jti string, err error) {
+	now := time.Now()
+	jti = uuid.New().String()
+
+	// For service accounts, we use a simpler claim structure without user info
+	claims := jwt.MapClaims{
+		"iss":   g.issuer,
+		"sub":   clientID, // Client ID as subject for service accounts
+		"aud":   audience,
+		"exp":   now.Add(expiresIn).Unix(),
+		"iat":   now.Unix(),
+		"jti":   jti,
+		"scope": joinScope(scope),
+		// Note: No username, email, email_verified for service accounts
+	}
+
+	jwtToken := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	jwtToken.Header["kid"] = g.keyID
+
+	signedToken, err := jwtToken.SignedString(g.privateKey)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to sign token: %w", err)
+	}
+
+	return signedToken, jti, nil
+}
+
 // ValidateToken validates a JWT and returns its claims.
 // If expectedAudience is non-empty, it validates that the token's audience contains it.
 func (g *Generator) ValidateToken(tokenString string, expectedAudience string) (*Claims, error) {
