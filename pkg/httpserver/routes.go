@@ -111,6 +111,9 @@ func (s *Server) registerRoutes() {
 		r.Post("/forgot-password", s.HandleForgotPasswordPost)
 		r.Get("/reset-password", s.HandleResetPasswordGet)
 		r.Post("/reset-password", s.HandleResetPasswordPost)
+		// Username reminder
+		r.Get("/forgot-username", s.HandleForgotUsernameGet)
+		r.Post("/forgot-username", s.HandleForgotUsernamePost)
 	})
 
 	// Swagger
