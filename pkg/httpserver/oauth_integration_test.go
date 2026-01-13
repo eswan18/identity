@@ -2430,9 +2430,11 @@ func (s *OAuthFlowSuite) TestAdminListUsers_Pagination() {
 	readToken := s.mustGetClientCredentialsToken(client.ClientID, clientSecret, "admin:users:read")
 
 	// Get first page with limit 2
-	req, _ := http.NewRequest("GET", "http://localhost:8080/admin/users?limit=2&offset=0", nil)
+	req, err := http.NewRequest("GET", "http://localhost:8080/admin/users?limit=2&offset=0", nil)
+	s.Require().NoError(err)
 	req.Header.Set("Authorization", "Bearer "+readToken)
-	resp, _ := s.httpClient.Do(req)
+	resp, err := s.httpClient.Do(req)
+	s.Require().NoError(err)
 	defer resp.Body.Close()
 	s.Equal(http.StatusOK, resp.StatusCode)
 
@@ -2444,9 +2446,11 @@ func (s *OAuthFlowSuite) TestAdminListUsers_Pagination() {
 	s.True(page1.HasMore, "should have more users")
 
 	// Get second page
-	req, _ = http.NewRequest("GET", "http://localhost:8080/admin/users?limit=2&offset=2", nil)
+	req, err = http.NewRequest("GET", "http://localhost:8080/admin/users?limit=2&offset=2", nil)
+	s.Require().NoError(err)
 	req.Header.Set("Authorization", "Bearer "+readToken)
-	resp, _ = s.httpClient.Do(req)
+	resp, err = s.httpClient.Do(req)
+	s.Require().NoError(err)
 	defer resp.Body.Close()
 
 	body, _ = io.ReadAll(resp.Body)

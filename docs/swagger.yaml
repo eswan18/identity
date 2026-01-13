@@ -1,5 +1,44 @@
 basePath: /
 definitions:
+  httpserver.CreateUserRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  httpserver.CreateUserResponse:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      email_verified:
+        type: boolean
+      id:
+        type: string
+      is_active:
+        type: boolean
+      username:
+        type: string
+    type: object
+  httpserver.ListUsersResponse:
+    properties:
+      has_more:
+        type: boolean
+      limit:
+        type: integer
+      offset:
+        type: integer
+      total:
+        type: integer
+      users:
+        items:
+          $ref: '#/definitions/httpserver.UserResponse'
+        type: array
+    type: object
   httpserver.TokenResponse:
     properties:
       access_token:
@@ -11,6 +50,25 @@ definitions:
       scope:
         type: string
       token_type:
+        type: string
+    type: object
+  httpserver.UserResponse:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      email_verified:
+        type: boolean
+      id:
+        type: string
+      is_active:
+        type: boolean
+      mfa_enabled:
+        type: boolean
+      updated_at:
+        type: string
+      username:
         type: string
     type: object
 host: localhost:8080
@@ -31,6 +89,21 @@ paths:
       summary: Root redirect
       tags:
       - navigation
+  /.well-known/openid-configuration:
+    get:
+      description: Returns OpenID Connect Provider Configuration (RFC 8414). Allows
+        clients to discover all necessary endpoints and provider capabilities.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OIDC provider configuration
+          schema:
+            additionalProperties: true
+            type: object
+      summary: OIDC Discovery endpoint
+      tags:
+      - oauth2
   /account-settings:
     get:
       description: Displays the account settings page where users can view their account
@@ -49,6 +122,135 @@ paths:
       summary: Show account settings page
       tags:
       - account
+  /admin/users:
+    get:
+      description: Returns a paginated list of all users. Requires admin:users:read
+        scope.
+      parameters:
+      - description: Number of users to return (default 20, max 100)
+        in: query
+        name: limit
+        type: integer
+      - description: Number of users to skip (default 0)
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of users
+          schema:
+            $ref: '#/definitions/httpserver.ListUsersResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Insufficient scope
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List all users (Admin API)
+      tags:
+      - admin
+    post:
+      consumes:
+      - application/json
+      description: Creates a new user account. Requires admin:users:write scope.
+      parameters:
+      - description: User creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httpserver.CreateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: User created successfully
+          schema:
+            $ref: '#/definitions/httpserver.CreateUserResponse'
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Insufficient scope
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Username or email already exists
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a new user (Admin API)
+      tags:
+      - admin
+  /admin/users/{id}:
+    get:
+      description: Returns a single user by their ID. Requires admin:users:read scope.
+      parameters:
+      - description: User ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: User details
+          schema:
+            $ref: '#/definitions/httpserver.UserResponse'
+        "400":
+          description: Invalid user ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Insufficient scope
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: User not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get a user by ID (Admin API)
+      tags:
+      - admin
   /change-email:
     get:
       description: Displays the change email form
