@@ -171,8 +171,10 @@ func (s *Server) HandleOauthToken(w http.ResponseWriter, r *http.Request) {
 		s.handleAuthorizationCodeGrant(w, r, client)
 	case "refresh_token":
 		s.handleRefreshTokenGrant(w, r, client)
+	case "client_credentials":
+		s.handleClientCredentialsGrant(w, r, client)
 	default:
-		s.writeTokenError(w, "unsupported_grant_type", "Grant type must be 'authorization_code' or 'refresh_token'")
+		s.writeTokenError(w, "unsupported_grant_type", "Grant type must be 'authorization_code', 'refresh_token', or 'client_credentials'")
 	}
 }
 
@@ -353,6 +355,58 @@ func (s *Server) writeTokenResponse(w http.ResponseWriter, r *http.Request, clie
 		ExpiresIn:    tokens.ExpiresIn,
 		RefreshToken: tokens.RefreshToken,
 		Scope:        strings.Join(tokens.Scope, " "),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleClientCredentialsGrant handles the client_credentials grant type for service-to-service auth.
+// No user is involved - the client authenticates as itself.
+func (s *Server) handleClientCredentialsGrant(w http.ResponseWriter, r *http.Request, client db.OauthClient) {
+	// Client credentials grant requires a confidential client
+	if !client.IsConfidential {
+		s.writeTokenError(w, "unauthorized_client", "Client credentials grant requires a confidential client")
+		return
+	}
+
+	// Parse requested scopes (optional, defaults to all allowed scopes)
+	scopeParam := r.FormValue("scope")
+	var requestedScopes []string
+	if scopeParam == "" {
+		requestedScopes = client.AllowedScopes
+	} else {
+		requestedScopes = strings.Split(scopeParam, " ")
+	}
+
+	// Validate requested scopes against client's allowed_scopes
+	if allowed, invalidScopes := containsAll(client.AllowedScopes, requestedScopes); !allowed {
+		s.writeTokenError(w, "invalid_scope", fmt.Sprintf("Scopes %v not allowed for this client", invalidScopes))
+		return
+	}
+
+	// Generate service account token (no user, no refresh token)
+	s.writeClientCredentialsTokenResponse(w, r, client, requestedScopes)
+}
+
+// writeClientCredentialsTokenResponse generates service account tokens and writes the JSON response.
+// Per OAuth2 spec, client_credentials does not include a refresh token.
+func (s *Server) writeClientCredentialsTokenResponse(w http.ResponseWriter, r *http.Request, client db.OauthClient, scope []string) {
+	tokens, err := s.generateServiceAccountTokens(r.Context(), client.ID, scope)
+	if err != nil {
+		log.Printf("writeClientCredentialsTokenResponse: failed to generate tokens: %v", err)
+		s.writeTokenError(w, "server_error", "Failed to generate tokens")
+		return
+	}
+
+	// Note: No refresh_token in response per OAuth 2.0 spec for client_credentials
+	response := map[string]interface{}{
+		"access_token": tokens.AccessToken,
+		"token_type":   "Bearer",
+		"expires_in":   tokens.ExpiresIn,
+		"scope":        strings.Join(tokens.Scope, " "),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -748,7 +802,7 @@ func (s *Server) HandleOIDCDiscovery(w http.ResponseWriter, r *http.Request) {
 		"scopes_supported":                    []string{"openid", "profile", "email"},
 		"response_types_supported":            []string{"code"},
 		"response_modes_supported":            []string{"query"},
-		"grant_types_supported":               []string{"authorization_code", "refresh_token"},
+		"grant_types_supported":               []string{"authorization_code", "refresh_token", "client_credentials"},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic"},
 		"subject_types_supported":             []string{"public"},
 		"id_token_signing_alg_values_supported": []string{"ES256"},

@@ -197,6 +197,141 @@ This is just a simple CRUD interface that updates the `role` column.
 - [ ] Bootstrap your first admin via env var, seed, or first-user logic
 - [ ] (Optional) Build admin UI for managing user roles
 
+## Service-to-Service Authentication (Client Credentials)
+
+For server-side operations like user migration or automated tasks, use the OAuth2 client credentials grant. This allows your service to authenticate as itself (not on behalf of a user).
+
+### Prerequisites
+
+1. Register a **confidential** client with the required admin scopes:
+
+```shell
+./identity-cli client create \
+  --name "Migration Service" \
+  --redirect-uris "https://myapp.com/oauth/callback" \
+  --scopes "admin:users:write,admin:users:read" \
+  --confidential
+```
+
+2. Save both the `client_id` and `client_secret`.
+
+### Getting a Service Token
+
+```bash
+curl -X POST https://identity.example.com/oauth/token \
+  -d "grant_type=client_credentials" \
+  -d "client_id=YOUR_CLIENT_ID" \
+  -d "client_secret=YOUR_CLIENT_SECRET" \
+  -d "scope=admin:users:write"
+```
+
+Response:
+```json
+{
+  "access_token": "eyJhbGciOiJFUzI1NiIs...",
+  "token_type": "Bearer",
+  "expires_in": 900
+}
+```
+
+**Note:** Client credentials tokens:
+- Expire in 15 minutes (shorter than user tokens)
+- Do not include a refresh token (per OAuth2 spec)
+- Have `client_id` as the `sub` claim (not a user ID)
+
+### Admin API: Create Users
+
+Use this to migrate existing users from a legacy system:
+
+```bash
+curl -X POST https://identity.example.com/admin/users \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "alice",
+    "email": "alice@example.com",
+    "password": "SecurePassword123!"
+  }'
+```
+
+Response (201 Created):
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "username": "alice",
+  "email": "alice@example.com",
+  "is_active": true,
+  "email_verified": false,
+  "created_at": "2024-01-15T10:30:00Z"
+}
+```
+
+Error responses:
+- `400 Bad Request` - Invalid input (weak password, invalid email format, etc.)
+- `401 Unauthorized` - Missing or invalid token
+- `403 Forbidden` - Token lacks `admin:users:write` scope
+- `409 Conflict` - Username or email already exists
+
+### User Migration Example
+
+```python
+import requests
+
+class IdentityClient:
+    def __init__(self, base_url, client_id, client_secret):
+        self.base_url = base_url
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.token = None
+
+    def get_token(self):
+        resp = requests.post(f"{self.base_url}/oauth/token", data={
+            "grant_type": "client_credentials",
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+            "scope": "admin:users:write"
+        })
+        resp.raise_for_status()
+        self.token = resp.json()["access_token"]
+
+    def create_user(self, username, email, password):
+        if not self.token:
+            self.get_token()
+
+        resp = requests.post(
+            f"{self.base_url}/admin/users",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"username": username, "email": email, "password": password}
+        )
+
+        if resp.status_code == 401:
+            # Token expired, refresh and retry
+            self.get_token()
+            resp = requests.post(
+                f"{self.base_url}/admin/users",
+                headers={"Authorization": f"Bearer {self.token}"},
+                json={"username": username, "email": email, "password": password}
+            )
+
+        return resp.json(), resp.status_code
+
+# Usage
+idp = IdentityClient("https://identity.example.com", "client_id", "client_secret")
+
+for legacy_user in legacy_users:
+    result, status = idp.create_user(
+        legacy_user.username,
+        legacy_user.email,
+        legacy_user.password  # Or generate a temp password and force reset
+    )
+    if status == 201:
+        print(f"Migrated {legacy_user.username}")
+    elif status == 409:
+        print(f"User {legacy_user.username} already exists")
+    else:
+        print(f"Failed to migrate {legacy_user.username}: {result}")
+```
+
 ## FAQ
 
 ### Should I store the access token?
