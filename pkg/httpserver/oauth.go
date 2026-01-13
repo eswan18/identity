@@ -615,7 +615,94 @@ func (s *Server) writeIntrospectError(w http.ResponseWriter, statusCode int, err
 // @Failure      401 {object} map[string]string "Unauthorized - invalid client credentials"
 // @Router       /oauth/revoke [post]
 func (s *Server) HandleOauthRevoke(w http.ResponseWriter, r *http.Request) {
-	// temporary no-op
+	clientID := r.FormValue("client_id")
+	clientSecret := r.FormValue("client_secret")
+	token := r.FormValue("token")
+	tokenTypeHint := r.FormValue("token_type_hint")
+
+	// Authenticate the calling client
+	client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
+	if err != nil {
+		s.writeRevokeError(w, http.StatusUnauthorized, "invalid_client", "Invalid client credentials")
+		return
+	}
+
+	// For confidential clients, verify client secret
+	if client.IsConfidential {
+		if !client.ClientSecret.Valid || subtle.ConstantTimeCompare([]byte(client.ClientSecret.String), []byte(clientSecret)) != 1 {
+			s.writeRevokeError(w, http.StatusUnauthorized, "invalid_client", "Invalid client credentials")
+			return
+		}
+	}
+
+	if token == "" {
+		s.writeRevokeError(w, http.StatusBadRequest, "invalid_request", "Token parameter is required")
+		return
+	}
+
+	// Per RFC 7009, the revocation endpoint should return 200 OK regardless of
+	// whether the token was found or already revoked. This prevents token enumeration.
+	// We attempt to revoke using both methods based on the hint.
+
+	if tokenTypeHint == "refresh_token" {
+		// Try refresh token first, then access token
+		s.datastore.Q.RevokeTokenByRefreshToken(r.Context(), sql.NullString{String: token, Valid: true})
+		s.revokeAccessToken(r.Context(), token)
+	} else {
+		// Try access token first (default), then refresh token
+		s.revokeAccessToken(r.Context(), token)
+		s.datastore.Q.RevokeTokenByRefreshToken(r.Context(), sql.NullString{String: token, Valid: true})
+	}
+
+	// Always return 200 OK per RFC 7009
+	w.WriteHeader(http.StatusOK)
+}
+
+// revokeAccessToken attempts to revoke an access token.
+// For JWTs, the token parameter should be the full JWT. We extract the JTI
+// (which is stored in the database) and revoke by that.
+func (s *Server) revokeAccessToken(ctx context.Context, token string) {
+	// Try to parse as JWT to extract JTI
+	jti := s.extractJTIFromToken(token)
+	if jti != "" {
+		s.datastore.Q.RevokeTokenByAccessToken(ctx, sql.NullString{String: jti, Valid: true})
+	}
+	// Also try revoking by the raw token value in case it's stored differently
+	s.datastore.Q.RevokeTokenByAccessToken(ctx, sql.NullString{String: token, Valid: true})
+}
+
+// extractJTIFromToken extracts the JTI claim from a JWT without validating it.
+// Returns empty string if the token is not a valid JWT or has no JTI.
+func (s *Server) extractJTIFromToken(token string) string {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+
+	// Decode the payload (second part)
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+
+	var claims struct {
+		JTI string `json:"jti"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return ""
+	}
+
+	return claims.JTI
+}
+
+// writeRevokeError writes an error response for the revocation endpoint
+func (s *Server) writeRevokeError(w http.ResponseWriter, statusCode int, errorCode, description string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(map[string]string{
+		"error":             errorCode,
+		"error_description": description,
+	})
 }
 
 // getSessionFromCookie checks if the user is authenticated via session cookie.

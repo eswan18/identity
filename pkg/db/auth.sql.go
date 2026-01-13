@@ -868,6 +868,18 @@ func (q *Queries) RevokeAllUserTokens(ctx context.Context, userID uuid.NullUUID)
 	return err
 }
 
+const revokeTokenByAccessToken = `-- name: RevokeTokenByAccessToken :exec
+UPDATE oauth_tokens
+SET revoked_at = now()
+WHERE access_token = $1
+  AND revoked_at IS NULL
+`
+
+func (q *Queries) RevokeTokenByAccessToken(ctx context.Context, accessToken sql.NullString) error {
+	_, err := q.db.ExecContext(ctx, revokeTokenByAccessToken, accessToken)
+	return err
+}
+
 const revokeTokenByRefreshToken = `-- name: RevokeTokenByRefreshToken :exec
 UPDATE oauth_tokens
 SET revoked_at = now()
