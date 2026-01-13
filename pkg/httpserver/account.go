@@ -127,6 +127,12 @@ func (s *Server) HandleChangePasswordPost(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Validate new password requirements
+	if err := auth.ValidatePassword(newPassword, user.Username); err != nil {
+		s.renderChangePasswordError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	// Validate current password
 	valid, err := auth.VerifyPassword(currentPassword, user.PasswordHash)
 	if err != nil {

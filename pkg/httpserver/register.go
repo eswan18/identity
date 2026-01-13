@@ -77,9 +77,9 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate password length
-	if len(password) < 8 {
-		s.renderRegisterError(w, http.StatusBadRequest, "Password must be at least 8 characters", RegisterPageData{
+	// Validate password requirements
+	if err := auth.ValidatePassword(password, username); err != nil {
+		s.renderRegisterError(w, http.StatusBadRequest, err.Error(), RegisterPageData{
 			Username: username,
 			Email:    email,
 		})
