@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
@@ -473,7 +474,130 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 // @Failure      401 {object} map[string]string "Unauthorized - invalid client credentials"
 // @Router       /oauth/introspect [post]
 func (s *Server) HandleIntrospect(w http.ResponseWriter, r *http.Request) {
-	// temporary no-op
+	clientID := r.FormValue("client_id")
+	clientSecret := r.FormValue("client_secret")
+	token := r.FormValue("token")
+	tokenTypeHint := r.FormValue("token_type_hint")
+
+	// Authenticate the calling client
+	client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
+	if err != nil {
+		s.writeIntrospectError(w, http.StatusUnauthorized, "invalid_client", "Invalid client credentials")
+		return
+	}
+
+	// For confidential clients, verify client secret
+	if client.IsConfidential {
+		if !client.ClientSecret.Valid || subtle.ConstantTimeCompare([]byte(client.ClientSecret.String), []byte(clientSecret)) != 1 {
+			s.writeIntrospectError(w, http.StatusUnauthorized, "invalid_client", "Invalid client credentials")
+			return
+		}
+	}
+
+	if token == "" {
+		s.writeIntrospectError(w, http.StatusBadRequest, "invalid_request", "Token parameter is required")
+		return
+	}
+
+	// Try to introspect based on hint, or try both if no hint
+	var response map[string]interface{}
+
+	if tokenTypeHint == "refresh_token" {
+		response = s.introspectRefreshToken(r.Context(), token)
+	} else if tokenTypeHint == "access_token" || tokenTypeHint == "" {
+		// Try access token first
+		response = s.introspectAccessToken(r.Context(), token)
+		// If not active and no hint was provided, try refresh token
+		if !response["active"].(bool) && tokenTypeHint == "" {
+			response = s.introspectRefreshToken(r.Context(), token)
+		}
+	} else {
+		// Unknown hint, try both
+		response = s.introspectAccessToken(r.Context(), token)
+		if !response["active"].(bool) {
+			response = s.introspectRefreshToken(r.Context(), token)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// introspectAccessToken attempts to introspect a JWT access token
+func (s *Server) introspectAccessToken(ctx context.Context, token string) map[string]interface{} {
+	// Parse the JWT without audience validation (resource server may have different audience)
+	claims, err := s.jwtGenerator.ValidateToken(token, "")
+	if err != nil {
+		return map[string]interface{}{"active": false}
+	}
+
+	// Check if the token has been revoked by looking up the JTI
+	dbToken, err := s.datastore.Q.GetTokenByAccessToken(ctx, sql.NullString{String: claims.ID, Valid: true})
+	if err != nil {
+		// Token not found in DB or revoked
+		return map[string]interface{}{"active": false}
+	}
+
+	// Token is valid and not revoked
+	response := map[string]interface{}{
+		"active":     true,
+		"scope":      claims.Scope,
+		"client_id":  dbToken.ClientID.String(),
+		"username":   claims.Username,
+		"token_type": "Bearer",
+		"exp":        claims.ExpiresAt.Unix(),
+		"iat":        claims.IssuedAt.Unix(),
+		"sub":        claims.Subject,
+		"iss":        claims.Issuer,
+		"jti":        claims.ID,
+	}
+
+	if len(claims.Audience) > 0 {
+		response["aud"] = claims.Audience[0]
+	}
+
+	return response
+}
+
+// introspectRefreshToken attempts to introspect a refresh token
+func (s *Server) introspectRefreshToken(ctx context.Context, token string) map[string]interface{} {
+	dbToken, err := s.datastore.Q.GetTokenByRefreshToken(ctx, sql.NullString{String: token, Valid: true})
+	if err != nil {
+		return map[string]interface{}{"active": false}
+	}
+
+	// Check if refresh token is expired
+	if dbToken.RefreshExpiresAt.Valid && dbToken.RefreshExpiresAt.Time.Before(time.Now()) {
+		return map[string]interface{}{"active": false}
+	}
+
+	// Get user info for the response
+	user, err := s.datastore.Q.GetUserByID(ctx, dbToken.UserID.UUID)
+	username := ""
+	if err == nil {
+		username = user.Username
+	}
+
+	return map[string]interface{}{
+		"active":     true,
+		"scope":      strings.Join(dbToken.Scope, " "),
+		"client_id":  dbToken.ClientID.String(),
+		"username":   username,
+		"token_type": "refresh_token",
+		"exp":        dbToken.RefreshExpiresAt.Time.Unix(),
+		"iat":        dbToken.CreatedAt.Unix(),
+		"sub":        dbToken.UserID.UUID.String(),
+	}
+}
+
+// writeIntrospectError writes an error response for the introspection endpoint
+func (s *Server) writeIntrospectError(w http.ResponseWriter, statusCode int, errorCode, description string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(map[string]string{
+		"error":             errorCode,
+		"error_description": description,
+	})
 }
 
 // handleRevoke godoc
@@ -512,4 +636,46 @@ func (s *Server) getSessionFromCookie(r *http.Request) (Session, error) {
 		UserID:    session.UserID,
 		ExpiresAt: session.ExpiresAt,
 	}, nil
+}
+
+// HandleOIDCDiscovery godoc
+// @Summary      OIDC Discovery endpoint
+// @Description  Returns OpenID Connect Provider Configuration (RFC 8414). Allows clients to discover all necessary endpoints and provider capabilities.
+// @Tags         oauth2
+// @Produce      json
+// @Success      200 {object} map[string]interface{} "OIDC provider configuration"
+// @Router       /.well-known/openid-configuration [get]
+func (s *Server) HandleOIDCDiscovery(w http.ResponseWriter, r *http.Request) {
+	issuer := s.config.JWTIssuer
+
+	discovery := map[string]interface{}{
+		// Required fields per OpenID Connect Discovery 1.0
+		"issuer":                 issuer,
+		"authorization_endpoint": issuer + "/oauth/authorize",
+		"token_endpoint":         issuer + "/oauth/token",
+		"jwks_uri":               issuer + "/.well-known/jwks.json",
+
+		// Recommended fields
+		"userinfo_endpoint":                   issuer + "/oauth/userinfo",
+		"registration_endpoint":               issuer + "/oauth/register",
+		"scopes_supported":                    []string{"openid", "profile", "email"},
+		"response_types_supported":            []string{"code"},
+		"response_modes_supported":            []string{"query"},
+		"grant_types_supported":               []string{"authorization_code", "refresh_token"},
+		"token_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic"},
+		"subject_types_supported":             []string{"public"},
+		"id_token_signing_alg_values_supported": []string{"ES256"},
+		"claims_supported": []string{
+			"sub", "iss", "aud", "exp", "iat", "name", "email", "email_verified",
+		},
+		"code_challenge_methods_supported": []string{"S256"},
+
+		// Additional endpoints
+		"introspection_endpoint": issuer + "/oauth/introspect",
+		"revocation_endpoint":    issuer + "/oauth/revoke",
+		"end_session_endpoint":   issuer + "/oauth/logout",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(discovery)
 }

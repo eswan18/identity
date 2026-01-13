@@ -266,6 +266,39 @@ paths:
       summary: Request password reset
       tags:
       - authentication
+  /forgot-username:
+    get:
+      description: Displays the forgot username form
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML forgot username page
+          schema:
+            type: string
+      summary: Show forgot username page
+      tags:
+      - authentication
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Sends a username reminder email if the account exists
+      parameters:
+      - description: Email address
+        in: formData
+        name: email
+        required: true
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML forgot username page with success message
+          schema:
+            type: string
+      summary: Request username reminder
+      tags:
+      - authentication
   /health:
     get:
       description: Returns service health status including database connectivity
