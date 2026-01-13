@@ -126,9 +126,8 @@ func (s *Server) registerRoutes() {
 
 		// User management
 		r.With(s.AdminAuthMiddleware("admin:users:write")).Post("/users", s.HandleAdminCreateUser)
-		// Future endpoints:
-		// r.With(s.AdminAuthMiddleware("admin:users:read")).Get("/users", s.HandleAdminListUsers)
-		// r.With(s.AdminAuthMiddleware("admin:users:read")).Get("/users/{id}", s.HandleAdminGetUser)
+		r.With(s.AdminAuthMiddleware("admin:users:read")).Get("/users", s.HandleAdminListUsers)
+		r.With(s.AdminAuthMiddleware("admin:users:read")).Get("/users/{id}", s.HandleAdminGetUser)
 	})
 
 	// Swagger

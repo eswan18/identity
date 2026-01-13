@@ -25,6 +25,17 @@ func (q *Queries) ConsumeAuthorizationCode(ctx context.Context, code string) err
 	return err
 }
 
+const countUsers = `-- name: CountUsers :one
+SELECT COUNT(*) FROM auth_users
+`
+
+func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countUsers)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createEmailToken = `-- name: CreateEmailToken :exec
 INSERT INTO auth_email_tokens (user_id, token_hash, token_type, expires_at)
 VALUES ($1, $2, $3, $4)
@@ -811,6 +822,54 @@ func (q *Queries) ListOAuthClients(ctx context.Context) ([]OauthClient, error) {
 			&i.Audience,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUsers = `-- name: ListUsers :many
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at
+FROM auth_users
+ORDER BY created_at DESC
+LIMIT $1 OFFSET $2
+`
+
+type ListUsersParams struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
+
+func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]AuthUser, error) {
+	rows, err := q.db.QueryContext(ctx, listUsers, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuthUser
+	for rows.Next() {
+		var i AuthUser
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.PasswordHash,
+			&i.Email,
+			&i.IsActive,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.MfaEnabled,
+			&i.MfaSecret,
+			&i.MfaVerifiedAt,
+			&i.EmailVerified,
+			&i.EmailVerifiedAt,
 		); err != nil {
 			return nil, err
 		}

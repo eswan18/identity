@@ -177,6 +177,15 @@ SELECT *
 FROM auth_users
 WHERE id = $1;
 
+-- name: ListUsers :many
+SELECT *
+FROM auth_users
+ORDER BY created_at DESC
+LIMIT $1 OFFSET $2;
+
+-- name: CountUsers :one
+SELECT COUNT(*) FROM auth_users;
+
 -- name: GetUserByUsernameIncludingInactive :one
 SELECT *
 FROM auth_users
