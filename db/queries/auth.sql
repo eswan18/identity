@@ -121,6 +121,12 @@ SET revoked_at = now()
 WHERE refresh_token = $1
   AND revoked_at IS NULL;
 
+-- name: RevokeTokenByAccessToken :exec
+UPDATE oauth_tokens
+SET revoked_at = now()
+WHERE access_token = $1
+  AND revoked_at IS NULL;
+
 -- name: RevokeAllUserTokens :exec
 UPDATE oauth_tokens
 SET revoked_at = now()

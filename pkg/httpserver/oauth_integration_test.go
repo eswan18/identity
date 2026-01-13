@@ -1582,6 +1582,310 @@ func (s *OAuthFlowSuite) TestTokenIntrospectionMissingToken() {
 	s.Equal(http.StatusBadRequest, resp.StatusCode)
 }
 
+// Token Revocation Tests
+
+func (s *OAuthFlowSuite) TestTokenRevocationAccessToken() {
+	// Create a confidential client for revocation
+	clientSecret := s.mustGenerateRandomString(32)
+	revokeClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: true,
+		Audience:       "http://localhost:8000",
+	})
+
+	// Create a public client to obtain tokens
+	tokenClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "http://localhost:8000",
+	})
+
+	// Complete OAuth flow to get tokens
+	user := s.mustRegisterUser(
+		s.mustGenerateRandomString(8),
+		s.mustGenerateRandomString(8),
+		fmt.Sprintf("%s@example.com", s.mustGenerateRandomString(8)),
+	)
+	scv := s.mustCreateStateAndCodeVerifier()
+
+	formValues := url.Values{
+		"username":              {user.Username},
+		"password":              {user.Password},
+		"client_id":             {tokenClient.ClientID},
+		"redirect_uri":          {tokenClient.RedirectUris[0]},
+		"state":                 {scv.State},
+		"scope":                 {"openid profile email"},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	}
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/login", formValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode)
+
+	location := resp.Header.Get("Location")
+	redirectUrl, err := url.ParseRequestURI(location)
+	s.Require().NoError(err)
+	authCode := redirectUrl.Query().Get("code")
+
+	tokenValues := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {authCode},
+		"redirect_uri":  {tokenClient.RedirectUris[0]},
+		"client_id":     {tokenClient.ClientID},
+		"code_verifier": {scv.CodeVerifier},
+	}
+	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/token", tokenValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	var tokenResponse TokenResponse
+	err = json.Unmarshal(body, &tokenResponse)
+	s.Require().NoError(err)
+
+	// Verify token is active before revocation
+	introspectValues := url.Values{
+		"token":           {tokenResponse.AccessToken},
+		"token_type_hint": {"access_token"},
+		"client_id":       {revokeClient.ClientID},
+		"client_secret":   {clientSecret},
+	}
+	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/introspect", introspectValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	body, err = io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	var introspectResponse map[string]interface{}
+	err = json.Unmarshal(body, &introspectResponse)
+	s.Require().NoError(err)
+	s.True(introspectResponse["active"].(bool), "token should be active before revocation")
+
+	// Revoke the access token
+	revokeValues := url.Values{
+		"token":           {tokenResponse.AccessToken},
+		"token_type_hint": {"access_token"},
+		"client_id":       {revokeClient.ClientID},
+		"client_secret":   {clientSecret},
+	}
+	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/revoke", revokeValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	// Verify token is no longer active after revocation
+	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/introspect", introspectValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	body, err = io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	err = json.Unmarshal(body, &introspectResponse)
+	s.Require().NoError(err)
+	s.False(introspectResponse["active"].(bool), "token should be inactive after revocation")
+}
+
+func (s *OAuthFlowSuite) TestTokenRevocationRefreshToken() {
+	// Create a confidential client for revocation
+	clientSecret := s.mustGenerateRandomString(32)
+	revokeClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: true,
+		Audience:       "http://localhost:8000",
+	})
+
+	// Create a public client to obtain tokens
+	tokenClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "http://localhost:8000",
+	})
+
+	// Complete OAuth flow to get tokens
+	user := s.mustRegisterUser(
+		s.mustGenerateRandomString(8),
+		s.mustGenerateRandomString(8),
+		fmt.Sprintf("%s@example.com", s.mustGenerateRandomString(8)),
+	)
+	scv := s.mustCreateStateAndCodeVerifier()
+
+	formValues := url.Values{
+		"username":              {user.Username},
+		"password":              {user.Password},
+		"client_id":             {tokenClient.ClientID},
+		"redirect_uri":          {tokenClient.RedirectUris[0]},
+		"state":                 {scv.State},
+		"scope":                 {"openid profile email"},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	}
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/login", formValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode)
+
+	location := resp.Header.Get("Location")
+	redirectUrl, err := url.ParseRequestURI(location)
+	s.Require().NoError(err)
+	authCode := redirectUrl.Query().Get("code")
+
+	tokenValues := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {authCode},
+		"redirect_uri":  {tokenClient.RedirectUris[0]},
+		"client_id":     {tokenClient.ClientID},
+		"code_verifier": {scv.CodeVerifier},
+	}
+	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/token", tokenValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	var tokenResponse TokenResponse
+	err = json.Unmarshal(body, &tokenResponse)
+	s.Require().NoError(err)
+
+	// Verify refresh token is active before revocation
+	introspectValues := url.Values{
+		"token":           {tokenResponse.RefreshToken},
+		"token_type_hint": {"refresh_token"},
+		"client_id":       {revokeClient.ClientID},
+		"client_secret":   {clientSecret},
+	}
+	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/introspect", introspectValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	body, err = io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	var introspectResponse map[string]interface{}
+	err = json.Unmarshal(body, &introspectResponse)
+	s.Require().NoError(err)
+	s.True(introspectResponse["active"].(bool), "refresh token should be active before revocation")
+
+	// Revoke the refresh token
+	revokeValues := url.Values{
+		"token":           {tokenResponse.RefreshToken},
+		"token_type_hint": {"refresh_token"},
+		"client_id":       {revokeClient.ClientID},
+		"client_secret":   {clientSecret},
+	}
+	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/revoke", revokeValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	// Verify refresh token is no longer active after revocation
+	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/introspect", introspectValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	body, err = io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	err = json.Unmarshal(body, &introspectResponse)
+	s.Require().NoError(err)
+	s.False(introspectResponse["active"].(bool), "refresh token should be inactive after revocation")
+}
+
+func (s *OAuthFlowSuite) TestTokenRevocationInvalidToken() {
+	// Create a confidential client
+	clientSecret := s.mustGenerateRandomString(32)
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid"},
+		IsConfidential: true,
+		Audience:       "http://localhost:8000",
+	})
+
+	// Revoke an invalid token - should still return 200 OK per RFC 7009
+	revokeValues := url.Values{
+		"token":         {"invalid-token-12345"},
+		"client_id":     {client.ClientID},
+		"client_secret": {clientSecret},
+	}
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/revoke", revokeValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+}
+
+func (s *OAuthFlowSuite) TestTokenRevocationInvalidClientCredentials() {
+	// Create a confidential client
+	clientSecret := s.mustGenerateRandomString(32)
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid"},
+		IsConfidential: true,
+		Audience:       "http://localhost:8000",
+	})
+
+	// Try to revoke with wrong client secret
+	revokeValues := url.Values{
+		"token":         {"some-token"},
+		"client_id":     {client.ClientID},
+		"client_secret": {"wrong-secret"},
+	}
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/revoke", revokeValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusUnauthorized, resp.StatusCode)
+}
+
+func (s *OAuthFlowSuite) TestTokenRevocationMissingToken() {
+	// Create a confidential client
+	clientSecret := s.mustGenerateRandomString(32)
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid"},
+		IsConfidential: true,
+		Audience:       "http://localhost:8000",
+	})
+
+	// Try to revoke without a token
+	revokeValues := url.Values{
+		"client_id":     {client.ClientID},
+		"client_secret": {clientSecret},
+	}
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/revoke", revokeValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusBadRequest, resp.StatusCode)
+}
+
 func TestOAuthFlowSuite(t *testing.T) {
 	suite.Run(t, new(OAuthFlowSuite))
 }
