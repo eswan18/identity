@@ -10,3 +10,4 @@ static/style.css
 
 # Node modules (for Tailwind)
 node_modules/
+PROD_READINESS.md

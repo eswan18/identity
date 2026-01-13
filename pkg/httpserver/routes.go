@@ -61,6 +61,9 @@ func (s *Server) registerRoutes() {
 	// JWKS endpoint for JWT public key distribution
 	s.router.With(corsMiddleware).Get("/.well-known/jwks.json", s.HandleJWKS)
 
+	// OIDC Discovery endpoint
+	s.router.With(corsMiddleware).Get("/.well-known/openid-configuration", s.HandleOIDCDiscovery)
+
 	// OAuth2/OIDC endpoints with CORS enabled
 	s.router.Route("/oauth", func(r chi.Router) {
 		// Apply CORS middleware to all OAuth routes
