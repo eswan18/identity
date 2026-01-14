@@ -7,50 +7,53 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="card p-10 w-full max-w-md">
-        <div class="text-center mb-8">
-            <h1 class="text-2xl font-semibold mb-2">Two-Factor Authentication</h1>
-            <p class="text-sm opacity-60">Enter the code from your authenticator app</p>
-        </div>
-
-        {{if .Error}}
-        <div class="alert alert-error mb-6">
-            <svg class="shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm-.75 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 12a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
-            </svg>
-            <span>{{.Error}}</span>
-        </div>
-        {{end}}
-
-        <form method="POST" action="/oauth/mfa">
-            <div class="mb-5">
-                <label for="code" class="label">Verification Code</label>
-                <input
-                    type="text"
-                    id="code"
-                    name="code"
-                    placeholder="Enter 6-digit code"
-                    required
-                    autofocus
-                    autocomplete="one-time-code"
-                    inputmode="numeric"
-                    pattern="[0-9]{6}"
-                    maxlength="6"
-                    class="input input-bordered w-full text-center text-2xl tracking-widest"
-                >
+    <div class="card bg-base-100 shadow-xl w-full max-w-md">
+        <div class="card-body">
+            <div class="text-center mb-8">
+                <h1 class="card-title justify-center text-2xl">Two-Factor Authentication</h1>
+                <p class="text-sm text-base-content/60">Enter the code from your authenticator app</p>
             </div>
 
-            <input type="hidden" name="pending_id" value="{{.PendingID}}">
+            {{if .Error}}
+            <div class="alert alert-error mb-6">
+                <svg class="shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm-.75 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 12a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
+                </svg>
+                <span>{{.Error}}</span>
+            </div>
+            {{end}}
 
-            <button type="submit" class="btn btn-primary w-full">Verify</button>
-        </form>
+            <form method="POST" action="/oauth/mfa">
+                <fieldset class="fieldset mb-4">
+                    <label class="fieldset-label" for="code">Verification Code</label>
+                    <input
+                        type="text"
+                        id="code"
+                        name="code"
+                        placeholder="Enter 6-digit code"
+                        required
+                        autofocus
+                        autocomplete="one-time-code"
+                        inputmode="numeric"
+                        pattern="[0-9]{6}"
+                        maxlength="6"
+                        class="input input-bordered w-full text-center text-2xl tracking-widest"
+                    >
+                </fieldset>
 
-        <div class="text-center mt-6 text-sm opacity-60">
-            <a href="/oauth/login" class="link link-primary">Back to login</a>
-        </div>
+                <input type="hidden" name="pending_id" value="{{.PendingID}}">
 
-        <div class="text-center mt-6 pt-6 border-t text-xs opacity-50">
-            Identity Service
+                <button type="submit" class="btn btn-primary w-full">Verify</button>
+            </form>
+
+            <div class="text-center mt-6 text-sm text-base-content/60">
+                <a href="/oauth/login" class="link link-primary">Back to login</a>
+            </div>
+
+            <div class="divider"></div>
+            <div class="text-center text-xs text-base-content/50">
+                Identity Service
+            </div>
         </div>
     </div>
 </body>

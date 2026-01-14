@@ -7,67 +7,70 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="card p-10 w-full max-w-md">
-        <div class="text-center mb-8">
-            <h1 class="text-2xl font-semibold mb-2">Set Up Two-Factor Authentication</h1>
-            <p class="text-sm opacity-60">Scan the QR code with your authenticator app</p>
-        </div>
-
-        {{if .Error}}
-        <div class="alert alert-error mb-6">
-            <svg class="shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm-.75 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 12a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
-            </svg>
-            <span>{{.Error}}</span>
-        </div>
-        {{end}}
-
-        {{if .QRCode}}
-        <div class="mb-6">
-            <div class="flex justify-center mb-4">
-                <img src="data:image/png;base64,{{.QRCode}}" alt="QR Code for authenticator app" class="rounded-lg border">
+    <div class="card bg-base-100 shadow-xl w-full max-w-md">
+        <div class="card-body">
+            <div class="text-center mb-8">
+                <h1 class="card-title justify-center text-2xl">Set Up Two-Factor Authentication</h1>
+                <p class="text-sm text-base-content/60">Scan the QR code with your authenticator app</p>
             </div>
-            <p class="text-xs opacity-60 text-center mb-2">
-                Scan with Google Authenticator, Authy, or similar app
-            </p>
-            <details class="text-center">
-                <summary class="text-xs link link-primary cursor-pointer">Can't scan? Enter code manually</summary>
-                <div class="mt-2 p-3 bg-base-200 rounded-lg">
-                    <code class="text-sm font-mono break-all">{{.Secret}}</code>
+
+            {{if .Error}}
+            <div class="alert alert-error mb-6">
+                <svg class="shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm-.75 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 12a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
+                </svg>
+                <span>{{.Error}}</span>
+            </div>
+            {{end}}
+
+            {{if .QRCode}}
+            <div class="mb-6">
+                <div class="flex justify-center mb-4">
+                    <img src="data:image/png;base64,{{.QRCode}}" alt="QR Code for authenticator app" class="rounded-lg border border-base-300">
                 </div>
-            </details>
-        </div>
-        {{end}}
+                <p class="text-xs text-base-content/60 text-center mb-2">
+                    Scan with Google Authenticator, Authy, or similar app
+                </p>
+                <details class="text-center">
+                    <summary class="text-xs link link-primary cursor-pointer">Can't scan? Enter code manually</summary>
+                    <div class="mt-2 p-3 bg-base-200 rounded-lg">
+                        <code class="text-sm font-mono break-all">{{.Secret}}</code>
+                    </div>
+                </details>
+            </div>
+            {{end}}
 
-        <form method="POST" action="/oauth/mfa-setup">
-            <div class="mb-5">
-                <label for="code" class="label">Verification Code</label>
-                <input
-                    type="text"
-                    id="code"
-                    name="code"
-                    placeholder="Enter 6-digit code"
-                    required
-                    autocomplete="one-time-code"
-                    inputmode="numeric"
-                    pattern="[0-9]{6}"
-                    maxlength="6"
-                    class="input input-bordered w-full text-center text-2xl tracking-widest"
-                >
-                <p class="mt-2 text-xs opacity-60">Enter the code from your authenticator app to verify setup</p>
+            <form method="POST" action="/oauth/mfa-setup">
+                <fieldset class="fieldset mb-4">
+                    <label class="fieldset-label" for="code">Verification Code</label>
+                    <input
+                        type="text"
+                        id="code"
+                        name="code"
+                        placeholder="Enter 6-digit code"
+                        required
+                        autocomplete="one-time-code"
+                        inputmode="numeric"
+                        pattern="[0-9]{6}"
+                        maxlength="6"
+                        class="input input-bordered w-full text-center text-2xl tracking-widest"
+                    >
+                    <p class="mt-2 text-xs text-base-content/60">Enter the code from your authenticator app to verify setup</p>
+                </fieldset>
+
+                <input type="hidden" name="secret" value="{{.Secret}}">
+
+                <button type="submit" class="btn btn-primary w-full">Enable Two-Factor Authentication</button>
+            </form>
+
+            <div class="text-center mt-6 text-sm text-base-content/60">
+                <a href="/oauth/account-settings" class="link link-primary">Cancel</a>
             </div>
 
-            <input type="hidden" name="secret" value="{{.Secret}}">
-
-            <button type="submit" class="btn btn-primary w-full">Enable Two-Factor Authentication</button>
-        </form>
-
-        <div class="text-center mt-6 text-sm opacity-60">
-            <a href="/oauth/account-settings" class="link link-primary">Cancel</a>
-        </div>
-
-        <div class="text-center mt-6 pt-6 border-t text-xs opacity-50">
-            Identity Service
+            <div class="divider"></div>
+            <div class="text-center text-xs text-base-content/50">
+                Identity Service
+            </div>
         </div>
     </div>
 </body>
