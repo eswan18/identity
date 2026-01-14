@@ -15,7 +15,7 @@
 
         {{if .Error}}
         <div class="alert alert-error mb-6">
-            <svg class="flex-shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <svg class="shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm-.75 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 12a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
             </svg>
             <span>{{.Error}}</span>
@@ -24,7 +24,7 @@
 
         {{if .Success}}
         <div class="alert alert-success mb-6">
-            <svg class="flex-shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <svg class="shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.78 5.28-4.5 6a.75.75 0 0 1-1.18.02l-2.25-2.5a.75.75 0 1 1 1.12-1l1.63 1.81 3.92-5.23a.75.75 0 1 1 1.26.9z"/>
             </svg>
             <span>{{.Success}}</span>
@@ -32,7 +32,7 @@
         {{end}}
 
         <div class="mb-8">
-            <h2 class="text-base font-semibold opacity-70 mb-4 pb-2 border-b border-base-300">Account Information</h2>
+            <h2 class="text-base font-semibold opacity-70 mb-4 pb-2 border-b">Account Information</h2>
             <div class="flex justify-between items-center py-3">
                 <span class="text-sm opacity-60">Username</span>
                 <span class="text-sm font-medium">{{.Username}}</span>
@@ -53,21 +53,21 @@
                 <div class="flex flex-col gap-3 w-full">
                     <p class="text-sm">Your email address is not verified. Some features may be limited until you verify your email.</p>
                     <form method="POST" action="/oauth/resend-verification">
-                        <button type="submit" class="btn btn-warning btn-sm">Resend Verification Email</button>
+                        <button type="submit" class="btn btn-sm w-full">Resend Verification Email</button>
                     </form>
                 </div>
             </div>
             {{end}}
         </div>
 
-        <div class="mb-6 pb-6 border-b border-base-300">
+        <div class="mb-6 pb-6">
             <form method="POST" action="/oauth/logout">
                 <button type="submit" class="btn btn-ghost text-error w-full">Log Out</button>
             </form>
         </div>
 
         <div class="mb-8">
-            <h2 class="text-base font-semibold opacity-70 mb-4 pb-2 border-b border-base-300">Account Actions</h2>
+            <h2 class="text-base font-semibold opacity-70 mb-4 pb-2 border-b">Account Actions</h2>
             <div class="flex flex-col gap-3">
                 <a href="/oauth/change-username" class="btn btn-ghost w-full">Change Username</a>
                 <a href="/oauth/change-password" class="btn btn-ghost w-full">Change Password</a>
@@ -76,7 +76,7 @@
         </div>
 
         <div class="mb-8">
-            <h2 class="text-base font-semibold opacity-70 mb-4 pb-2 border-b border-base-300">Security</h2>
+            <h2 class="text-base font-semibold opacity-70 mb-4 pb-2 border-b">Security</h2>
             <div class="flex justify-between items-center py-3">
                 <div>
                     <span class="text-sm opacity-60">Two-Factor Authentication</span>
@@ -108,8 +108,8 @@
         </div>
 
         {{if .IsInactive}}
-        <div class="mt-8 pt-6 border-t border-warning">
-            <h2 class="text-base font-semibold text-warning mb-4 pb-2 border-b border-warning text-center">Account Deactivated</h2>
+        <div class="mt-8 pt-6 border-warning">
+            <h2 class="text-base font-semibold text-warning mb-4 pb-2 border-b border-warning">Account Deactivated</h2>
             <p class="text-sm opacity-60 mb-4">Your account is deactivated. You cannot log in to applications until you reactivate your account.</p>
             <form method="POST" action="/oauth/reactivate-account" class="mt-4">
                 <div class="mb-5">
@@ -120,8 +120,8 @@
             </form>
         </div>
         {{else}}
-        <div class="mt-8 pt-6 border-t border-error">
-            <h2 class="text-base font-semibold text-error mb-4 pb-2 border-b border-error text-center">Danger Zone</h2>
+        <div class="mt-8 pt-6">
+            <h2 class="text-base font-semibold text-error mb-4 pb-2 border-b border-error">Danger Zone</h2>
             <p class="text-sm opacity-60 mb-4">Deactivating your account will prevent you from logging in to any applications. You will only be able to access this settings page.</p>
             <form method="POST" action="/oauth/deactivate-account" class="mt-4">
                 <div class="mb-5">
@@ -133,7 +133,7 @@
         </div>
         {{end}}
 
-        <div class="text-center mt-6 pt-6 border-t border-base-300 text-xs opacity-50">
+        <div class="text-center mt-6 pt-6 border-t text-xs opacity-50">
             Identity Service
         </div>
     </div>
