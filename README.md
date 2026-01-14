@@ -1,6 +1,6 @@
 # Identity Provider
 
-OAuth 2.0 / OpenID Connect identity provider built with Go, PostgreSQL, and HTMX.
+OAuth 2.0 / OpenID Connect identity provider built with Go and PostgreSQL.
 
 ## Features
 
