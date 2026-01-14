@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="card bg-base-100 shadow-lg p-10 w-full max-w-md">
+    <div class="card p-10 w-full max-w-md">
         <div class="text-center mb-8">
             <h1 class="text-2xl font-semibold mb-2">Sign In</h1>
             <p class="text-sm opacity-60">Enter your credentials to continue</p>
@@ -16,14 +16,14 @@
         {{if .Error}}
         {{if or (eq .Error "Account created successfully! Please check your email to verify your account.") (eq .Error "Email verified successfully! Please sign in.") (eq .Error "Password reset successfully! Please sign in with your new password.")}}
         <div class="alert alert-success mb-6">
-            <svg class="flex-shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <svg class="shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.78 5.28-4.5 6a.75.75 0 0 1-1.18.02l-2.25-2.5a.75.75 0 1 1 1.12-1l1.63 1.81 3.92-5.23a.75.75 0 1 1 1.26.9z"/>
             </svg>
             <span>{{.Error}}</span>
         </div>
         {{else}}
         <div class="alert alert-error mb-6">
-            <svg class="flex-shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <svg class="shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm-.75 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 12a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
             </svg>
             <span>{{.Error}}</span>
