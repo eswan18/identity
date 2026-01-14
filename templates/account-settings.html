@@ -62,7 +62,7 @@
 
         <div class="mb-6 pb-6 border-b border-base-300">
             <form method="POST" action="/oauth/logout">
-                <button type="submit" class="btn btn-error w-full">Log Out</button>
+                <button type="submit" class="btn btn-ghost text-error w-full">Log Out</button>
             </form>
         </div>
 
@@ -109,7 +109,7 @@
 
         {{if .IsInactive}}
         <div class="mt-8 pt-6 border-t border-warning">
-            <h2 class="text-base font-semibold text-warning mb-4 pb-2 border-b border-warning">Account Deactivated</h2>
+            <h2 class="text-base font-semibold text-warning mb-4 pb-2 border-b border-warning text-center">Account Deactivated</h2>
             <p class="text-sm opacity-60 mb-4">Your account is deactivated. You cannot log in to applications until you reactivate your account.</p>
             <form method="POST" action="/oauth/reactivate-account" class="mt-4">
                 <div class="mb-5">
@@ -121,7 +121,7 @@
         </div>
         {{else}}
         <div class="mt-8 pt-6 border-t border-error">
-            <h2 class="text-base font-semibold text-error mb-4 pb-2 border-b border-error">Danger Zone</h2>
+            <h2 class="text-base font-semibold text-error mb-4 pb-2 border-b border-error text-center">Danger Zone</h2>
             <p class="text-sm opacity-60 mb-4">Deactivating your account will prevent you from logging in to any applications. You will only be able to access this settings page.</p>
             <form method="POST" action="/oauth/deactivate-account" class="mt-4">
                 <div class="mb-5">
