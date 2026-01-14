@@ -7,15 +7,15 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-10 w-full max-w-md">
+    <div class="card bg-base-100 shadow-lg p-10 w-full max-w-md">
         <div class="text-center mb-8">
-            <h1 class="text-2xl font-semibold text-gray-900 dark:text-gray-50 mb-2">Change Username</h1>
-            <p class="text-sm text-gray-500 dark:text-gray-400">Update your account username</p>
+            <h1 class="text-2xl font-semibold mb-2">Change Username</h1>
+            <p class="text-sm opacity-60">Update your account username</p>
         </div>
 
         {{if .Error}}
-        <div class="p-4 rounded-lg text-sm flex items-start gap-2.5 mb-6 bg-red-50 text-red-800 border border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800/30">
-            <svg class="flex-shrink-0 mt-px" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+        <div class="alert alert-error mb-6">
+            <svg class="flex-shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm-.75 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 12a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
             </svg>
             <span>{{.Error}}</span>
@@ -23,22 +23,22 @@
         {{end}}
 
         {{if .Success}}
-        <div class="p-4 rounded-lg text-sm flex items-start gap-2.5 mb-6 bg-green-50 text-green-800 border border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800/30">
-            <svg class="flex-shrink-0 mt-px" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+        <div class="alert alert-success mb-6">
+            <svg class="flex-shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.78 5.28-4.5 6a.75.75 0 0 1-1.18.02l-2.25-2.5a.75.75 0 1 1 1.12-1l1.63 1.81 3.92-5.23a.75.75 0 1 1 1.26.9z"/>
             </svg>
             <span>{{.Success}}</span>
         </div>
         {{end}}
 
-        <div class="bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg p-4 mb-6">
-            <div class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Current Username</div>
-            <div class="text-base font-medium text-gray-800 dark:text-gray-100">{{.CurrentUsername}}</div>
+        <div class="bg-base-200 rounded-lg p-4 mb-6">
+            <div class="text-xs font-medium opacity-60 uppercase tracking-wide mb-1">Current Username</div>
+            <div class="text-base font-medium">{{.CurrentUsername}}</div>
         </div>
 
         <form method="POST" action="/oauth/change-username">
             <div class="mb-5">
-                <label for="new_username" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">New Username</label>
+                <label for="new_username" class="label">New Username</label>
                 <input
                     type="text"
                     id="new_username"
@@ -46,12 +46,12 @@
                     placeholder="Enter your new username"
                     required
                     autocomplete="username"
-                    class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                    class="input input-bordered w-full"
                 >
             </div>
 
             <div class="mb-5">
-                <label for="password" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Password</label>
+                <label for="password" class="label">Password</label>
                 <input
                     type="password"
                     id="password"
@@ -59,16 +59,16 @@
                     placeholder="Enter your password to confirm"
                     required
                     autocomplete="current-password"
-                    class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                    class="input input-bordered w-full"
                 >
             </div>
 
-            <button type="submit" class="w-full px-6 py-3 text-base font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 cursor-pointer">Update Username</button>
+            <button type="submit" class="btn btn-primary w-full">Update Username</button>
         </form>
 
-        <a href="/oauth/account-settings" class="block w-full px-6 py-3 mt-3 text-base font-medium rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 text-center no-underline">Back to Account Settings</a>
+        <a href="/oauth/account-settings" class="btn btn-ghost w-full mt-3">Back to Account Settings</a>
 
-        <div class="text-center mt-6 pt-6 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500">
+        <div class="text-center mt-6 pt-6 border-t border-base-300 text-xs opacity-50">
             Identity Service
         </div>
     </div>
