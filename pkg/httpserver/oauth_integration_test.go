@@ -2652,6 +2652,62 @@ func (s *OAuthFlowSuite) mustCreateUserViaAdminAPI(token, username, email, passw
 	return createUserResp
 }
 
+// TestLoginFailedPreservesAllScopes verifies that when login fails due to
+// invalid credentials, all OAuth scope parameters are preserved in the
+// re-rendered login form (not just the first scope).
+func (s *OAuthFlowSuite) TestLoginFailedPreservesAllScopes() {
+	// Create a user
+	username := s.mustGenerateRandomString(8)
+	password := s.mustGenerateRandomString(16)
+	email := fmt.Sprintf("%s@example.com", username)
+	s.mustCreateUser(username, password, email)
+
+	// Create an OAuth client with multiple scopes
+	client := s.mustCreateClient(db.CreateClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "https://api.example.com",
+	})
+	scv := s.mustCreateStateAndCodeVerifier()
+
+	// POST to login with WRONG password and multiple scopes
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/login", url.Values{
+		"username":              {username},
+		"password":              {"wrong-password"},
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {client.RedirectUris[0]},
+		"state":                 {scv.State},
+		"scope":                 {"openid profile email"}, // space-separated scopes
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	// Should return 401 Unauthorized
+	s.Equal(http.StatusUnauthorized, resp.StatusCode)
+
+	// Read the response body (the re-rendered login form)
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	bodyStr := string(body)
+
+	// Verify ALL scopes are preserved in the hidden input field
+	// The template should render: value="openid profile email"
+	s.Contains(bodyStr, `name="scope"`, "response should contain scope hidden input")
+	s.Contains(bodyStr, "openid", "response should contain openid scope")
+	s.Contains(bodyStr, "profile", "response should contain profile scope")
+	s.Contains(bodyStr, "email", "response should contain email scope")
+
+	// More specifically, check that the scopes appear together in the value attribute
+	// This ensures they're in a single input, not split across multiple
+	s.Contains(bodyStr, `value="openid profile email"`, "all scopes should be in a single hidden input value")
+}
+
 func TestOAuthFlowSuite(t *testing.T) {
 	suite.Run(t, new(OAuthFlowSuite))
 }
