@@ -2663,7 +2663,7 @@ func (s *OAuthFlowSuite) TestLoginFailedPreservesAllScopes() {
 	s.mustRegisterUser(username, password, email)
 
 	// Create an OAuth client with multiple scopes
-	client := s.mustCreateClient(db.CreateClientParams{
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
 		ClientID:       s.mustGenerateRandomString(8),
 		ClientSecret:   sql.NullString{String: "", Valid: false},
 		Name:           s.mustGenerateRandomString(8),
