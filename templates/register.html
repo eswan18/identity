@@ -7,96 +7,99 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="card p-10 w-full max-w-md">
-        <div class="text-center mb-8">
-            <h1 class="text-2xl font-semibold mb-2">Create Account</h1>
-            <p class="text-sm opacity-60">Sign up to get started</p>
-        </div>
-
-        {{if .Error}}
-        <div class="alert alert-error mb-6">
-            <svg class="shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm-.75 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 12a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
-            </svg>
-            <span>{{.Error}}</span>
-        </div>
-        {{end}}
-
-        <form method="POST" action="/oauth/register" id="registerForm" novalidate>
-            <div class="mb-5">
-                <label for="username" class="label">Username</label>
-                <input
-                    type="text"
-                    id="username"
-                    name="username"
-                    placeholder="Choose a username"
-                    required
-                    autofocus
-                    autocomplete="username"
-                    value="{{.Username}}"
-                    class="input input-bordered w-full"
-                >
+    <div class="card bg-base-100 shadow-xl w-full max-w-md">
+        <div class="card-body">
+            <div class="text-center mb-8">
+                <h1 class="card-title justify-center text-2xl">Create Account</h1>
+                <p class="text-sm text-base-content/60">Sign up to get started</p>
             </div>
 
-            <div class="mb-5">
-                <label for="email" class="label">Email</label>
-                <input
-                    type="email"
-                    id="email"
-                    name="email"
-                    placeholder="Enter your email"
-                    required
-                    autocomplete="email"
-                    value="{{.Email}}"
-                    class="input input-bordered w-full"
-                >
+            {{if .Error}}
+            <div class="alert alert-error mb-6">
+                <svg class="shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm-.75 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 12a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
+                </svg>
+                <span>{{.Error}}</span>
+            </div>
+            {{end}}
+
+            <form method="POST" action="/oauth/register" id="registerForm" novalidate>
+                <fieldset class="fieldset mb-4">
+                    <label class="fieldset-label" for="username">Username</label>
+                    <input
+                        type="text"
+                        id="username"
+                        name="username"
+                        placeholder="Choose a username"
+                        required
+                        autofocus
+                        autocomplete="username"
+                        value="{{.Username}}"
+                        class="input input-bordered w-full"
+                    >
+                </fieldset>
+
+                <fieldset class="fieldset mb-4">
+                    <label class="fieldset-label" for="email">Email</label>
+                    <input
+                        type="email"
+                        id="email"
+                        name="email"
+                        placeholder="Enter your email"
+                        required
+                        autocomplete="email"
+                        value="{{.Email}}"
+                        class="input input-bordered w-full"
+                    >
+                </fieldset>
+
+                <fieldset class="fieldset mb-4">
+                    <label class="fieldset-label" for="password">Password</label>
+                    <input
+                        type="password"
+                        id="password"
+                        name="password"
+                        placeholder="Create a password"
+                        required
+                        autocomplete="new-password"
+                        minlength="8"
+                        class="input input-bordered w-full"
+                    >
+                </fieldset>
+
+                <fieldset class="fieldset mb-4">
+                    <label class="fieldset-label" for="confirm_password">Confirm Password</label>
+                    <input
+                        type="password"
+                        id="confirm_password"
+                        name="confirm_password"
+                        placeholder="Confirm your password"
+                        required
+                        autocomplete="new-password"
+                        minlength="8"
+                        class="input input-bordered w-full"
+                    >
+                    <div class="text-error text-sm mt-1.5 hidden" id="passwordError">Passwords do not match</div>
+                </fieldset>
+
+                <input type="hidden" name="client_id" value="{{.ClientID}}">
+                <input type="hidden" name="redirect_uri" value="{{.RedirectURI}}">
+                <input type="hidden" name="state" value="{{.State}}">
+                <input type="hidden" name="scope" value="{{.Scope}}">
+                <input type="hidden" name="code_challenge" value="{{.CodeChallenge}}">
+                <input type="hidden" name="code_challenge_method" value="{{.CodeChallengeMethod}}">
+
+                <button type="submit" class="btn btn-primary w-full">Create Account</button>
+            </form>
+
+            <div class="text-center mt-6 text-sm text-base-content/60">
+                Already have an account? <a href="/oauth/login?client_id={{.ClientID}}&redirect_uri={{.RedirectURI}}&state={{.State}}&scope={{.Scope}}&code_challenge={{.CodeChallenge}}&code_challenge_method={{.CodeChallengeMethod}}" class="link link-primary">Sign in</a>
             </div>
 
-            <div class="mb-5">
-                <label for="password" class="label">Password</label>
-                <input
-                    type="password"
-                    id="password"
-                    name="password"
-                    placeholder="Create a password"
-                    required
-                    autocomplete="new-password"
-                    minlength="8"
-                    class="input input-bordered w-full"
-                >
+            <div class="divider"></div>
+            <div class="text-center text-xs text-base-content/50">
+                Identity Service
             </div>
-
-            <div class="mb-5">
-                <label for="confirm_password" class="label">Confirm Password</label>
-                <input
-                    type="password"
-                    id="confirm_password"
-                    name="confirm_password"
-                    placeholder="Confirm your password"
-                    required
-                    autocomplete="new-password"
-                    minlength="8"
-                    class="input input-bordered w-full"
-                >
-                <div class="text-error text-sm mt-1.5 hidden" id="passwordError">Passwords do not match</div>
-            </div>
-
-            <input type="hidden" name="client_id" value="{{.ClientID}}">
-            <input type="hidden" name="redirect_uri" value="{{.RedirectURI}}">
-            <input type="hidden" name="state" value="{{.State}}">
-            <input type="hidden" name="scope" value="{{.Scope}}">
-            <input type="hidden" name="code_challenge" value="{{.CodeChallenge}}">
-            <input type="hidden" name="code_challenge_method" value="{{.CodeChallengeMethod}}">
-
-            <button type="submit" class="btn btn-primary w-full">Create Account</button>
-        </form>
-
-        <div class="text-center mt-6 text-sm opacity-60">
-            Already have an account? <a href="/oauth/login?client_id={{.ClientID}}&redirect_uri={{.RedirectURI}}&state={{.State}}&scope={{.Scope}}&code_challenge={{.CodeChallenge}}&code_challenge_method={{.CodeChallengeMethod}}" class="link link-primary">Sign in</a>
-        </div>
-
-        <div class="text-center mt-6 pt-6 border-t text-xs opacity-50">
-            Identity Service
         </div>
     </div>
 

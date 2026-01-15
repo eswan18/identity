@@ -7,42 +7,45 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="card p-10 w-full max-w-md text-center">
-        <div class="w-14 h-14 mx-auto mb-6 bg-error/10 rounded-full flex items-center justify-center">
-            <svg class="text-error" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"/>
-                <line x1="12" y1="8" x2="12" y2="12"/>
-                <line x1="12" y1="16" x2="12.01" y2="16"/>
-            </svg>
-        </div>
+    <div class="card bg-base-100 shadow-xl w-full max-w-md">
+        <div class="card-body text-center">
+            <div class="w-14 h-14 mx-auto mb-6 bg-error/10 rounded-full flex items-center justify-center">
+                <svg class="text-error" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+            </div>
 
-        <div class="mb-6">
-            <h1 class="text-xl font-semibold mb-2">{{if .Title}}{{.Title}}{{else}}Something went wrong{{end}}</h1>
-            {{if .Message}}
-            <p class="text-sm opacity-60">{{.Message}}</p>
-            {{end}}
-        </div>
-
-        {{if .Details}}
-        <div class="alert alert-error text-left mb-6">
-            <div class="w-full">
-                <div class="text-xs font-semibold uppercase tracking-tight mb-1.5">Details</div>
-                <div class="text-sm break-words">{{.Details}}</div>
-                {{if .ErrorCode}}
-                <div class="text-xs opacity-60 font-mono mt-3 pt-3 border-t border-error/25">Error code: {{.ErrorCode}}</div>
+            <div class="mb-6">
+                <h1 class="card-title justify-center text-xl">{{if .Title}}{{.Title}}{{else}}Something went wrong{{end}}</h1>
+                {{if .Message}}
+                <p class="text-sm text-base-content/60">{{.Message}}</p>
                 {{end}}
             </div>
-        </div>
-        {{end}}
 
-        {{if .RedirectURI}}
-        <a href="{{.RedirectURI}}" class="btn btn-primary">Go Back</a>
-        {{else}}
-        <a href="/oauth/login" class="btn btn-primary">Return to Login</a>
-        {{end}}
+            {{if .Details}}
+            <div class="alert alert-error text-left mb-6">
+                <div class="w-full">
+                    <div class="text-xs font-semibold uppercase tracking-tight mb-1.5">Details</div>
+                    <div class="text-sm break-words">{{.Details}}</div>
+                    {{if .ErrorCode}}
+                    <div class="text-xs text-base-content/60 font-mono mt-3 pt-3 border-t border-error/25">Error code: {{.ErrorCode}}</div>
+                    {{end}}
+                </div>
+            </div>
+            {{end}}
 
-        <div class="mt-6 pt-6 border-t text-xs opacity-50">
-            Identity Service
+            {{if .RedirectURI}}
+            <a href="{{.RedirectURI}}" class="btn btn-primary">Go Back</a>
+            {{else}}
+            <a href="/oauth/login" class="btn btn-primary">Return to Login</a>
+            {{end}}
+
+            <div class="divider"></div>
+            <div class="text-xs text-base-content/50">
+                Identity Service
+            </div>
         </div>
     </div>
 </body>
