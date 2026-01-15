@@ -2660,7 +2660,7 @@ func (s *OAuthFlowSuite) TestLoginFailedPreservesAllScopes() {
 	username := s.mustGenerateRandomString(8)
 	password := s.mustGenerateRandomString(16)
 	email := fmt.Sprintf("%s@example.com", username)
-	s.mustCreateUser(username, password, email)
+	s.mustRegisterUser(username, password, email)
 
 	// Create an OAuth client with multiple scopes
 	client := s.mustCreateClient(db.CreateClientParams{
