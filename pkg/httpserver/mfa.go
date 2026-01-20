@@ -94,6 +94,12 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Update last login timestamp
+	if err := s.datastore.Q.UpdateUserLastLogin(r.Context(), pending.UserID); err != nil {
+		log.Printf("[ERROR] HandleMFAPost: Failed to update last login time: %v", err)
+		// Non-fatal error - continue with login
+	}
+
 	// Set secure session cookie
 	isSecure := strings.HasPrefix(s.config.HTTPAddress, "https://") || strings.Contains(s.config.HTTPAddress, ":443")
 	http.SetCookie(w, &http.Cookie{

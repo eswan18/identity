@@ -14,6 +14,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -2706,6 +2707,223 @@ func (s *OAuthFlowSuite) TestLoginFailedPreservesAllScopes() {
 	// More specifically, check that the scopes appear together in the value attribute
 	// This ensures they're in a single input, not split across multiple
 	s.Contains(bodyStr, `value="openid profile email"`, "all scopes should be in a single hidden input value")
+}
+
+// TestLoginSetsLastLoginAt verifies that successful login updates the last_login_at timestamp.
+func (s *OAuthFlowSuite) TestLoginSetsLastLoginAt() {
+	// Register a user
+	username := s.mustGenerateRandomString(8)
+	password := s.mustGenerateRandomString(16)
+	email := fmt.Sprintf("%s@example.com", s.mustGenerateRandomString(8))
+	user := s.mustRegisterUser(username, password, email)
+
+	// Verify last_login_at is initially NULL
+	userBefore, err := s.datastore.Q.GetUserByID(s.T().Context(), user.ID)
+	s.Require().NoError(err)
+	s.False(userBefore.LastLoginAt.Valid, "last_login_at should be NULL before first login")
+
+	// Create an OAuth client and complete login
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid"},
+		IsConfidential: false,
+		Audience:       "https://api.example.com",
+	})
+	scv := s.mustCreateStateAndCodeVerifier()
+
+	// Login
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/login", url.Values{
+		"username":              {username},
+		"password":              {password},
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {client.RedirectUris[0]},
+		"state":                 {scv.State},
+		"scope":                 {"openid"},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode, "login should succeed with redirect")
+
+	// Verify last_login_at is now set
+	userAfter, err := s.datastore.Q.GetUserByID(s.T().Context(), user.ID)
+	s.Require().NoError(err)
+	s.True(userAfter.LastLoginAt.Valid, "last_login_at should be set after login")
+	s.WithinDuration(time.Now(), userAfter.LastLoginAt.Time, 5*time.Second, "last_login_at should be recent")
+}
+
+// TestMFALoginSetsLastLoginAt verifies that successful MFA login updates the last_login_at timestamp.
+func (s *OAuthFlowSuite) TestMFALoginSetsLastLoginAt() {
+	// Register a user with MFA enabled
+	username := s.mustGenerateRandomString(8)
+	password := s.mustGenerateRandomString(16)
+	email := fmt.Sprintf("%s@example.com", s.mustGenerateRandomString(8))
+	user := s.mustRegisterUser(username, password, email)
+
+	// Enable MFA
+	totpKey, err := mfa.GenerateSecret(user.Username)
+	s.Require().NoError(err)
+	totpSecret := mfa.GetSecret(totpKey)
+	s.mustEnableMFAForUser(user, totpSecret)
+
+	// Verify last_login_at is initially NULL
+	userBefore, err := s.datastore.Q.GetUserByID(s.T().Context(), user.ID)
+	s.Require().NoError(err)
+	s.False(userBefore.LastLoginAt.Valid, "last_login_at should be NULL before first login")
+
+	// Create an OAuth client
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid"},
+		IsConfidential: false,
+		Audience:       "https://api.example.com",
+	})
+	scv := s.mustCreateStateAndCodeVerifier()
+
+	// Step 1: Login (should redirect to MFA)
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/login", url.Values{
+		"username":              {username},
+		"password":              {password},
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {client.RedirectUris[0]},
+		"state":                 {scv.State},
+		"scope":                 {"openid"},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode)
+
+	// Extract pending ID from redirect
+	location := resp.Header.Get("Location")
+	s.Require().Contains(location, "/oauth/mfa")
+	redirectUrl, err := url.ParseRequestURI(location)
+	s.Require().NoError(err)
+	pendingID := redirectUrl.Query().Get("pending")
+	s.Require().NotEmpty(pendingID)
+
+	// Verify last_login_at is still NULL (MFA not completed yet)
+	userMid, err := s.datastore.Q.GetUserByID(s.T().Context(), user.ID)
+	s.Require().NoError(err)
+	s.False(userMid.LastLoginAt.Valid, "last_login_at should still be NULL before MFA completion")
+
+	// Step 2: Complete MFA
+	totpCode, err := generateTOTPCode(totpSecret)
+	s.Require().NoError(err)
+
+	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/mfa", url.Values{
+		"pending_id": {pendingID},
+		"code":       {totpCode},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode, "MFA should succeed with redirect")
+
+	// Verify last_login_at is now set
+	userAfter, err := s.datastore.Q.GetUserByID(s.T().Context(), user.ID)
+	s.Require().NoError(err)
+	s.True(userAfter.LastLoginAt.Valid, "last_login_at should be set after MFA login")
+	s.WithinDuration(time.Now(), userAfter.LastLoginAt.Time, 5*time.Second, "last_login_at should be recent")
+}
+
+// TestPasswordChangeUpdatesPasswordChangedAt verifies that changing password updates password_changed_at.
+func (s *OAuthFlowSuite) TestPasswordChangeUpdatesPasswordChangedAt() {
+	// Register a user
+	username := s.mustGenerateRandomString(8)
+	password := s.mustGenerateRandomString(16)
+	email := fmt.Sprintf("%s@example.com", s.mustGenerateRandomString(8))
+	user := s.mustRegisterUser(username, password, email)
+
+	// Verify password_changed_at is initially NULL
+	userBefore, err := s.datastore.Q.GetUserByID(s.T().Context(), user.ID)
+	s.Require().NoError(err)
+	s.False(userBefore.PasswordChangedAt.Valid, "password_changed_at should be NULL initially")
+
+	// Create an HTTP client with cookie jar to maintain session
+	jar, err := cookiejar.New(nil)
+	s.Require().NoError(err)
+	httpClientWithCookies := &http.Client{
+		Jar: jar,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	// Do a direct login (no client_id) to get a session
+	resp, err := httpClientWithCookies.PostForm("http://localhost:8080/oauth/login", url.Values{
+		"username": {username},
+		"password": {password},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode, "direct login should redirect to account settings")
+
+	// Change password
+	newPassword := s.mustGenerateRandomString(16)
+	resp, err = httpClientWithCookies.PostForm("http://localhost:8080/oauth/change-password", url.Values{
+		"current_password": {password},
+		"new_password":     {newPassword},
+		"confirm_password": {newPassword},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusOK, resp.StatusCode, "password change should succeed")
+
+	// Verify password_changed_at is now set
+	userAfter, err := s.datastore.Q.GetUserByID(s.T().Context(), user.ID)
+	s.Require().NoError(err)
+	s.True(userAfter.PasswordChangedAt.Valid, "password_changed_at should be set after password change")
+	s.WithinDuration(time.Now(), userAfter.PasswordChangedAt.Time, 5*time.Second, "password_changed_at should be recent")
+}
+
+// TestPasswordResetUpdatesPasswordChangedAt verifies that resetting password via token updates password_changed_at.
+func (s *OAuthFlowSuite) TestPasswordResetUpdatesPasswordChangedAt() {
+	// Register a user
+	username := s.mustGenerateRandomString(8)
+	password := s.mustGenerateRandomString(16)
+	email := fmt.Sprintf("%s@example.com", s.mustGenerateRandomString(8))
+	user := s.mustRegisterUser(username, password, email)
+
+	// Verify password_changed_at is initially NULL
+	userBefore, err := s.datastore.Q.GetUserByID(s.T().Context(), user.ID)
+	s.Require().NoError(err)
+	s.False(userBefore.PasswordChangedAt.Valid, "password_changed_at should be NULL initially")
+
+	// Create a password reset token directly in the database
+	rawToken, tokenHash, err := generateResetToken()
+	s.Require().NoError(err)
+
+	err = s.datastore.Q.CreatePasswordResetToken(s.T().Context(), db.CreatePasswordResetTokenParams{
+		UserID:    user.ID,
+		TokenHash: tokenHash,
+		ExpiresAt: time.Now().Add(1 * time.Hour),
+	})
+	s.Require().NoError(err)
+
+	// Reset password using the token
+	newPassword := s.mustGenerateRandomString(16)
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/reset-password", url.Values{
+		"token":            {rawToken},
+		"new_password":     {newPassword},
+		"confirm_password": {newPassword},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode, "password reset should redirect to login")
+
+	// Verify password_changed_at is now set
+	userAfter, err := s.datastore.Q.GetUserByID(s.T().Context(), user.ID)
+	s.Require().NoError(err)
+	s.True(userAfter.PasswordChangedAt.Valid, "password_changed_at should be set after password reset")
+	s.WithinDuration(time.Now(), userAfter.PasswordChangedAt.Time, 5*time.Second, "password_changed_at should be recent")
 }
 
 func TestOAuthFlowSuite(t *testing.T) {

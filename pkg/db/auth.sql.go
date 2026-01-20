@@ -101,7 +101,7 @@ INSERT INTO oauth_clients (
   audience
 )
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, audience, created_at, updated_at
+RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, created_at, updated_at, audience
 `
 
 type CreateOAuthClientParams struct {
@@ -133,9 +133,9 @@ func (q *Queries) CreateOAuthClient(ctx context.Context, arg CreateOAuthClientPa
 		pq.Array(&i.RedirectUris),
 		pq.Array(&i.AllowedScopes),
 		&i.IsConfidential,
-		&i.Audience,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Audience,
 	)
 	return i, err
 }
@@ -177,7 +177,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) er
 const createUser = `-- name: CreateUser :one
 INSERT INTO auth_users (username, email, password_hash)
 VALUES ($1, $2, $3)
-RETURNING id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at
+RETURNING id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at
 `
 
 type CreateUserParams struct {
@@ -202,6 +202,8 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (AuthUse
 		&i.MfaVerifiedAt,
 		&i.EmailVerified,
 		&i.EmailVerifiedAt,
+		&i.LastLoginAt,
+		&i.PasswordChangedAt,
 	)
 	return i, err
 }
@@ -389,7 +391,7 @@ func (q *Queries) GetMFAPending(ctx context.Context, id string) (AuthMfaPending,
 }
 
 const getOAuthClientByClientID = `-- name: GetOAuthClientByClientID :one
-SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, audience, created_at, updated_at
+SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, created_at, updated_at, audience
 FROM oauth_clients
 WHERE client_id = $1
 `
@@ -405,15 +407,15 @@ func (q *Queries) GetOAuthClientByClientID(ctx context.Context, clientID string)
 		pq.Array(&i.RedirectUris),
 		pq.Array(&i.AllowedScopes),
 		&i.IsConfidential,
-		&i.Audience,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Audience,
 	)
 	return i, err
 }
 
 const getOAuthClientByID = `-- name: GetOAuthClientByID :one
-SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, audience, created_at, updated_at
+SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, created_at, updated_at, audience
 FROM oauth_clients
 WHERE id = $1
 `
@@ -429,9 +431,9 @@ func (q *Queries) GetOAuthClientByID(ctx context.Context, id uuid.UUID) (OauthCl
 		pq.Array(&i.RedirectUris),
 		pq.Array(&i.AllowedScopes),
 		&i.IsConfidential,
-		&i.Audience,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Audience,
 	)
 	return i, err
 }
@@ -552,7 +554,7 @@ func (q *Queries) GetTokenByRefreshToken(ctx context.Context, refreshToken sql.N
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at
 FROM auth_users
 WHERE email = $1
   AND is_active = true
@@ -574,12 +576,14 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (AuthUser, e
 		&i.MfaVerifiedAt,
 		&i.EmailVerified,
 		&i.EmailVerifiedAt,
+		&i.LastLoginAt,
+		&i.PasswordChangedAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at
 FROM auth_users
 WHERE id = $1
   AND is_active = true
@@ -601,12 +605,14 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (AuthUser, erro
 		&i.MfaVerifiedAt,
 		&i.EmailVerified,
 		&i.EmailVerifiedAt,
+		&i.LastLoginAt,
+		&i.PasswordChangedAt,
 	)
 	return i, err
 }
 
 const getUserByIDIncludingInactive = `-- name: GetUserByIDIncludingInactive :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at
 FROM auth_users
 WHERE id = $1
 `
@@ -627,12 +633,14 @@ func (q *Queries) GetUserByIDIncludingInactive(ctx context.Context, id uuid.UUID
 		&i.MfaVerifiedAt,
 		&i.EmailVerified,
 		&i.EmailVerifiedAt,
+		&i.LastLoginAt,
+		&i.PasswordChangedAt,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at
 FROM auth_users
 WHERE username = $1
   AND is_active = true
@@ -654,12 +662,14 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (AuthU
 		&i.MfaVerifiedAt,
 		&i.EmailVerified,
 		&i.EmailVerifiedAt,
+		&i.LastLoginAt,
+		&i.PasswordChangedAt,
 	)
 	return i, err
 }
 
 const getUserByUsernameIncludingInactive = `-- name: GetUserByUsernameIncludingInactive :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at
 FROM auth_users
 WHERE username = $1
 `
@@ -680,6 +690,8 @@ func (q *Queries) GetUserByUsernameIncludingInactive(ctx context.Context, userna
 		&i.MfaVerifiedAt,
 		&i.EmailVerified,
 		&i.EmailVerifiedAt,
+		&i.LastLoginAt,
+		&i.PasswordChangedAt,
 	)
 	return i, err
 }
@@ -797,7 +809,7 @@ func (q *Queries) InsertToken(ctx context.Context, arg InsertTokenParams) (Oauth
 }
 
 const listOAuthClients = `-- name: ListOAuthClients :many
-SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, audience, created_at, updated_at
+SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, created_at, updated_at, audience
 FROM oauth_clients
 ORDER BY created_at DESC
 `
@@ -819,9 +831,9 @@ func (q *Queries) ListOAuthClients(ctx context.Context) ([]OauthClient, error) {
 			pq.Array(&i.RedirectUris),
 			pq.Array(&i.AllowedScopes),
 			&i.IsConfidential,
-			&i.Audience,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Audience,
 		); err != nil {
 			return nil, err
 		}
@@ -837,7 +849,7 @@ func (q *Queries) ListOAuthClients(ctx context.Context) ([]OauthClient, error) {
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at
 FROM auth_users
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2
@@ -870,6 +882,8 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]AuthUse
 			&i.MfaVerifiedAt,
 			&i.EmailVerified,
 			&i.EmailVerifiedAt,
+			&i.LastLoginAt,
+			&i.PasswordChangedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -974,7 +988,7 @@ SET
   audience = COALESCE(NULLIF($5::text, ''), audience),
   updated_at = now()
 WHERE client_id = $6
-RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, audience, created_at, updated_at
+RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, created_at, updated_at, audience
 `
 
 type UpdateOAuthClientParams struct {
@@ -1004,9 +1018,9 @@ func (q *Queries) UpdateOAuthClient(ctx context.Context, arg UpdateOAuthClientPa
 		pq.Array(&i.RedirectUris),
 		pq.Array(&i.AllowedScopes),
 		&i.IsConfidential,
-		&i.Audience,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Audience,
 	)
 	return i, err
 }
@@ -1027,19 +1041,30 @@ func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams
 	return err
 }
 
-const updateUserPassword = `-- name: UpdateUserPassword :exec
+const updateUserLastLogin = `-- name: UpdateUserLastLogin :exec
 UPDATE auth_users
-SET password_hash = $1, updated_at = now()
+SET last_login_at = now(), updated_at = now()
+WHERE id = $1
+`
+
+func (q *Queries) UpdateUserLastLogin(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, updateUserLastLogin, id)
+	return err
+}
+
+const updateUserPasswordWithTimestamp = `-- name: UpdateUserPasswordWithTimestamp :exec
+UPDATE auth_users
+SET password_hash = $1, password_changed_at = now(), updated_at = now()
 WHERE id = $2
 `
 
-type UpdateUserPasswordParams struct {
+type UpdateUserPasswordWithTimestampParams struct {
 	PasswordHash string    `json:"password_hash"`
 	ID           uuid.UUID `json:"id"`
 }
 
-func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
-	_, err := q.db.ExecContext(ctx, updateUserPassword, arg.PasswordHash, arg.ID)
+func (q *Queries) UpdateUserPasswordWithTimestamp(ctx context.Context, arg UpdateUserPasswordWithTimestampParams) error {
+	_, err := q.db.ExecContext(ctx, updateUserPasswordWithTimestamp, arg.PasswordHash, arg.ID)
 	return err
 }
 

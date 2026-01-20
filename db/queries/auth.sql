@@ -147,10 +147,15 @@ WHERE id = $1
 DELETE FROM auth_sessions
 WHERE id = $1;
 
--- name: UpdateUserPassword :exec
+-- name: UpdateUserPasswordWithTimestamp :exec
 UPDATE auth_users
-SET password_hash = $1, updated_at = now()
+SET password_hash = $1, password_changed_at = now(), updated_at = now()
 WHERE id = $2;
+
+-- name: UpdateUserLastLogin :exec
+UPDATE auth_users
+SET last_login_at = now(), updated_at = now()
+WHERE id = $1;
 
 -- name: UpdateUserUsername :exec
 UPDATE auth_users
