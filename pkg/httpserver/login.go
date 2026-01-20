@@ -170,6 +170,12 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("[DEBUG] HandleLoginPost: Session created successfully: %s", session.ID)
 
+	// Update last login timestamp
+	if err := s.datastore.Q.UpdateUserLastLogin(r.Context(), user.ID); err != nil {
+		log.Printf("[ERROR] HandleLoginPost: Failed to update last login time: %v", err)
+		// Non-fatal error - continue with login
+	}
+
 	// Set secure session cookie
 	// Secure flag should be true in production (HTTPS), false for local dev
 	isSecure := strings.HasPrefix(s.config.HTTPAddress, "https://") || strings.Contains(s.config.HTTPAddress, ":443")

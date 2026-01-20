@@ -252,7 +252,7 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Update password
-	err = s.datastore.Q.UpdateUserPassword(r.Context(), db.UpdateUserPasswordParams{
+	err = s.datastore.Q.UpdateUserPasswordWithTimestamp(r.Context(), db.UpdateUserPasswordWithTimestampParams{
 		PasswordHash: passwordHash,
 		ID:           tokenRecord.UserID,
 	})

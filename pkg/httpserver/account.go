@@ -154,7 +154,7 @@ func (s *Server) HandleChangePasswordPost(w http.ResponseWriter, r *http.Request
 	}
 
 	// Update password in database
-	err = s.datastore.Q.UpdateUserPassword(r.Context(), db.UpdateUserPasswordParams{
+	err = s.datastore.Q.UpdateUserPasswordWithTimestamp(r.Context(), db.UpdateUserPasswordWithTimestampParams{
 		PasswordHash: newPasswordHash,
 		ID:           user.ID,
 	})
