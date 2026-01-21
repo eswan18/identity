@@ -2,12 +2,14 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 // S3Storage implements Storage using S3-compatible APIs (works with AWS S3, Cloudflare R2, MinIO).
@@ -82,8 +84,13 @@ func (s *S3Storage) CreateBucket(ctx context.Context) error {
 		Bucket: aws.String(s.bucket),
 	})
 	if err != nil {
-		// Ignore "bucket already exists" errors
-		return nil
+		// Ignore "bucket already exists" errors, but return other errors
+		var alreadyOwned *types.BucketAlreadyOwnedByYou
+		var alreadyExists *types.BucketAlreadyExists
+		if errors.As(err, &alreadyOwned) || errors.As(err, &alreadyExists) {
+			return nil
+		}
+		return fmt.Errorf("failed to create bucket: %w", err)
 	}
 	return nil
 }

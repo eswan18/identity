@@ -754,6 +754,10 @@ func (s *Server) HandleChangeAvatarPost(w http.ResponseWriter, r *http.Request) 
 		ID:      user.ID,
 	}); err != nil {
 		log.Printf("[ERROR] HandleChangeAvatarPost: Failed to update user picture: %v", err)
+		// Rollback: delete the uploaded file to avoid orphaned files in storage
+		if deleteErr := s.avatarService.Delete(r.Context(), avatarURL); deleteErr != nil {
+			log.Printf("[WARN] HandleChangeAvatarPost: Failed to rollback uploaded avatar: %v", deleteErr)
+		}
 		s.changeAvatarTemplate.Execute(w, ChangeAvatarPageData{
 			Error:     "Failed to save avatar. Please try again.",
 			AvatarURL: user.Picture.String,

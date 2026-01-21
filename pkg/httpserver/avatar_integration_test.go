@@ -1,4 +1,4 @@
-// /* //go:build integration */
+//go:build integration
 
 package httpserver
 
@@ -119,6 +119,9 @@ func (s *AvatarFlowSuite) TearDownSuite() {
 	ctx := context.Background()
 	s.NoError(s.server.Close())
 	s.NoError(s.datastore.DB.Close())
+	if s.pgContainer != nil {
+		s.NoError(s.pgContainer.Terminate(ctx))
+	}
 	if s.minioContainer != nil {
 		s.NoError(s.minioContainer.Terminate(ctx))
 	}

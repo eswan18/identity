@@ -9,11 +9,13 @@ import (
 	"image/jpeg"
 	"image/png"
 	"io"
-	"path"
+	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/disintegration/imaging"
 	"github.com/eswan18/identity/pkg/storage"
+	"github.com/google/uuid"
 )
 
 const (
@@ -21,6 +23,8 @@ const (
 	MaxAvatarSize = 5 * 1024 * 1024
 	// AvatarSize is the target dimension for resized avatars.
 	AvatarSize = 256
+	// MaxImageDimension is the maximum width/height allowed to prevent decompression bombs.
+	MaxImageDimension = 10000
 )
 
 // AllowedMimeTypes are the content types accepted for avatar uploads.
@@ -44,9 +48,14 @@ func NewService(storage storage.Storage) *Service {
 // Upload validates, resizes, and stores an avatar image.
 // Returns the public URL of the stored avatar.
 func (s *Service) Upload(ctx context.Context, userID string, file io.Reader, contentType string, size int64) (string, error) {
-	// Validate the upload
-	if err := ValidateImage(contentType, size); err != nil {
-		return "", err
+	// Validate userID is a valid UUID to prevent path traversal
+	if _, err := uuid.Parse(userID); err != nil {
+		return "", &ValidationError{"Invalid user ID"}
+	}
+
+	// Validate file size first (before reading into memory)
+	if size > MaxAvatarSize {
+		return "", &ValidationError{"File size exceeds the maximum of 5MB"}
 	}
 
 	// Read the file into memory for processing
@@ -55,10 +64,16 @@ func (s *Service) Upload(ctx context.Context, userID string, file io.Reader, con
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// Resize the image
-	resizedData, outputContentType, err := ResizeImage(bytes.NewReader(data), contentType)
+	// Detect actual content type from file magic bytes (don't trust client header)
+	detectedType := http.DetectContentType(data)
+	if !AllowedMimeTypes[detectedType] {
+		return "", &ValidationError{"File type not allowed. Please upload a JPEG, PNG, GIF, or WebP image."}
+	}
+
+	// Resize the image (this also validates it's a real image and checks dimensions)
+	resizedData, outputContentType, err := ResizeImage(bytes.NewReader(data), detectedType)
 	if err != nil {
-		return "", fmt.Errorf("failed to resize image: %w", err)
+		return "", err
 	}
 
 	// Generate storage key
@@ -66,12 +81,12 @@ func (s *Service) Upload(ctx context.Context, userID string, file io.Reader, con
 	key := fmt.Sprintf("avatars/%s%s", userID, ext)
 
 	// Upload to storage
-	url, err := s.storage.Upload(ctx, key, bytes.NewReader(resizedData), outputContentType, int64(len(resizedData)))
+	avatarURL, err := s.storage.Upload(ctx, key, bytes.NewReader(resizedData), outputContentType, int64(len(resizedData)))
 	if err != nil {
 		return "", fmt.Errorf("failed to upload avatar: %w", err)
 	}
 
-	return url, nil
+	return avatarURL, nil
 }
 
 // Delete removes a user's avatar from storage.
@@ -80,7 +95,7 @@ func (s *Service) Delete(ctx context.Context, currentURL string) error {
 		return nil
 	}
 
-	// Extract key from URL (last two path components: avatars/userid.ext)
+	// Extract key from URL
 	key := extractKeyFromURL(currentURL)
 	if key == "" {
 		return nil
@@ -90,13 +105,14 @@ func (s *Service) Delete(ctx context.Context, currentURL string) error {
 }
 
 // ValidateImage checks if the uploaded file is a valid image.
+// Deprecated: Use the detection in Upload instead. This is kept for backwards compatibility.
 func ValidateImage(contentType string, size int64) error {
 	if size > MaxAvatarSize {
-		return &ValidationError{fmt.Sprintf("file size %d exceeds maximum of %d bytes", size, MaxAvatarSize)}
+		return &ValidationError{"File size exceeds the maximum of 5MB"}
 	}
 
 	if !AllowedMimeTypes[contentType] {
-		return &ValidationError{fmt.Sprintf("content type %s is not allowed", contentType)}
+		return &ValidationError{"File type not allowed. Please upload a JPEG, PNG, GIF, or WebP image."}
 	}
 
 	return nil
@@ -118,10 +134,21 @@ func ResizeImage(input io.Reader, contentType string) ([]byte, string, error) {
 		// Use imaging library for gif/webp which handles more formats
 		img, err = imaging.Decode(input)
 	default:
-		return nil, "", fmt.Errorf("unsupported content type: %s", contentType)
+		return nil, "", &ValidationError{"Unsupported image format"}
 	}
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to decode image: %w", err)
+		return nil, "", &ValidationError{"Failed to decode image. Please ensure the file is a valid image."}
+	}
+
+	// Check image dimensions to prevent decompression bombs
+	bounds := img.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+	if width > MaxImageDimension || height > MaxImageDimension {
+		return nil, "", &ValidationError{fmt.Sprintf("Image dimensions too large. Maximum allowed is %dx%d pixels.", MaxImageDimension, MaxImageDimension)}
+	}
+	if width <= 0 || height <= 0 {
+		return nil, "", &ValidationError{"Invalid image dimensions"}
 	}
 
 	// Resize to fit within AvatarSize x AvatarSize, maintaining aspect ratio
@@ -154,15 +181,37 @@ func extensionForContentType(contentType string) string {
 }
 
 // extractKeyFromURL extracts the storage key from a full URL.
-func extractKeyFromURL(url string) string {
-	// URL format: https://storage.example.com/avatars/userid.jpg
-	// We want: avatars/userid.jpg
-	parts := strings.Split(url, "/")
+func extractKeyFromURL(rawURL string) string {
+	// Parse the URL properly to handle query params, fragments, etc.
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+
+	// Get the path and extract last two components
+	urlPath := parsed.Path
+	if urlPath == "" {
+		return ""
+	}
+
+	// Split path and get last two parts (e.g., "avatars/userid.jpg")
+	parts := splitPath(urlPath)
 	if len(parts) < 2 {
 		return ""
 	}
-	// Get last two parts
-	return path.Join(parts[len(parts)-2], parts[len(parts)-1])
+
+	return parts[len(parts)-2] + "/" + parts[len(parts)-1]
+}
+
+// splitPath splits a URL path into its components, filtering empty strings.
+func splitPath(p string) []string {
+	var parts []string
+	for _, part := range strings.Split(p, "/") {
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return parts
 }
 
 // ValidationError represents an avatar validation error.
