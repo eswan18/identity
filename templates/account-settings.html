@@ -16,7 +16,7 @@
 
             {{if .Error}}
             <div class="alert alert-error mb-6">
-                <svg class="shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <svg class="shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                     <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm-.75 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 12a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
                 </svg>
                 <span>{{.Error}}</span>
@@ -25,7 +25,7 @@
 
             {{if .Success}}
             <div class="alert alert-success mb-6">
-                <svg class="shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <svg class="shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                     <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.78 5.28-4.5 6a.75.75 0 0 1-1.18.02l-2.25-2.5a.75.75 0 1 1 1.12-1l1.63 1.81 3.92-5.23a.75.75 0 1 1 1.26.9z"/>
                 </svg>
                 <span>{{.Success}}</span>
@@ -36,12 +36,37 @@
                 <h2 class="text-base font-semibold text-base-content/70 mb-4 pb-2 border-b border-base-300">Account Information</h2>
 
                 <div class="flex justify-between items-center py-3">
+                    <div class="flex items-center gap-3">
+                        <div class="avatar">
+                            <div class="w-12 rounded-full ring ring-primary ring-offset-base-100 ring-offset-1">
+                                {{if .AvatarURL}}
+                                <img src="{{.AvatarURL}}" alt="Avatar" />
+                                {{else}}
+                                <div class="bg-neutral text-neutral-content flex items-center justify-center w-full h-full">
+                                    <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                                    </svg>
+                                </div>
+                                {{end}}
+                            </div>
+                        </div>
+                        <div class="flex flex-col">
+                            <span class="text-xs text-base-content/60">Avatar</span>
+                            <span class="text-sm">{{if .AvatarURL}}Custom avatar{{else}}No avatar{{end}}</span>
+                        </div>
+                    </div>
+                    <a href="/oauth/change-avatar" class="btn btn-ghost btn-sm btn-square">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                    </a>
+                </div>
+
+                <div class="flex justify-between items-center py-3">
                     <div class="flex flex-col">
                         <span class="text-xs text-base-content/60">Username</span>
                         <span class="text-lg font-medium">{{.Username}}</span>
                     </div>
                     <a href="/oauth/change-username" class="btn btn-ghost btn-sm btn-square">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                     </a>
                 </div>
 
@@ -58,7 +83,7 @@
                         </div>
                     </div>
                     <a href="/oauth/change-email" class="btn btn-ghost btn-sm btn-square">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                     </a>
                 </div>
 
@@ -68,7 +93,7 @@
                         <span class="text-lg font-medium">{{if .Name}}{{.Name}}{{else}}<span class="text-base-content/40">Not set</span>{{end}}</span>
                     </div>
                     <a href="/oauth/edit-profile" class="btn btn-ghost btn-sm btn-square">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                     </a>
                 </div>
 

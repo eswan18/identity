@@ -40,6 +40,7 @@ type AccountSettingsPageData struct {
 	Username      string
 	Email         string
 	Name          string
+	AvatarURL     string
 	IsInactive    bool
 	MfaEnabled    bool
 	EmailVerified bool
@@ -83,4 +84,11 @@ type EditProfilePageData struct {
 	Success    string
 	GivenName  string
 	FamilyName string
+}
+
+// ChangeAvatarPageData holds the data needed to render the change avatar page template.
+type ChangeAvatarPageData struct {
+	Error     string
+	Success   string
+	AvatarURL string
 }

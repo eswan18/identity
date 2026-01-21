@@ -58,6 +58,7 @@ type AuthUser struct {
 	PasswordChangedAt sql.NullTime   `json:"password_changed_at"`
 	GivenName         sql.NullString `json:"given_name"`
 	FamilyName        sql.NullString `json:"family_name"`
+	Picture           sql.NullString `json:"picture"`
 }
 
 type OauthAuthorizationCode struct {

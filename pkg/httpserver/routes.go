@@ -98,6 +98,10 @@ func (s *Server) registerRoutes() {
 		// Edit profile
 		r.Get("/edit-profile", s.HandleEditProfileGet)
 		r.Post("/edit-profile", s.HandleEditProfilePost)
+		// Change avatar
+		r.Get("/change-avatar", s.HandleChangeAvatarGet)
+		r.Post("/change-avatar", s.HandleChangeAvatarPost)
+		r.Post("/delete-avatar", s.HandleDeleteAvatarPost)
 		// Deactivate account
 		r.Post("/deactivate-account", s.HandleDeactivateAccountPost)
 		// Reactivate account

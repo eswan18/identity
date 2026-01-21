@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Change Avatar</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="card bg-base-100 shadow-xl w-full max-w-md">
+        <div class="card-body">
+            <div class="text-center mb-8">
+                <h1 class="card-title justify-center text-2xl">Change Avatar</h1>
+                <p class="text-sm text-base-content/60">Upload a new profile picture</p>
+            </div>
+
+            {{if .Error}}
+            <div class="alert alert-error mb-6">
+                <svg class="shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                    <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm-.75 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 12a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
+                </svg>
+                <span>{{.Error}}</span>
+            </div>
+            {{end}}
+
+            {{if .Success}}
+            <div class="alert alert-success mb-6">
+                <svg class="shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                    <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.78 5.28-4.5 6a.75.75 0 0 1-1.18.02l-2.25-2.5a.75.75 0 1 1 1.12-1l1.63 1.81 3.92-5.23a.75.75 0 1 1 1.26.9z"/>
+                </svg>
+                <span>{{.Success}}</span>
+            </div>
+            {{end}}
+
+            <!-- Current Avatar -->
+            <div class="flex flex-col items-center mb-6">
+                <div class="avatar mb-4">
+                    <div class="w-24 rounded-full ring ring-primary ring-offset-base-100 ring-offset-2">
+                        {{if .AvatarURL}}
+                        <img src="{{.AvatarURL}}" alt="Current avatar" />
+                        {{else}}
+                        <div class="bg-neutral text-neutral-content flex items-center justify-center w-full h-full">
+                            <svg class="w-12 h-12" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                            </svg>
+                        </div>
+                        {{end}}
+                    </div>
+                </div>
+                <p class="text-sm text-base-content/60">
+                    {{if .AvatarURL}}Current avatar{{else}}No avatar set{{end}}
+                </p>
+            </div>
+
+            <!-- Upload Form -->
+            <form method="POST" action="/oauth/change-avatar" enctype="multipart/form-data">
+                <fieldset class="fieldset mb-4">
+                    <label class="fieldset-label" for="avatar">Select Image</label>
+                    <input
+                        type="file"
+                        id="avatar"
+                        name="avatar"
+                        accept="image/jpeg,image/png,image/gif,image/webp"
+                        class="file-input file-input-bordered w-full"
+                        onchange="previewImage(this)"
+                    >
+                    <p class="text-xs text-base-content/50 mt-1">
+                        Max 5MB. Supported: JPEG, PNG, GIF, WebP. Will be resized to 256x256.
+                    </p>
+                </fieldset>
+
+                <!-- Preview -->
+                <div id="preview-container" class="hidden mb-4">
+                    <p class="text-sm text-base-content/60 mb-2">Preview:</p>
+                    <div class="avatar">
+                        <div class="w-24 rounded-full">
+                            <img id="preview-image" src="" alt="Preview" />
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary w-full">Upload Avatar</button>
+            </form>
+
+            {{if .AvatarURL}}
+            <form method="POST" action="/oauth/delete-avatar" class="mt-3">
+                <button type="submit" class="btn btn-outline btn-error w-full">Remove Avatar</button>
+            </form>
+            {{end}}
+
+            <a href="/oauth/account-settings" class="btn btn-ghost w-full mt-3">Back to Account Settings</a>
+
+            <div class="divider"></div>
+            <div class="text-center text-xs text-base-content/50">
+                Identity Service
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function previewImage(input) {
+            const preview = document.getElementById('preview-image');
+            const container = document.getElementById('preview-container');
+
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    preview.src = e.target.result;
+                    container.classList.remove('hidden');
+                }
+                reader.readAsDataURL(input.files[0]);
+            } else {
+                container.classList.add('hidden');
+            }
+        }
+    </script>
+</body>
+</html>

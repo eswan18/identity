@@ -26,6 +26,7 @@ import (
 	"github.com/eswan18/identity/pkg/db"
 	"github.com/eswan18/identity/pkg/email"
 	"github.com/eswan18/identity/pkg/mfa"
+	"github.com/eswan18/identity/pkg/storage"
 	"github.com/eswan18/identity/pkg/store"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/pquerna/otp/totp"
@@ -98,7 +99,8 @@ func (s *OAuthFlowSuite) SetupSuite() {
 		JWTIssuer:     "http://localhost:8080",
 	}
 	emailSender := email.NewLogSender()
-	s.server = New(config, s.datastore, emailSender)
+	storageProvider := storage.NewLogStorage()
+	s.server = New(config, s.datastore, emailSender, storageProvider)
 	go s.server.Run()
 	// Wait for the server to be listening before returning.
 	for !s.server.IsListening() {

@@ -281,6 +281,74 @@ const docTemplate = `{
                 }
             }
         },
+        "/change-avatar": {
+            "get": {
+                "description": "Displays the change avatar form with current avatar",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "account"
+                ],
+                "summary": "Show change avatar page",
+                "responses": {
+                    "200": {
+                        "description": "HTML change avatar page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - no valid session",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Processes avatar upload form submission",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "account"
+                ],
+                "summary": "Upload new avatar",
+                "parameters": [
+                    {
+                        "type": "file",
+                        "description": "Avatar image file",
+                        "name": "avatar",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "HTML change avatar page with success message",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request - invalid file",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - no valid session",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/change-email": {
             "get": {
                 "description": "Displays the change email form",
@@ -550,6 +618,35 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized - invalid password",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/delete-avatar": {
+            "post": {
+                "description": "Removes the user's avatar",
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "account"
+                ],
+                "summary": "Delete avatar",
+                "responses": {
+                    "302": {
+                        "description": "Redirect to change avatar page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - no valid session",
                         "schema": {
                             "type": "string"
                         }
