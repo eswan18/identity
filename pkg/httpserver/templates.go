@@ -80,9 +80,6 @@ type ResetPasswordPageData struct {
 type EditProfilePageData struct {
 	Error      string
 	Success    string
-	Name       string
 	GivenName  string
 	FamilyName string
-	Locale     string
-	Zoneinfo   string
 }

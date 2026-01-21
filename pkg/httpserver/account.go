@@ -372,11 +372,8 @@ func (s *Server) HandleEditProfileGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.editProfileTemplate.Execute(w, EditProfilePageData{
-		Name:       user.Name.String,
 		GivenName:  user.GivenName.String,
 		FamilyName: user.FamilyName.String,
-		Locale:     user.Locale.String,
-		Zoneinfo:   user.Zoneinfo.String,
 	})
 }
 
@@ -386,11 +383,8 @@ func (s *Server) HandleEditProfileGet(w http.ResponseWriter, r *http.Request) {
 // @Tags         account
 // @Accept       application/x-www-form-urlencoded
 // @Produce      html
-// @Param        name        formData string false "Full display name"
 // @Param        given_name  formData string false "Given/first name"
 // @Param        family_name formData string false "Family/last name"
-// @Param        locale      formData string false "Preferred locale (e.g., en-US)"
-// @Param        zoneinfo    formData string false "Timezone (e.g., America/Chicago)"
 // @Success      200 {string} string "HTML edit profile page with success message"
 // @Failure      401 {string} string "Unauthorized - no valid session"
 // @Router       /edit-profile [post]
@@ -401,30 +395,21 @@ func (s *Server) HandleEditProfilePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := r.FormValue("name")
 	givenName := r.FormValue("given_name")
 	familyName := r.FormValue("family_name")
-	locale := r.FormValue("locale")
-	zoneinfo := r.FormValue("zoneinfo")
 
 	// Update profile in database
 	err = s.datastore.Q.UpdateUserProfile(r.Context(), db.UpdateUserProfileParams{
-		Name:       toNullString(name),
 		GivenName:  toNullString(givenName),
 		FamilyName: toNullString(familyName),
-		Locale:     toNullString(locale),
-		Zoneinfo:   toNullString(zoneinfo),
 		ID:         user.ID,
 	})
 	if err != nil {
 		log.Printf("[ERROR] HandleEditProfilePost: Failed to update profile: %v", err)
 		s.editProfileTemplate.Execute(w, EditProfilePageData{
 			Error:      "An error occurred",
-			Name:       name,
 			GivenName:  givenName,
 			FamilyName: familyName,
-			Locale:     locale,
-			Zoneinfo:   zoneinfo,
 		})
 		return
 	}
@@ -432,11 +417,8 @@ func (s *Server) HandleEditProfilePost(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[DEBUG] HandleEditProfilePost: Profile updated successfully for user: %s", user.Username)
 	s.editProfileTemplate.Execute(w, EditProfilePageData{
 		Success:    "Profile updated successfully",
-		Name:       name,
 		GivenName:  givenName,
 		FamilyName: familyName,
-		Locale:     locale,
-		Zoneinfo:   zoneinfo,
 	})
 }
 

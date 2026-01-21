@@ -34,70 +34,29 @@
 
             <form method="POST" action="/oauth/edit-profile">
                 <fieldset class="fieldset mb-4">
-                    <label class="fieldset-label" for="name">Display Name</label>
+                    <label class="fieldset-label" for="given_name">First Name</label>
                     <input
                         type="text"
-                        id="name"
-                        name="name"
-                        placeholder="Your full display name"
-                        value="{{.Name}}"
-                        autocomplete="name"
+                        id="given_name"
+                        name="given_name"
+                        placeholder="First name"
+                        value="{{.GivenName}}"
+                        autocomplete="given-name"
                         class="input input-bordered w-full"
                     >
                 </fieldset>
 
-                <div class="grid grid-cols-2 gap-4">
-                    <fieldset class="fieldset mb-4">
-                        <label class="fieldset-label" for="given_name">Given Name</label>
-                        <input
-                            type="text"
-                            id="given_name"
-                            name="given_name"
-                            placeholder="First name"
-                            value="{{.GivenName}}"
-                            autocomplete="given-name"
-                            class="input input-bordered w-full"
-                        >
-                    </fieldset>
-
-                    <fieldset class="fieldset mb-4">
-                        <label class="fieldset-label" for="family_name">Family Name</label>
-                        <input
-                            type="text"
-                            id="family_name"
-                            name="family_name"
-                            placeholder="Last name"
-                            value="{{.FamilyName}}"
-                            autocomplete="family-name"
-                            class="input input-bordered w-full"
-                        >
-                    </fieldset>
-                </div>
-
                 <fieldset class="fieldset mb-4">
-                    <label class="fieldset-label" for="locale">Locale</label>
+                    <label class="fieldset-label" for="family_name">Last Name</label>
                     <input
                         type="text"
-                        id="locale"
-                        name="locale"
-                        placeholder="e.g., en-US"
-                        value="{{.Locale}}"
+                        id="family_name"
+                        name="family_name"
+                        placeholder="Last name"
+                        value="{{.FamilyName}}"
+                        autocomplete="family-name"
                         class="input input-bordered w-full"
                     >
-                    <span class="text-xs text-base-content/50 mt-1">Your preferred language and region</span>
-                </fieldset>
-
-                <fieldset class="fieldset mb-4">
-                    <label class="fieldset-label" for="zoneinfo">Timezone</label>
-                    <input
-                        type="text"
-                        id="zoneinfo"
-                        name="zoneinfo"
-                        placeholder="e.g., America/Chicago"
-                        value="{{.Zoneinfo}}"
-                        class="input input-bordered w-full"
-                    >
-                    <span class="text-xs text-base-content/50 mt-1">Your timezone (IANA format)</span>
                 </fieldset>
 
                 <button type="submit" class="btn btn-primary w-full">Save Profile</button>

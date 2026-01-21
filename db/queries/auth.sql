@@ -169,8 +169,8 @@ WHERE id = $2;
 
 -- name: UpdateUserProfile :exec
 UPDATE auth_users
-SET name = $1, given_name = $2, family_name = $3, locale = $4, zoneinfo = $5, updated_at = now()
-WHERE id = $6;
+SET given_name = $1, family_name = $2, updated_at = now()
+WHERE id = $3;
 
 -- name: DeactivateUser :exec
 UPDATE auth_users
