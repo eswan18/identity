@@ -56,6 +56,11 @@ type AuthUser struct {
 	EmailVerifiedAt   sql.NullTime   `json:"email_verified_at"`
 	LastLoginAt       sql.NullTime   `json:"last_login_at"`
 	PasswordChangedAt sql.NullTime   `json:"password_changed_at"`
+	Name              sql.NullString `json:"name"`
+	GivenName         sql.NullString `json:"given_name"`
+	FamilyName        sql.NullString `json:"family_name"`
+	Locale            sql.NullString `json:"locale"`
+	Zoneinfo          sql.NullString `json:"zoneinfo"`
 }
 
 type OauthAuthorizationCode struct {

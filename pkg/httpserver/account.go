@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
 
@@ -354,6 +355,97 @@ func (s *Server) HandleChangeEmailPost(w http.ResponseWriter, r *http.Request) {
 		Success:      "Email updated successfully",
 		CurrentEmail: newEmail,
 	})
+}
+
+// HandleEditProfileGet godoc
+// @Summary      Show edit profile page
+// @Description  Displays the edit profile form with current profile data
+// @Tags         account
+// @Produce      html
+// @Success      200 {string} string "HTML edit profile page"
+// @Failure      401 {string} string "Unauthorized - no valid session"
+// @Router       /edit-profile [get]
+func (s *Server) HandleEditProfileGet(w http.ResponseWriter, r *http.Request) {
+	user, err := s.getUserFromSession(r)
+	if err != nil {
+		http.Redirect(w, r, "/oauth/login", http.StatusFound)
+		return
+	}
+	s.editProfileTemplate.Execute(w, EditProfilePageData{
+		Name:       user.Name.String,
+		GivenName:  user.GivenName.String,
+		FamilyName: user.FamilyName.String,
+		Locale:     user.Locale.String,
+		Zoneinfo:   user.Zoneinfo.String,
+	})
+}
+
+// HandleEditProfilePost godoc
+// @Summary      Update profile
+// @Description  Processes profile edit form submission
+// @Tags         account
+// @Accept       application/x-www-form-urlencoded
+// @Produce      html
+// @Param        name        formData string false "Full display name"
+// @Param        given_name  formData string false "Given/first name"
+// @Param        family_name formData string false "Family/last name"
+// @Param        locale      formData string false "Preferred locale (e.g., en-US)"
+// @Param        zoneinfo    formData string false "Timezone (e.g., America/Chicago)"
+// @Success      200 {string} string "HTML edit profile page with success message"
+// @Failure      401 {string} string "Unauthorized - no valid session"
+// @Router       /edit-profile [post]
+func (s *Server) HandleEditProfilePost(w http.ResponseWriter, r *http.Request) {
+	user, err := s.getUserFromSession(r)
+	if err != nil {
+		http.Redirect(w, r, "/oauth/login", http.StatusFound)
+		return
+	}
+
+	name := r.FormValue("name")
+	givenName := r.FormValue("given_name")
+	familyName := r.FormValue("family_name")
+	locale := r.FormValue("locale")
+	zoneinfo := r.FormValue("zoneinfo")
+
+	// Update profile in database
+	err = s.datastore.Q.UpdateUserProfile(r.Context(), db.UpdateUserProfileParams{
+		Name:       toNullString(name),
+		GivenName:  toNullString(givenName),
+		FamilyName: toNullString(familyName),
+		Locale:     toNullString(locale),
+		Zoneinfo:   toNullString(zoneinfo),
+		ID:         user.ID,
+	})
+	if err != nil {
+		log.Printf("[ERROR] HandleEditProfilePost: Failed to update profile: %v", err)
+		s.editProfileTemplate.Execute(w, EditProfilePageData{
+			Error:      "An error occurred",
+			Name:       name,
+			GivenName:  givenName,
+			FamilyName: familyName,
+			Locale:     locale,
+			Zoneinfo:   zoneinfo,
+		})
+		return
+	}
+
+	log.Printf("[DEBUG] HandleEditProfilePost: Profile updated successfully for user: %s", user.Username)
+	s.editProfileTemplate.Execute(w, EditProfilePageData{
+		Success:    "Profile updated successfully",
+		Name:       name,
+		GivenName:  givenName,
+		FamilyName: familyName,
+		Locale:     locale,
+		Zoneinfo:   zoneinfo,
+	})
+}
+
+// toNullString converts a string to sql.NullString
+func toNullString(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{Valid: false}
+	}
+	return sql.NullString{String: s, Valid: true}
 }
 
 // renderChangePasswordError renders the change password page with an error message

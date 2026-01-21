@@ -37,6 +37,7 @@ type Server struct {
 	forgotPasswordTemplate  *template.Template
 	resetPasswordTemplate   *template.Template
 	forgotUsernameTemplate  *template.Template
+	editProfileTemplate     *template.Template
 }
 
 func New(config *config.Config, datastore *store.Store, emailSender email.Sender) *Server {
@@ -54,6 +55,7 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 	forgotPasswordTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/forgot-password.html"))
 	resetPasswordTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/reset-password.html"))
 	forgotUsernameTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/forgot-username.html"))
+	editProfileTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/edit-profile.html"))
 
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -95,6 +97,7 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 		forgotPasswordTemplate:  forgotPasswordTemplate,
 		resetPasswordTemplate:   resetPasswordTemplate,
 		forgotUsernameTemplate:  forgotUsernameTemplate,
+		editProfileTemplate:     editProfileTemplate,
 	}
 	s.registerRoutes()
 

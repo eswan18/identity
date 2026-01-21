@@ -75,3 +75,14 @@ type ResetPasswordPageData struct {
 	Error string
 	Token string
 }
+
+// EditProfilePageData holds the data needed to render the edit profile page template.
+type EditProfilePageData struct {
+	Error      string
+	Success    string
+	Name       string
+	GivenName  string
+	FamilyName string
+	Locale     string
+	Zoneinfo   string
+}
