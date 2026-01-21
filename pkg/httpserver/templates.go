@@ -39,6 +39,7 @@ type AccountSettingsPageData struct {
 	Success       string
 	Username      string
 	Email         string
+	Name          string
 	IsInactive    bool
 	MfaEnabled    bool
 	EmailVerified bool
@@ -74,4 +75,12 @@ type ForgotPasswordPageData struct {
 type ResetPasswordPageData struct {
 	Error string
 	Token string
+}
+
+// EditProfilePageData holds the data needed to render the edit profile page template.
+type EditProfilePageData struct {
+	Error      string
+	Success    string
+	GivenName  string
+	FamilyName string
 }

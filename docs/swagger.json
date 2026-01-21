@@ -550,6 +550,73 @@
                 }
             }
         },
+        "/edit-profile": {
+            "get": {
+                "description": "Displays the edit profile form with current profile data",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "account"
+                ],
+                "summary": "Show edit profile page",
+                "responses": {
+                    "200": {
+                        "description": "HTML edit profile page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - no valid session",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Processes profile edit form submission",
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "account"
+                ],
+                "summary": "Update profile",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Given/first name",
+                        "name": "given_name",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Family/last name",
+                        "name": "family_name",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "HTML edit profile page with success message",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - no valid session",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/forgot-password": {
             "get": {
                 "description": "Displays the forgot password form",

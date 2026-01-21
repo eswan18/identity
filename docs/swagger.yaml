@@ -435,6 +435,50 @@ paths:
       summary: Deactivate user account
       tags:
       - account
+  /edit-profile:
+    get:
+      description: Displays the edit profile form with current profile data
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML edit profile page
+          schema:
+            type: string
+        "401":
+          description: Unauthorized - no valid session
+          schema:
+            type: string
+      summary: Show edit profile page
+      tags:
+      - account
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Processes profile edit form submission
+      parameters:
+      - description: Given/first name
+        in: formData
+        name: given_name
+        type: string
+      - description: Family/last name
+        in: formData
+        name: family_name
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML edit profile page with success message
+          schema:
+            type: string
+        "401":
+          description: Unauthorized - no valid session
+          schema:
+            type: string
+      summary: Update profile
+      tags:
+      - account
   /forgot-password:
     get:
       description: Displays the forgot password form

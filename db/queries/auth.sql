@@ -167,6 +167,11 @@ UPDATE auth_users
 SET email = $1, updated_at = now()
 WHERE id = $2;
 
+-- name: UpdateUserProfile :exec
+UPDATE auth_users
+SET given_name = $1, family_name = $2, updated_at = now()
+WHERE id = $3;
+
 -- name: DeactivateUser :exec
 UPDATE auth_users
 SET is_active = false, updated_at = now()

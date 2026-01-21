@@ -504,8 +504,19 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 
 	// Include scope-specific claims
 	if strings.Contains(claims.Scope, "profile") {
-		// For profile scope, we'd need to fetch from DB for updated_at
-		// Skip for now since JWT doesn't contain this claim
+		// Fetch user from DB to get profile fields
+		userID, err := uuid.Parse(claims.Subject)
+		if err == nil {
+			user, err := s.datastore.Q.GetUserByID(r.Context(), userID)
+			if err == nil {
+				if user.GivenName.Valid {
+					userInfo["given_name"] = user.GivenName.String
+				}
+				if user.FamilyName.Valid {
+					userInfo["family_name"] = user.FamilyName.String
+				}
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

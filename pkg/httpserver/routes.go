@@ -95,6 +95,9 @@ func (s *Server) registerRoutes() {
 		// Change email
 		r.Get("/change-email", s.HandleChangeEmailGet)
 		r.Post("/change-email", s.HandleChangeEmailPost)
+		// Edit profile
+		r.Get("/edit-profile", s.HandleEditProfileGet)
+		r.Post("/edit-profile", s.HandleEditProfilePost)
 		// Deactivate account
 		r.Post("/deactivate-account", s.HandleDeactivateAccountPost)
 		// Reactivate account

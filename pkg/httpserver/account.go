@@ -1,8 +1,10 @@
 package httpserver
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/eswan18/identity/pkg/auth"
 	"github.com/eswan18/identity/pkg/db"
@@ -63,9 +65,20 @@ func (s *Server) HandleAccountSettingsGet(w http.ResponseWriter, r *http.Request
 		success = "Two-factor authentication has been disabled."
 	}
 
+	// Compute display name from given_name and family_name
+	var nameParts []string
+	if user.GivenName.Valid && user.GivenName.String != "" {
+		nameParts = append(nameParts, user.GivenName.String)
+	}
+	if user.FamilyName.Valid && user.FamilyName.String != "" {
+		nameParts = append(nameParts, user.FamilyName.String)
+	}
+	displayName := strings.Join(nameParts, " ")
+
 	s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
 		Username:      user.Username,
 		Email:         user.Email,
+		Name:          displayName,
 		IsInactive:    !user.IsActive,
 		MfaEnabled:    user.MfaEnabled,
 		EmailVerified: user.EmailVerified,
@@ -354,6 +367,79 @@ func (s *Server) HandleChangeEmailPost(w http.ResponseWriter, r *http.Request) {
 		Success:      "Email updated successfully",
 		CurrentEmail: newEmail,
 	})
+}
+
+// HandleEditProfileGet godoc
+// @Summary      Show edit profile page
+// @Description  Displays the edit profile form with current profile data
+// @Tags         account
+// @Produce      html
+// @Success      200 {string} string "HTML edit profile page"
+// @Failure      401 {string} string "Unauthorized - no valid session"
+// @Router       /edit-profile [get]
+func (s *Server) HandleEditProfileGet(w http.ResponseWriter, r *http.Request) {
+	user, err := s.getUserFromSession(r)
+	if err != nil {
+		http.Redirect(w, r, "/oauth/login", http.StatusFound)
+		return
+	}
+	s.editProfileTemplate.Execute(w, EditProfilePageData{
+		GivenName:  user.GivenName.String,
+		FamilyName: user.FamilyName.String,
+	})
+}
+
+// HandleEditProfilePost godoc
+// @Summary      Update profile
+// @Description  Processes profile edit form submission
+// @Tags         account
+// @Accept       application/x-www-form-urlencoded
+// @Produce      html
+// @Param        given_name  formData string false "Given/first name"
+// @Param        family_name formData string false "Family/last name"
+// @Success      200 {string} string "HTML edit profile page with success message"
+// @Failure      401 {string} string "Unauthorized - no valid session"
+// @Router       /edit-profile [post]
+func (s *Server) HandleEditProfilePost(w http.ResponseWriter, r *http.Request) {
+	user, err := s.getUserFromSession(r)
+	if err != nil {
+		http.Redirect(w, r, "/oauth/login", http.StatusFound)
+		return
+	}
+
+	givenName := r.FormValue("given_name")
+	familyName := r.FormValue("family_name")
+
+	// Update profile in database
+	err = s.datastore.Q.UpdateUserProfile(r.Context(), db.UpdateUserProfileParams{
+		GivenName:  toNullString(givenName),
+		FamilyName: toNullString(familyName),
+		ID:         user.ID,
+	})
+	if err != nil {
+		log.Printf("[ERROR] HandleEditProfilePost: Failed to update profile: %v", err)
+		s.editProfileTemplate.Execute(w, EditProfilePageData{
+			Error:      "An error occurred",
+			GivenName:  givenName,
+			FamilyName: familyName,
+		})
+		return
+	}
+
+	log.Printf("[DEBUG] HandleEditProfilePost: Profile updated successfully for user: %s", user.Username)
+	s.editProfileTemplate.Execute(w, EditProfilePageData{
+		Success:    "Profile updated successfully",
+		GivenName:  givenName,
+		FamilyName: familyName,
+	})
+}
+
+// toNullString converts a string to sql.NullString
+func toNullString(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{Valid: false}
+	}
+	return sql.NullString{String: s, Valid: true}
 }
 
 // renderChangePasswordError renders the change password page with an error message
