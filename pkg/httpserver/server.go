@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/eswan18/identity/pkg/avatar"
 	"github.com/eswan18/identity/pkg/config"
 	"github.com/eswan18/identity/pkg/email"
 	"github.com/eswan18/identity/pkg/jwt"
+	"github.com/eswan18/identity/pkg/storage"
 	"github.com/eswan18/identity/pkg/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -24,6 +26,7 @@ type Server struct {
 	rateLimitStore          *rateLimitStore
 	jwtGenerator            *jwt.Generator
 	emailSender             email.Sender
+	avatarService           *avatar.Service
 	loginTemplate           *template.Template
 	registerTemplate        *template.Template
 	errorTemplate           *template.Template
@@ -38,9 +41,10 @@ type Server struct {
 	resetPasswordTemplate   *template.Template
 	forgotUsernameTemplate  *template.Template
 	editProfileTemplate     *template.Template
+	changeAvatarTemplate    *template.Template
 }
 
-func New(config *config.Config, datastore *store.Store, emailSender email.Sender) *Server {
+func New(config *config.Config, datastore *store.Store, emailSender email.Sender, storageProvider storage.Storage) *Server {
 	r := chi.NewRouter()
 	loginTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/login.html"))
 	registerTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/register.html"))
@@ -56,6 +60,7 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 	resetPasswordTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/reset-password.html"))
 	forgotUsernameTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/forgot-username.html"))
 	editProfileTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/edit-profile.html"))
+	changeAvatarTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/change-avatar.html"))
 
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -84,6 +89,7 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 		rateLimitStore:          rateLimitStore,
 		jwtGenerator:            jwtGen,
 		emailSender:             emailSender,
+		avatarService:           avatar.NewService(storageProvider),
 		loginTemplate:           loginTemplate,
 		registerTemplate:        registerTemplate,
 		errorTemplate:           errorTemplate,
@@ -98,6 +104,7 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 		resetPasswordTemplate:   resetPasswordTemplate,
 		forgotUsernameTemplate:  forgotUsernameTemplate,
 		editProfileTemplate:     editProfileTemplate,
+		changeAvatarTemplate:    changeAvatarTemplate,
 	}
 	s.registerRoutes()
 

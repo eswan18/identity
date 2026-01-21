@@ -23,6 +23,15 @@ type Config struct {
 	EmailProvider string // "resend" or "log"
 	ResendAPIKey  string // Required when EmailProvider is "resend"
 	EmailFrom     string // Sender address (e.g., "noreply@example.com")
+
+	// Storage configuration
+	StorageProvider  string // "s3" or "log"
+	StorageEndpoint  string // S3-compatible endpoint (e.g., "https://xxx.r2.cloudflarestorage.com")
+	StorageBucket    string // Bucket name
+	StorageAccessKey string
+	StorageSecretKey string
+	StoragePublicURL string // Public URL base for serving files
+	StorageRegion    string // AWS region (default: "auto" for R2)
 }
 
 func NewFromEnv() *Config {
@@ -32,14 +41,21 @@ func NewFromEnv() *Config {
 	if _, ok := os.LookupEnv("KOYEB_APP_ID"); ok {
 		log.Println("Loading environment variables directly from Koyeb")
 		config = &Config{
-			DatabaseURL:   os.Getenv("DATABASE_URL"),
-			TemplatesDir:  os.Getenv("TEMPLATES_DIR"),
-			HTTPAddress:   os.Getenv("HTTP_ADDRESS"),
-			JWTPrivateKey: os.Getenv("JWT_PRIVATE_KEY"),
-			JWTIssuer:     os.Getenv("JWT_ISSUER"),
-			EmailProvider: os.Getenv("EMAIL_PROVIDER"),
-			ResendAPIKey:  os.Getenv("RESEND_API_KEY"),
-			EmailFrom:     os.Getenv("EMAIL_FROM"),
+			DatabaseURL:      os.Getenv("DATABASE_URL"),
+			TemplatesDir:     os.Getenv("TEMPLATES_DIR"),
+			HTTPAddress:      os.Getenv("HTTP_ADDRESS"),
+			JWTPrivateKey:    os.Getenv("JWT_PRIVATE_KEY"),
+			JWTIssuer:        os.Getenv("JWT_ISSUER"),
+			EmailProvider:    os.Getenv("EMAIL_PROVIDER"),
+			ResendAPIKey:     os.Getenv("RESEND_API_KEY"),
+			EmailFrom:        os.Getenv("EMAIL_FROM"),
+			StorageProvider:  os.Getenv("STORAGE_PROVIDER"),
+			StorageEndpoint:  os.Getenv("STORAGE_ENDPOINT"),
+			StorageBucket:    os.Getenv("STORAGE_BUCKET"),
+			StorageAccessKey: os.Getenv("STORAGE_ACCESS_KEY"),
+			StorageSecretKey: os.Getenv("STORAGE_SECRET_KEY"),
+			StoragePublicURL: os.Getenv("STORAGE_PUBLIC_URL"),
+			StorageRegion:    os.Getenv("STORAGE_REGION"),
 		}
 	} else {
 		// Local development: load from .env files
@@ -51,14 +67,21 @@ func NewFromEnv() *Config {
 		log.Println("Loaded environment variables from .env." + env)
 
 		config = &Config{
-			HTTPAddress:   os.Getenv("HTTP_ADDRESS"),
-			DatabaseURL:   os.Getenv("DATABASE_URL"),
-			TemplatesDir:  os.Getenv("TEMPLATES_DIR"),
-			JWTPrivateKey: os.Getenv("JWT_PRIVATE_KEY"),
-			JWTIssuer:     os.Getenv("JWT_ISSUER"),
-			EmailProvider: os.Getenv("EMAIL_PROVIDER"),
-			ResendAPIKey:  os.Getenv("RESEND_API_KEY"),
-			EmailFrom:     os.Getenv("EMAIL_FROM"),
+			HTTPAddress:      os.Getenv("HTTP_ADDRESS"),
+			DatabaseURL:      os.Getenv("DATABASE_URL"),
+			TemplatesDir:     os.Getenv("TEMPLATES_DIR"),
+			JWTPrivateKey:    os.Getenv("JWT_PRIVATE_KEY"),
+			JWTIssuer:        os.Getenv("JWT_ISSUER"),
+			EmailProvider:    os.Getenv("EMAIL_PROVIDER"),
+			ResendAPIKey:     os.Getenv("RESEND_API_KEY"),
+			EmailFrom:        os.Getenv("EMAIL_FROM"),
+			StorageProvider:  os.Getenv("STORAGE_PROVIDER"),
+			StorageEndpoint:  os.Getenv("STORAGE_ENDPOINT"),
+			StorageBucket:    os.Getenv("STORAGE_BUCKET"),
+			StorageAccessKey: os.Getenv("STORAGE_ACCESS_KEY"),
+			StorageSecretKey: os.Getenv("STORAGE_SECRET_KEY"),
+			StoragePublicURL: os.Getenv("STORAGE_PUBLIC_URL"),
+			StorageRegion:    os.Getenv("STORAGE_REGION"),
 		}
 	}
 
@@ -107,6 +130,36 @@ func NewFromEnv() *Config {
 		}
 	} else if config.EmailProvider != "log" {
 		log.Fatalf("EMAIL_PROVIDER must be 'resend' or 'log', got: %s", config.EmailProvider)
+	}
+
+	// Default storage provider to "log" for development
+	if config.StorageProvider == "" {
+		config.StorageProvider = "log"
+	}
+
+	// Validate storage configuration
+	if config.StorageProvider == "s3" {
+		if config.StorageEndpoint == "" {
+			log.Fatal("STORAGE_ENDPOINT is required when STORAGE_PROVIDER is 's3'")
+		}
+		if config.StorageBucket == "" {
+			log.Fatal("STORAGE_BUCKET is required when STORAGE_PROVIDER is 's3'")
+		}
+		if config.StorageAccessKey == "" {
+			log.Fatal("STORAGE_ACCESS_KEY is required when STORAGE_PROVIDER is 's3'")
+		}
+		if config.StorageSecretKey == "" {
+			log.Fatal("STORAGE_SECRET_KEY is required when STORAGE_PROVIDER is 's3'")
+		}
+		if config.StoragePublicURL == "" {
+			log.Fatal("STORAGE_PUBLIC_URL is required when STORAGE_PROVIDER is 's3'")
+		}
+		// Default region to "auto" for R2 compatibility
+		if config.StorageRegion == "" {
+			config.StorageRegion = "auto"
+		}
+	} else if config.StorageProvider != "log" {
+		log.Fatalf("STORAGE_PROVIDER must be 's3' or 'log', got: %s", config.StorageProvider)
 	}
 
 	return config

@@ -177,7 +177,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) er
 const createUser = `-- name: CreateUser :one
 INSERT INTO auth_users (username, email, password_hash)
 VALUES ($1, $2, $3)
-RETURNING id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name
+RETURNING id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture
 `
 
 type CreateUserParams struct {
@@ -206,6 +206,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (AuthUse
 		&i.PasswordChangedAt,
 		&i.GivenName,
 		&i.FamilyName,
+		&i.Picture,
 	)
 	return i, err
 }
@@ -556,7 +557,7 @@ func (q *Queries) GetTokenByRefreshToken(ctx context.Context, refreshToken sql.N
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture
 FROM auth_users
 WHERE email = $1
   AND is_active = true
@@ -582,12 +583,13 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (AuthUser, e
 		&i.PasswordChangedAt,
 		&i.GivenName,
 		&i.FamilyName,
+		&i.Picture,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture
 FROM auth_users
 WHERE id = $1
   AND is_active = true
@@ -613,12 +615,13 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (AuthUser, erro
 		&i.PasswordChangedAt,
 		&i.GivenName,
 		&i.FamilyName,
+		&i.Picture,
 	)
 	return i, err
 }
 
 const getUserByIDIncludingInactive = `-- name: GetUserByIDIncludingInactive :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture
 FROM auth_users
 WHERE id = $1
 `
@@ -643,12 +646,13 @@ func (q *Queries) GetUserByIDIncludingInactive(ctx context.Context, id uuid.UUID
 		&i.PasswordChangedAt,
 		&i.GivenName,
 		&i.FamilyName,
+		&i.Picture,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture
 FROM auth_users
 WHERE username = $1
   AND is_active = true
@@ -674,12 +678,13 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (AuthU
 		&i.PasswordChangedAt,
 		&i.GivenName,
 		&i.FamilyName,
+		&i.Picture,
 	)
 	return i, err
 }
 
 const getUserByUsernameIncludingInactive = `-- name: GetUserByUsernameIncludingInactive :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture
 FROM auth_users
 WHERE username = $1
 `
@@ -704,6 +709,7 @@ func (q *Queries) GetUserByUsernameIncludingInactive(ctx context.Context, userna
 		&i.PasswordChangedAt,
 		&i.GivenName,
 		&i.FamilyName,
+		&i.Picture,
 	)
 	return i, err
 }
@@ -861,7 +867,7 @@ func (q *Queries) ListOAuthClients(ctx context.Context) ([]OauthClient, error) {
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture
 FROM auth_users
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2
@@ -898,6 +904,7 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]AuthUse
 			&i.PasswordChangedAt,
 			&i.GivenName,
 			&i.FamilyName,
+			&i.Picture,
 		); err != nil {
 			return nil, err
 		}
@@ -1079,6 +1086,22 @@ type UpdateUserPasswordWithTimestampParams struct {
 
 func (q *Queries) UpdateUserPasswordWithTimestamp(ctx context.Context, arg UpdateUserPasswordWithTimestampParams) error {
 	_, err := q.db.ExecContext(ctx, updateUserPasswordWithTimestamp, arg.PasswordHash, arg.ID)
+	return err
+}
+
+const updateUserPicture = `-- name: UpdateUserPicture :exec
+UPDATE auth_users
+SET picture = $1, updated_at = now()
+WHERE id = $2
+`
+
+type UpdateUserPictureParams struct {
+	Picture sql.NullString `json:"picture"`
+	ID      uuid.UUID      `json:"id"`
+}
+
+func (q *Queries) UpdateUserPicture(ctx context.Context, arg UpdateUserPictureParams) error {
+	_, err := q.db.ExecContext(ctx, updateUserPicture, arg.Picture, arg.ID)
 	return err
 }
 

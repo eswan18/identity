@@ -172,6 +172,11 @@ UPDATE auth_users
 SET given_name = $1, family_name = $2, updated_at = now()
 WHERE id = $3;
 
+-- name: UpdateUserPicture :exec
+UPDATE auth_users
+SET picture = $1, updated_at = now()
+WHERE id = $2;
+
 -- name: DeactivateUser :exec
 UPDATE auth_users
 SET is_active = false, updated_at = now()

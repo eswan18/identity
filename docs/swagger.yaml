@@ -251,6 +251,51 @@ paths:
       summary: Get a user by ID (Admin API)
       tags:
       - admin
+  /change-avatar:
+    get:
+      description: Displays the change avatar form with current avatar
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML change avatar page
+          schema:
+            type: string
+        "401":
+          description: Unauthorized - no valid session
+          schema:
+            type: string
+      summary: Show change avatar page
+      tags:
+      - account
+    post:
+      consumes:
+      - multipart/form-data
+      description: Processes avatar upload form submission
+      parameters:
+      - description: Avatar image file
+        in: formData
+        name: avatar
+        required: true
+        type: file
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML change avatar page with success message
+          schema:
+            type: string
+        "400":
+          description: Invalid request - invalid file
+          schema:
+            type: string
+        "401":
+          description: Unauthorized - no valid session
+          schema:
+            type: string
+      summary: Upload new avatar
+      tags:
+      - account
   /change-email:
     get:
       description: Displays the change email form
@@ -433,6 +478,25 @@ paths:
           schema:
             type: string
       summary: Deactivate user account
+      tags:
+      - account
+  /delete-avatar:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Removes the user's avatar
+      produces:
+      - text/html
+      responses:
+        "302":
+          description: Redirect to change avatar page
+          schema:
+            type: string
+        "401":
+          description: Unauthorized - no valid session
+          schema:
+            type: string
+      summary: Delete avatar
       tags:
       - account
   /edit-profile:

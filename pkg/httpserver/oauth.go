@@ -515,6 +515,9 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 				if user.FamilyName.Valid {
 					userInfo["family_name"] = user.FamilyName.String
 				}
+				if user.Picture.Valid {
+					userInfo["picture"] = user.Picture.String
+				}
 			}
 		}
 	}

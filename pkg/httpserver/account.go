@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/eswan18/identity/pkg/auth"
+	"github.com/eswan18/identity/pkg/avatar"
 	"github.com/eswan18/identity/pkg/db"
 	"github.com/google/uuid"
 )
@@ -79,6 +80,7 @@ func (s *Server) HandleAccountSettingsGet(w http.ResponseWriter, r *http.Request
 		Username:      user.Username,
 		Email:         user.Email,
 		Name:          displayName,
+		AvatarURL:     user.Picture.String,
 		IsInactive:    !user.IsActive,
 		MfaEnabled:    user.MfaEnabled,
 		EmailVerified: user.EmailVerified,
@@ -653,4 +655,156 @@ func (s *Server) HandleReactivateAccountPost(w http.ResponseWriter, r *http.Requ
 
 	// Redirect to account settings with success message
 	http.Redirect(w, r, "/oauth/account-settings?reactivated=true", http.StatusFound)
+}
+
+// HandleChangeAvatarGet godoc
+// @Summary      Show change avatar page
+// @Description  Displays the change avatar form with current avatar
+// @Tags         account
+// @Produce      html
+// @Success      200 {string} string "HTML change avatar page"
+// @Failure      401 {string} string "Unauthorized - no valid session"
+// @Router       /change-avatar [get]
+func (s *Server) HandleChangeAvatarGet(w http.ResponseWriter, r *http.Request) {
+	user, err := s.getUserFromSession(r)
+	if err != nil {
+		http.Redirect(w, r, "/oauth/login", http.StatusFound)
+		return
+	}
+
+	var success string
+	if r.URL.Query().Get("success") == "avatar_deleted" {
+		success = "Avatar removed successfully."
+	}
+
+	s.changeAvatarTemplate.Execute(w, ChangeAvatarPageData{
+		Success:   success,
+		AvatarURL: user.Picture.String,
+	})
+}
+
+// HandleChangeAvatarPost godoc
+// @Summary      Upload new avatar
+// @Description  Processes avatar upload form submission
+// @Tags         account
+// @Accept       multipart/form-data
+// @Produce      html
+// @Param        avatar formData file true "Avatar image file"
+// @Success      200 {string} string "HTML change avatar page with success message"
+// @Failure      400 {string} string "Invalid request - invalid file"
+// @Failure      401 {string} string "Unauthorized - no valid session"
+// @Router       /change-avatar [post]
+func (s *Server) HandleChangeAvatarPost(w http.ResponseWriter, r *http.Request) {
+	user, err := s.getUserFromSession(r)
+	if err != nil {
+		http.Redirect(w, r, "/oauth/login", http.StatusFound)
+		return
+	}
+
+	// Parse multipart form with max file size
+	if err := r.ParseMultipartForm(avatar.MaxAvatarSize); err != nil {
+		s.changeAvatarTemplate.Execute(w, ChangeAvatarPageData{
+			Error:     "File too large. Maximum size is 5MB.",
+			AvatarURL: user.Picture.String,
+		})
+		return
+	}
+
+	file, header, err := r.FormFile("avatar")
+	if err != nil {
+		s.changeAvatarTemplate.Execute(w, ChangeAvatarPageData{
+			Error:     "Please select a file to upload.",
+			AvatarURL: user.Picture.String,
+		})
+		return
+	}
+	defer file.Close()
+
+	// Upload the avatar
+	avatarURL, err := s.avatarService.Upload(
+		r.Context(),
+		user.ID.String(),
+		file,
+		header.Header.Get("Content-Type"),
+		header.Size,
+	)
+	if err != nil {
+		// Check if it's a validation error
+		if validationErr, ok := err.(*avatar.ValidationError); ok {
+			s.changeAvatarTemplate.Execute(w, ChangeAvatarPageData{
+				Error:     validationErr.Message,
+				AvatarURL: user.Picture.String,
+			})
+			return
+		}
+		log.Printf("[ERROR] HandleChangeAvatarPost: Failed to upload avatar: %v", err)
+		s.changeAvatarTemplate.Execute(w, ChangeAvatarPageData{
+			Error:     "Failed to upload avatar. Please try again.",
+			AvatarURL: user.Picture.String,
+		})
+		return
+	}
+
+	// Note: We don't need to delete the old avatar because we always use the same
+	// key (avatars/<user-id>.jpg), so the new upload overwrites the old file.
+
+	// Update user picture in database
+	if err := s.datastore.Q.UpdateUserPicture(r.Context(), db.UpdateUserPictureParams{
+		Picture: toNullString(avatarURL),
+		ID:      user.ID,
+	}); err != nil {
+		log.Printf("[ERROR] HandleChangeAvatarPost: Failed to update user picture: %v", err)
+		s.changeAvatarTemplate.Execute(w, ChangeAvatarPageData{
+			Error:     "Failed to save avatar. Please try again.",
+			AvatarURL: user.Picture.String,
+		})
+		return
+	}
+
+	log.Printf("[DEBUG] HandleChangeAvatarPost: Avatar updated for user %s", user.Username)
+	s.changeAvatarTemplate.Execute(w, ChangeAvatarPageData{
+		Success:   "Avatar updated successfully.",
+		AvatarURL: avatarURL,
+	})
+}
+
+// HandleDeleteAvatarPost godoc
+// @Summary      Delete avatar
+// @Description  Removes the user's avatar
+// @Tags         account
+// @Accept       application/x-www-form-urlencoded
+// @Produce      html
+// @Success      302 {string} string "Redirect to change avatar page"
+// @Failure      401 {string} string "Unauthorized - no valid session"
+// @Router       /delete-avatar [post]
+func (s *Server) HandleDeleteAvatarPost(w http.ResponseWriter, r *http.Request) {
+	user, err := s.getUserFromSession(r)
+	if err != nil {
+		http.Redirect(w, r, "/oauth/login", http.StatusFound)
+		return
+	}
+
+	// Delete avatar from storage if exists
+	if user.Picture.Valid && user.Picture.String != "" {
+		if err := s.avatarService.Delete(r.Context(), user.Picture.String); err != nil {
+			log.Printf("[WARN] HandleDeleteAvatarPost: Failed to delete avatar from storage: %v", err)
+			// Continue anyway - we'll clear the DB reference
+		}
+	}
+
+	// Clear picture in database
+	if err := s.datastore.Q.UpdateUserPicture(r.Context(), db.UpdateUserPictureParams{
+		Picture: sql.NullString{Valid: false},
+		ID:      user.ID,
+	}); err != nil {
+		log.Printf("[ERROR] HandleDeleteAvatarPost: Failed to clear user picture: %v", err)
+		s.changeAvatarTemplate.Execute(w, ChangeAvatarPageData{
+			Error:     "Failed to remove avatar. Please try again.",
+			AvatarURL: user.Picture.String,
+		})
+		return
+	}
+
+	log.Printf("[DEBUG] HandleDeleteAvatarPost: Avatar deleted for user %s", user.Username)
+	http.Redirect(w, r, "/oauth/change-avatar?success=avatar_deleted", http.StatusFound)
 }
