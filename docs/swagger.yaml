@@ -457,10 +457,6 @@ paths:
       - application/x-www-form-urlencoded
       description: Processes profile edit form submission
       parameters:
-      - description: Full display name
-        in: formData
-        name: name
-        type: string
       - description: Given/first name
         in: formData
         name: given_name
@@ -468,14 +464,6 @@ paths:
       - description: Family/last name
         in: formData
         name: family_name
-        type: string
-      - description: Preferred locale (e.g., en-US)
-        in: formData
-        name: locale
-        type: string
-      - description: Timezone (e.g., America/Chicago)
-        in: formData
-        name: zoneinfo
         type: string
       produces:
       - text/html

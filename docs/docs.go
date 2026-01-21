@@ -597,12 +597,6 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Full display name",
-                        "name": "name",
-                        "in": "formData"
-                    },
-                    {
-                        "type": "string",
                         "description": "Given/first name",
                         "name": "given_name",
                         "in": "formData"
@@ -611,18 +605,6 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Family/last name",
                         "name": "family_name",
-                        "in": "formData"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Preferred locale (e.g., en-US)",
-                        "name": "locale",
-                        "in": "formData"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Timezone (e.g., America/Chicago)",
-                        "name": "zoneinfo",
                         "in": "formData"
                     }
                 ],

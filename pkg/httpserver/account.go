@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/eswan18/identity/pkg/auth"
 	"github.com/eswan18/identity/pkg/db"
@@ -64,9 +65,20 @@ func (s *Server) HandleAccountSettingsGet(w http.ResponseWriter, r *http.Request
 		success = "Two-factor authentication has been disabled."
 	}
 
+	// Compute display name from given_name and family_name
+	var nameParts []string
+	if user.GivenName.Valid && user.GivenName.String != "" {
+		nameParts = append(nameParts, user.GivenName.String)
+	}
+	if user.FamilyName.Valid && user.FamilyName.String != "" {
+		nameParts = append(nameParts, user.FamilyName.String)
+	}
+	displayName := strings.Join(nameParts, " ")
+
 	s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
 		Username:      user.Username,
 		Email:         user.Email,
+		Name:          displayName,
 		IsInactive:    !user.IsActive,
 		MfaEnabled:    user.MfaEnabled,
 		EmailVerified: user.EmailVerified,

@@ -39,6 +39,7 @@ type AccountSettingsPageData struct {
 	Success       string
 	Username      string
 	Email         string
+	Name          string
 	IsInactive    bool
 	MfaEnabled    bool
 	EmailVerified bool
