@@ -1,0 +1,19 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/ethans-services/containers/identity:$SHORT_SHA'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/ethans-services/containers/identity:latest'
+      - '.'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '--all-tags'
+      - 'us-central1-docker.pkg.dev/ethans-services/containers/identity'
+
+images:
+  - 'us-central1-docker.pkg.dev/ethans-services/containers/identity:$SHORT_SHA'
+  - 'us-central1-docker.pkg.dev/ethans-services/containers/identity:latest'
