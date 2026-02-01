@@ -2,7 +2,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: identity
-  namespace: identity-prod
 spec:
   replicas: 2
   selector:
@@ -13,7 +12,6 @@ spec:
       labels:
         app: identity
     spec:
-      serviceAccountName: identity-prod-ksa
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
@@ -50,40 +48,6 @@ spec:
             limits:
               memory: "128Mi"
               cpu: "200m"
-          envFrom:
-            - configMapRef:
-                name: identity-prod-config
-          env:
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: identity-prod-secrets
-                  key: DATABASE_URL
-            - name: JWT_PRIVATE_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: identity-prod-secrets
-                  key: JWT_PRIVATE_KEY
-            - name: RESEND_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: identity-prod-secrets
-                  key: RESEND_API_KEY
-            - name: STORAGE_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: identity-prod-secrets
-                  key: STORAGE_ACCESS_KEY
-            - name: STORAGE_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: identity-prod-secrets
-                  key: STORAGE_SECRET_KEY
-            - name: STORAGE_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: identity-prod-secrets
-                  key: STORAGE_TOKEN
           volumeMounts:
             - name: secrets-store
               mountPath: "/mnt/secrets"
@@ -93,5 +57,3 @@ spec:
           csi:
             driver: secrets-store.csi.k8s.io
             readOnly: true
-            volumeAttributes:
-              secretProviderClass: identity-prod-secrets
