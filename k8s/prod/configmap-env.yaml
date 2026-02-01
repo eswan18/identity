@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: identity-prod-env-config
+data:
+  JWT_ISSUER: "https://identity.ethanswan.com"
+  STORAGE_BUCKET: "identity"
+  STORAGE_PUBLIC_URL: "https://pub-1d13c59f88df4a11aeb5ba90c814163c.r2.dev"

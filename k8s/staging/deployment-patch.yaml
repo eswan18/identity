@@ -3,46 +3,47 @@ kind: Deployment
 metadata:
   name: identity
 spec:
+  replicas: 1
   template:
     spec:
-      serviceAccountName: identity-prod-ksa
+      serviceAccountName: identity-staging-ksa
       containers:
         - name: identity
           envFrom:
             - configMapRef:
                 name: identity-config
             - configMapRef:
-                name: identity-prod-env-config
+                name: identity-staging-env-config
           env:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: identity-prod-secrets
+                  name: identity-staging-secrets
                   key: DATABASE_URL
             - name: JWT_PRIVATE_KEY
               valueFrom:
                 secretKeyRef:
-                  name: identity-prod-secrets
+                  name: identity-staging-secrets
                   key: JWT_PRIVATE_KEY
             - name: RESEND_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: identity-prod-secrets
+                  name: identity-staging-secrets
                   key: RESEND_API_KEY
             - name: STORAGE_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: identity-prod-secrets
+                  name: identity-staging-secrets
                   key: STORAGE_ACCESS_KEY
             - name: STORAGE_SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: identity-prod-secrets
+                  name: identity-staging-secrets
                   key: STORAGE_SECRET_KEY
             - name: STORAGE_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: identity-prod-secrets
+                  name: identity-staging-secrets
                   key: STORAGE_TOKEN
       volumes:
         - name: secrets-store
@@ -50,4 +51,4 @@ spec:
             driver: secrets-store.csi.k8s.io
             readOnly: true
             volumeAttributes:
-              secretProviderClass: identity-prod-secrets
+              secretProviderClass: identity-staging-secrets
