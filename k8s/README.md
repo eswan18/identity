@@ -21,6 +21,9 @@ k8s/
 │   ├── deployment-patch.yaml       # Prod-specific: service account, secrets refs
 │   ├── configmap-env.yaml          # Prod-specific env vars (3 values)
 │   └── secret-provider-class.yaml  # References to prod secrets in GCP Secret Manager
+├── argocd/
+│   ├── applications.yaml           # ArgoCD Application resources for staging + prod
+│   └── image-updater.yaml          # ImageUpdater CR for auto-deploying to staging
 └── cloudflared/
     └── deployment.yaml     # Cloudflare Tunnel connector
 ```
@@ -31,6 +34,36 @@ k8s/
 |-------------|-----------|----------|---------|
 | Production | `identity-prod` | 2 | Live traffic via `identity.ethanswan.com` |
 | Staging | `identity-staging` | 1 | Testing via `kubectl port-forward` |
+
+## CI/CD Pipeline
+
+Deployments are managed by **ArgoCD** with **ArgoCD Image Updater**.
+
+### Staging (automatic)
+
+1. Push code to `main` branch
+2. Cloud Build builds and pushes a new image to Artifact Registry (tagged with git SHA)
+3. ArgoCD Image Updater detects the new image (polls every 2 minutes)
+4. ArgoCD automatically deploys the new image to staging
+
+### Production (manual promotion)
+
+1. Verify staging is healthy
+2. In the ArgoCD UI, set the image tag on `identity-prod` to the git SHA running in staging
+3. ArgoCD deploys the new image to production
+
+### Config changes
+
+Changes to manifests in `k8s/` are automatically synced by ArgoCD when pushed to `main`.
+ArgoCD also self-heals: if someone manually changes something in the cluster, it reverts to match the repo.
+
+### Checking deployed images
+
+```bash
+# See what's running in each environment
+kubectl get pods -n identity-staging -o jsonpath='{.items[0].spec.containers[0].image}'
+kubectl get pods -n identity-prod -o jsonpath='{.items[0].spec.containers[0].image}'
+```
 
 ## Configuration Split
 
@@ -67,6 +100,7 @@ Secrets are mounted into pods via:
 ### GCP Service Accounts
 - `identity-prod-sa@ethans-services.iam.gserviceaccount.com` → `identity-prod-ksa`
 - `identity-staging-sa@ethans-services.iam.gserviceaccount.com` → `identity-staging-ksa`
+- `argocd-image-updater-sa@ethans-services.iam.gserviceaccount.com` → `argocd-image-updater` (reads Artifact Registry)
 
 ## Cluster Details
 
@@ -75,38 +109,31 @@ Secrets are mounted into pods via:
 - **Cluster:** `main-cluster`
 - **Zone:** `us-central1-a`
 - **Node Pools:**
-  - `default-pool` - Stable node for critical workloads
-  - `spot-pool` - Spot/preemptible node for cost savings
+  - `default-pool-std2` - e2-standard-2 (2 vCPU, 8GB) stable node
+  - `spot-pool-medium` - e2-medium (1 vCPU shared, 4GB) spot node for cost savings
+- **Estimated cost:** ~$60/month for compute
 
 ## Networking
 
 Traffic flows through Cloudflare Tunnel (no external load balancer):
 
 ```
-Internet → Cloudflare Edge → Cloudflare Tunnel → ClusterIP Service → Pods
+Internet → Cloudflare Edge (SSL) → Cloudflare Tunnel → ClusterIP Service → Pods
 ```
 
 The `cloudflared` deployment in the `cloudflared` namespace maintains the tunnel connection. Routes are configured in the Cloudflare Zero Trust dashboard.
 
-## Deploying
+## ArgoCD
 
-Preview changes:
+ArgoCD runs in the `argocd` namespace and manages both environments. Access the UI:
+
 ```bash
-kubectl kustomize k8s/staging/
-kubectl kustomize k8s/prod/
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+# Open https://localhost:8080, login with admin credentials
 ```
 
-Apply changes:
-```bash
-kubectl apply -k k8s/staging/
-kubectl apply -k k8s/prod/
-```
-
-Restart deployments (to pull new images):
-```bash
-kubectl rollout restart deployment/identity -n identity-staging
-kubectl rollout restart deployment/identity -n identity-prod
-```
+ArgoCD Image Updater watches Artifact Registry for new images and auto-deploys to staging.
+Registry auth uses a GCP service account key stored in `gar-pull-secret` in the `argocd` namespace.
 
 ## Accessing Staging
 
@@ -115,18 +142,6 @@ Staging is not publicly exposed. Use port-forwarding:
 kubectl port-forward svc/identity -n identity-staging 8080:80
 # Then access http://localhost:8080
 ```
-
-## CI/CD
-
-**Current state:**
-- Cloud Build triggers on push to `main` branch
-- Builds and pushes image to `us-central1-docker.pkg.dev/ethans-services/containers/identity:latest`
-- Deployment requires manual `kubectl rollout restart`
-
-**Planned:**
-- ArgoCD for automated deployments
-- Push to main → auto-deploy to staging
-- Manual promotion to prod
 
 ## Useful Commands
 
@@ -142,9 +157,12 @@ kubectl logs -f deployment/identity -n identity-prod
 kubectl top nodes
 kubectl top pods -A
 
+# Check node CPU/memory requests
+kubectl describe nodes | grep -A5 "Allocated resources"
+
+# ArgoCD Image Updater logs
+kubectl logs -n argocd -l app.kubernetes.io/name=argocd-image-updater --tail=20
+
 # Debug a pod
 kubectl describe pod <pod-name> -n <namespace>
-
-# Force rebalance across nodes (delete one pod)
-kubectl delete pod <pod-name> -n identity-prod
 ```
