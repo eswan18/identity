@@ -48,6 +48,12 @@ spec:
             limits:
               memory: "256Mi"
               cpu: "200m"
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           volumeMounts:
             - name: secrets-store
               mountPath: "/mnt/secrets"
