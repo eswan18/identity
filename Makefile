@@ -45,6 +45,12 @@ migrate-down:
 	fi
 	migrate -database "${DATABASE_URL}" -path db/migrations down
 
+test:
+	go test ./...
+
+lint:
+	go vet ./...
+
 sqlc: db/schema.sql
 	sqlc generate
 
