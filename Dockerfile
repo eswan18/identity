@@ -33,7 +33,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o auth-service ./cmd/auth-service
 
 # Runtime stage
-FROM alpine:latest
+FROM alpine:3.21
 
 # Install ca-certificates for HTTPS
 RUN apk --no-cache add ca-certificates
@@ -49,12 +49,18 @@ COPY --from=builder /build/templates ./templates
 # Copy static directory with built CSS from tailwind stage
 COPY --from=tailwind /build/static ./static
 
+# Create non-root user
+RUN adduser -D appuser
+
 # Expose port (default 8080, can be overridden via HTTP_ADDRESS)
 EXPOSE 8080
 
 # Set environment variables (can be overridden at runtime)
 ENV HTTP_ADDRESS=:8080
 ENV TEMPLATES_DIR=/app/templates
+
+# Switch to non-root user
+USER appuser
 
 # Run the server
 CMD ["./auth-service"]
