@@ -5,6 +5,7 @@ namespace: identity-prod
 
 resources:
   - ../base
+  - namespace.yaml
   - secret-provider-class.yaml
   - configmap-env.yaml
 
