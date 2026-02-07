@@ -60,7 +60,7 @@ ENV HTTP_ADDRESS=:8080
 ENV TEMPLATES_DIR=/app/templates
 
 # Switch to non-root user
-USER 1000
+USER appuser
 
 # Run the server
 CMD ["./auth-service"]
