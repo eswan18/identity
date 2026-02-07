@@ -1,0 +1,14 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: identity-staging-ts
+spec:
+  defaultBackend:
+    service:
+      name: identity
+      port:
+        number: 80
+  ingressClassName: tailscale
+  tls:
+    - hosts:
+        - identity-staging
