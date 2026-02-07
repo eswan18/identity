@@ -49,12 +49,18 @@ COPY --from=builder /build/templates ./templates
 # Copy static directory with built CSS from tailwind stage
 COPY --from=tailwind /build/static ./static
 
+# Create non-root user
+RUN adduser -D appuser
+
 # Expose port (default 8080, can be overridden via HTTP_ADDRESS)
 EXPOSE 8080
 
 # Set environment variables (can be overridden at runtime)
 ENV HTTP_ADDRESS=:8080
 ENV TEMPLATES_DIR=/app/templates
+
+# Switch to non-root user
+USER appuser
 
 # Run the server
 CMD ["./auth-service"]
