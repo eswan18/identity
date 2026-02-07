@@ -50,7 +50,7 @@ COPY --from=builder /build/templates ./templates
 COPY --from=tailwind /build/static ./static
 
 # Create non-root user
-RUN adduser -D appuser
+RUN adduser -D -u 1000 appuser
 
 # Expose port (default 8080, can be overridden via HTTP_ADDRESS)
 EXPOSE 8080
@@ -60,7 +60,7 @@ ENV HTTP_ADDRESS=:8080
 ENV TEMPLATES_DIR=/app/templates
 
 # Switch to non-root user
-USER appuser
+USER 1000
 
 # Run the server
 CMD ["./auth-service"]
