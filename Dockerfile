@@ -50,7 +50,7 @@ COPY --from=builder /build/templates ./templates
 COPY --from=tailwind /build/static ./static
 
 # Create non-root user
-RUN adduser -D appuser
+RUN adduser -D -u 1000 appuser
 
 # Expose port (default 8080, can be overridden via HTTP_ADDRESS)
 EXPOSE 8080
