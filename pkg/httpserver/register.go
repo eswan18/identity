@@ -132,28 +132,22 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build redirect URL to login with OAuth params preserved
-	// TODO: use the URL library for this.
-	loginURL := "/oauth/login?registered=true"
-	if redirectURI != "" {
-		loginURL += "&redirect_uri=" + url.QueryEscape(redirectURI)
-	}
-	if clientID != "" {
-		loginURL += "&client_id=" + url.QueryEscape(clientID)
-	}
-	if state != "" {
-		loginURL += "&state=" + url.QueryEscape(state)
-	}
-	if scope != "" {
-		loginURL += "&scope=" + url.QueryEscape(scope)
-	}
-	if codeChallenge != "" {
-		loginURL += "&code_challenge=" + url.QueryEscape(codeChallenge)
-	}
-	if codeChallengeMethod != "" {
-		loginURL += "&code_challenge_method=" + url.QueryEscape(codeChallengeMethod)
+	q := url.Values{}
+	q.Set("registered", "true")
+	for k, v := range map[string]string{
+		"redirect_uri":          redirectURI,
+		"client_id":             clientID,
+		"state":                 state,
+		"scope":                 scope,
+		"code_challenge":        codeChallenge,
+		"code_challenge_method": codeChallengeMethod,
+	} {
+		if v != "" {
+			q.Set(k, v)
+		}
 	}
 
-	http.Redirect(w, r, loginURL, http.StatusFound)
+	http.Redirect(w, r, "/oauth/login?"+q.Encode(), http.StatusFound)
 }
 
 // renderRegisterError renders the registration page with an error message, preserving user input and OAuth parameters.

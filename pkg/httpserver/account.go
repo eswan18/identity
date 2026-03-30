@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"net/http"
@@ -450,31 +451,22 @@ func (s *Server) renderChangePasswordError(w http.ResponseWriter, statusCode int
 	s.changePasswordTemplate.Execute(w, ChangePasswordPageData{Error: errorMsg})
 }
 
-// getUserFromSession retrieves the authenticated user from the session cookie
-// This only returns active users - deactivated users will get an error
+// getUserFromSession retrieves the authenticated user from the session cookie.
+// This only returns active users - deactivated users will get an error.
 func (s *Server) getUserFromSession(r *http.Request) (db.AuthUser, error) {
-	cookie, err := r.Cookie("session_id")
-	if err != nil {
-		return db.AuthUser{}, err
-	}
-
-	session, err := s.datastore.Q.GetSession(r.Context(), cookie.Value)
-	if err != nil {
-		return db.AuthUser{}, err
-	}
-
-	user, err := s.datastore.Q.GetUserByID(r.Context(), session.UserID)
-	if err != nil {
-		return db.AuthUser{}, err
-	}
-
-	return user, nil
+	return s.doGetUserFromSession(r, s.datastore.Q.GetUserByID)
 }
 
 // getUserFromSessionIncludingInactive retrieves the authenticated user from the session cookie
 // including deactivated users. This is used for the account settings page so deactivated
 // users can still access their account settings.
 func (s *Server) getUserFromSessionIncludingInactive(r *http.Request) (db.AuthUser, error) {
+	return s.doGetUserFromSession(r, s.datastore.Q.GetUserByIDIncludingInactive)
+}
+
+// doGetUserFromSession is the shared implementation for session-based user retrieval.
+// The getUserByID parameter selects which DB query to use (active-only vs all users).
+func (s *Server) doGetUserFromSession(r *http.Request, getUserByID func(context.Context, uuid.UUID) (db.AuthUser, error)) (db.AuthUser, error) {
 	cookie, err := r.Cookie("session_id")
 	if err != nil {
 		return db.AuthUser{}, err
@@ -485,12 +477,7 @@ func (s *Server) getUserFromSessionIncludingInactive(r *http.Request) (db.AuthUs
 		return db.AuthUser{}, err
 	}
 
-	user, err := s.datastore.Q.GetUserByIDIncludingInactive(r.Context(), session.UserID)
-	if err != nil {
-		return db.AuthUser{}, err
-	}
-
-	return user, nil
+	return getUserByID(r.Context(), session.UserID)
 }
 
 // HandleDeactivateAccountPost godoc
