@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -471,13 +472,14 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// "email" scope: email and email_verified
-	if strings.Contains(claims.Scope, "email") {
+	scopes := strings.Split(claims.Scope, " ")
+	if slices.Contains(scopes, "email") {
 		userInfo["email"] = claims.Email
 		userInfo["email_verified"] = claims.EmailVerified
 	}
 
 	// "profile" scope: username and profile fields from DB
-	if strings.Contains(claims.Scope, "profile") {
+	if slices.Contains(scopes, "profile") {
 		userInfo["username"] = claims.Username
 		userID, err := uuid.Parse(claims.Subject)
 		if err == nil {

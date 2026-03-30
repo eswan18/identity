@@ -702,6 +702,51 @@ func (s *OAuthFlowSuite) TestUserInfoScopeGating() {
 	s.NotContains(userInfo, "picture", "picture should not be present without profile scope")
 }
 
+// TestUserInfoEmailScopeOnly verifies that requesting "openid email" returns
+// email claims but not profile claims.
+func (s *OAuthFlowSuite) TestUserInfoEmailScopeOnly() {
+	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "http://localhost:8000",
+	}, "openid email")
+
+	req, err := http.NewRequest("GET", "http://localhost:8080/oauth/userinfo", nil)
+	s.Require().NoError(err)
+	req.Header.Set("Authorization", "Bearer "+result.TokenResponse.AccessToken)
+
+	resp, err := s.httpClient.Do(req)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+
+	var userInfo map[string]interface{}
+	err = json.Unmarshal(body, &userInfo)
+	s.Require().NoError(err)
+
+	// "sub" always present
+	s.Contains(userInfo, "sub")
+
+	// "email" scope claims should be present
+	s.Contains(userInfo, "email", "email should be present with email scope")
+	s.Contains(userInfo, "email_verified", "email_verified should be present with email scope")
+	s.Equal(result.User.Email, userInfo["email"])
+	s.Equal(false, userInfo["email_verified"], "new user should not be verified")
+
+	// "profile" scope claims should be absent
+	s.NotContains(userInfo, "username", "username should not be present without profile scope")
+	s.NotContains(userInfo, "given_name", "given_name should not be present without profile scope")
+	s.NotContains(userInfo, "family_name", "family_name should not be present without profile scope")
+	s.NotContains(userInfo, "picture", "picture should not be present without profile scope")
+}
+
 // TestOAuthFlowWithMFA verifies that users with MFA enabled are redirected to the MFA page
 // and can complete the flow by entering a valid TOTP code.
 func (s *OAuthFlowSuite) TestOAuthFlowWithMFA() {
