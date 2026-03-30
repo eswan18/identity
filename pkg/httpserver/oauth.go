@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -142,7 +143,7 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 // @Param        client_secret       formData  string  true  "OAuth client secret"
 // @Param        code_verifier       formData  string  false "PKCE code verifier (required for authorization_code grant)"
 // @Param        refresh_token       formData  string  false "Refresh token (required for refresh_token grant)"
-// @Success      200 {object} map[string]interface{} "Token response with access_token, token_type, expires_in, refresh_token, id_token, and scope"
+// @Success      200 {object} map[string]interface{} "Token response with access_token, token_type, expires_in, refresh_token, and scope"
 // @Failure      400 {object} map[string]string "OAuth2 error response (invalid_request, invalid_grant, invalid_client, etc.)"
 // @Router       /oauth/token [post]
 func (s *Server) HandleOauthToken(w http.ResponseWriter, r *http.Request) {
@@ -397,12 +398,12 @@ func (s *Server) writeTokenError(w http.ResponseWriter, errorCode, description s
 
 // handleUserInfo godoc
 // @Summary      OIDC UserInfo endpoint
-// @Description  Returns user profile claims (sub, username, email, email_verified) for the authenticated user. This endpoint provides user identity information, not token metadata.
+// @Description  Returns user identity claims for the authenticated user. Claims are gated by scope per OIDC Core Section 5.4: "sub" is always returned; "email" and "email_verified" require the "email" scope; "username", "given_name", "family_name", and "picture" require the "profile" scope.
 // @Tags         oidc
 // @Produce      json
 // @Security     BearerAuth
 // @Param        Authorization header string true "Bearer access token"
-// @Success      200 {object} map[string]interface{} "User profile claims (sub, username, email, email_verified)"
+// @Success      200 {object} map[string]interface{} "User identity claims (scope-dependent)"
 // @Failure      401 {object} map[string]string "Unauthorized - invalid or missing access token"
 // @Router       /oauth/userinfo [get]
 func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
@@ -464,17 +465,22 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Return OIDC standard claims from JWT
+	// Return OIDC standard claims from JWT.
+	// Only "sub" is always included; other claims are gated by scope per OIDC Core Section 5.4.
 	userInfo := map[string]interface{}{
-		"sub":            claims.Subject,  // Subject (user ID)
-		"username":       claims.Username,
-		"email":          claims.Email,
-		"email_verified": true, // JWT was issued after authentication
+		"sub": claims.Subject,
 	}
 
-	// Include scope-specific claims
-	if strings.Contains(claims.Scope, "profile") {
-		// Fetch user from DB to get profile fields
+	// "email" scope: email and email_verified
+	scopes := strings.Split(claims.Scope, " ")
+	if slices.Contains(scopes, "email") {
+		userInfo["email"] = claims.Email
+		userInfo["email_verified"] = claims.EmailVerified
+	}
+
+	// "profile" scope: username and profile fields from DB
+	if slices.Contains(scopes, "profile") {
+		userInfo["username"] = claims.Username
 		userID, err := uuid.Parse(claims.Subject)
 		if err == nil {
 			user, err := s.datastore.Q.GetUserByID(r.Context(), userID)
