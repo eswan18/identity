@@ -1,8 +1,59 @@
 package httpserver
 
 import (
+	"net/http"
+	"net/url"
+	"strings"
 	"testing"
 )
+
+func TestParseClientCredentials_BasicAuth(t *testing.T) {
+	req, _ := http.NewRequest("POST", "/oauth/token", nil)
+	req.SetBasicAuth("my-client-id", "my-client-secret")
+
+	clientID, clientSecret := parseClientCredentials(req)
+	if clientID != "my-client-id" {
+		t.Errorf("expected client_id %q, got %q", "my-client-id", clientID)
+	}
+	if clientSecret != "my-client-secret" {
+		t.Errorf("expected client_secret %q, got %q", "my-client-secret", clientSecret)
+	}
+}
+
+func TestParseClientCredentials_FormValues(t *testing.T) {
+	form := url.Values{
+		"client_id":     {"form-client-id"},
+		"client_secret": {"form-client-secret"},
+	}
+	req, _ := http.NewRequest("POST", "/oauth/token", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	clientID, clientSecret := parseClientCredentials(req)
+	if clientID != "form-client-id" {
+		t.Errorf("expected client_id %q, got %q", "form-client-id", clientID)
+	}
+	if clientSecret != "form-client-secret" {
+		t.Errorf("expected client_secret %q, got %q", "form-client-secret", clientSecret)
+	}
+}
+
+func TestParseClientCredentials_BasicAuthTakesPrecedence(t *testing.T) {
+	form := url.Values{
+		"client_id":     {"form-client-id"},
+		"client_secret": {"form-client-secret"},
+	}
+	req, _ := http.NewRequest("POST", "/oauth/token", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth("basic-client-id", "basic-client-secret")
+
+	clientID, clientSecret := parseClientCredentials(req)
+	if clientID != "basic-client-id" {
+		t.Errorf("expected Basic auth client_id %q, got %q", "basic-client-id", clientID)
+	}
+	if clientSecret != "basic-client-secret" {
+		t.Errorf("expected Basic auth client_secret %q, got %q", "basic-client-secret", clientSecret)
+	}
+}
 
 func TestGenerateRandomString(t *testing.T) {
 	// Test that it produces a string of expected length

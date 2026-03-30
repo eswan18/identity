@@ -2062,6 +2062,83 @@ func (s *OAuthFlowSuite) TestClientCredentialsGrant() {
 	s.Nil(claims["email_verified"], "should not have email_verified claim")
 }
 
+// TestClientCredentialsGrant_BasicAuth verifies that client_secret_basic (HTTP Basic Auth)
+// works for client authentication at the token endpoint.
+func (s *OAuthFlowSuite) TestClientCredentialsGrant_BasicAuth() {
+	clientSecret := s.mustGenerateRandomString(32)
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"admin:users:read"},
+		IsConfidential: true,
+		Audience:       "http://localhost:8080",
+	})
+
+	// Use Basic auth instead of form values for client credentials
+	form := url.Values{
+		"grant_type": {"client_credentials"},
+		"scope":      {"admin:users:read"},
+	}
+	req, err := http.NewRequest("POST", "http://localhost:8080/oauth/token",
+		strings.NewReader(form.Encode()))
+	s.Require().NoError(err)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth(client.ClientID, clientSecret)
+
+	resp, err := s.httpClient.Do(req)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	var tokenResponse TokenResponse
+	err = json.Unmarshal(body, &tokenResponse)
+	s.Require().NoError(err)
+
+	s.NotEmpty(tokenResponse.AccessToken, "should have access token")
+	s.Equal("Bearer", tokenResponse.TokenType)
+}
+
+// TestClientCredentialsGrant_BasicAuth_WrongSecret verifies that Basic auth
+// with a wrong secret is rejected.
+func (s *OAuthFlowSuite) TestClientCredentialsGrant_BasicAuth_WrongSecret() {
+	clientSecret := s.mustGenerateRandomString(32)
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"admin:users:read"},
+		IsConfidential: true,
+		Audience:       "http://localhost:8080",
+	})
+
+	form := url.Values{
+		"grant_type": {"client_credentials"},
+		"scope":      {"admin:users:read"},
+	}
+	req, err := http.NewRequest("POST", "http://localhost:8080/oauth/token",
+		strings.NewReader(form.Encode()))
+	s.Require().NoError(err)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth(client.ClientID, "wrong-secret")
+
+	resp, err := s.httpClient.Do(req)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusBadRequest, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	var errorResponse map[string]string
+	err = json.Unmarshal(body, &errorResponse)
+	s.Require().NoError(err)
+	s.Equal("invalid_client", errorResponse["error"])
+}
+
 // TestClientCredentialsGrant_PublicClientRejected verifies public clients cannot use client credentials
 func (s *OAuthFlowSuite) TestClientCredentialsGrant_PublicClientRejected() {
 	// Create a public client (no secret)
