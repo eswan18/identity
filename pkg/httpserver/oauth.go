@@ -24,6 +24,7 @@ type TokenResponse struct {
 	TokenType    string `json:"token_type"`
 	ExpiresIn    int    `json:"expires_in"`
 	RefreshToken string `json:"refresh_token"`
+	IDToken      string `json:"id_token,omitempty"`
 	Scope        string `json:"scope"`
 }
 
@@ -143,7 +144,7 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 // @Param        client_secret       formData  string  true  "OAuth client secret"
 // @Param        code_verifier       formData  string  false "PKCE code verifier (required for authorization_code grant)"
 // @Param        refresh_token       formData  string  false "Refresh token (required for refresh_token grant)"
-// @Success      200 {object} map[string]interface{} "Token response with access_token, token_type, expires_in, refresh_token, and scope"
+// @Success      200 {object} map[string]interface{} "Token response with access_token, token_type, expires_in, refresh_token, scope, and id_token (when openid scope requested)"
 // @Failure      400 {object} map[string]string "OAuth2 error response (invalid_request, invalid_grant, invalid_client, etc.)"
 // @Router       /oauth/token [post]
 func (s *Server) HandleOauthToken(w http.ResponseWriter, r *http.Request) {
@@ -330,6 +331,7 @@ func (s *Server) writeTokenResponse(w http.ResponseWriter, r *http.Request, clie
 		TokenType:    "Bearer",
 		ExpiresIn:    tokens.ExpiresIn,
 		RefreshToken: tokens.RefreshToken,
+		IDToken:      tokens.IDToken,
 		Scope:        strings.Join(tokens.Scope, " "),
 	}
 

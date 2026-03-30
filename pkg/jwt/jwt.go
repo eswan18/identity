@@ -2,6 +2,7 @@ package jwt
 
 import (
 	"crypto/ecdsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -135,6 +136,54 @@ func padTo32Bytes(b []byte) []byte {
 	padded := make([]byte, 32)
 	copy(padded[32-len(b):], b)
 	return padded
+}
+
+// IDTokenClaims represents the claims in an OIDC ID token.
+// The audience is the client_id (not the resource server), per OIDC Core Section 2.
+type IDTokenClaims struct {
+	jwt.RegisteredClaims
+	Email         string `json:"email,omitempty"`
+	EmailVerified *bool  `json:"email_verified,omitempty"`
+	Username      string `json:"preferred_username,omitempty"`
+	GivenName     string `json:"given_name,omitempty"`
+	FamilyName    string `json:"family_name,omitempty"`
+	Picture       string `json:"picture,omitempty"`
+	AtHash        string `json:"at_hash,omitempty"`
+}
+
+// GenerateIDToken creates a signed OIDC ID token per OIDC Core Section 3.1.3.3.
+// The audience is the OAuth client_id. The atHash is the left half of the SHA-256
+// of the access token, base64url-encoded (per OIDC Core Section 3.1.3.6).
+func (g *Generator) GenerateIDToken(
+	userID, clientID, accessToken string,
+	scope []string,
+	claims IDTokenClaims,
+	expiresIn time.Duration,
+) (string, error) {
+	now := time.Now()
+
+	claims.RegisteredClaims = jwt.RegisteredClaims{
+		Issuer:    g.issuer,
+		Subject:   userID,
+		Audience:  jwt.ClaimStrings{clientID},
+		ExpiresAt: jwt.NewNumericDate(now.Add(expiresIn)),
+		IssuedAt:  jwt.NewNumericDate(now),
+		ID:        uuid.New().String(),
+	}
+
+	// Compute at_hash: left half of SHA-256 of the access token, base64url-encoded
+	atHashBytes := sha256.Sum256([]byte(accessToken))
+	claims.AtHash = base64.RawURLEncoding.EncodeToString(atHashBytes[:16])
+
+	jwtToken := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	jwtToken.Header["kid"] = g.keyID
+
+	signedToken, err := jwtToken.SignedString(g.privateKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign ID token: %w", err)
+	}
+
+	return signedToken, nil
 }
 
 // GenerateServiceAccountToken creates a signed JWT for service accounts (client credentials grant).

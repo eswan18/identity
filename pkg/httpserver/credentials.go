@@ -16,6 +16,7 @@ import (
 
 	"github.com/eswan18/identity/pkg/auth"
 	"github.com/eswan18/identity/pkg/db"
+	jwtpkg "github.com/eswan18/identity/pkg/jwt"
 	"github.com/google/uuid"
 )
 
@@ -151,7 +152,8 @@ type Session struct {
 type TokenPair struct {
 	AccessToken  string
 	RefreshToken string
-	ExpiresIn    int // seconds until access token expires
+	IDToken      string // OIDC ID token, present when openid scope is requested
+	ExpiresIn    int    // seconds until access token expires
 	Scope        []string
 }
 
@@ -275,9 +277,43 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 		return TokenPair{}, err
 	}
 
+	// Generate OIDC ID token when openid scope is requested
+	var idToken string
+	if slices.Contains(scope, "openid") {
+		idClaims := jwtpkg.IDTokenClaims{}
+		if slices.Contains(scope, "email") {
+			idClaims.Email = user.Email
+			idClaims.EmailVerified = &user.EmailVerified
+		}
+		if slices.Contains(scope, "profile") {
+			idClaims.Username = user.Username
+			if user.GivenName.Valid {
+				idClaims.GivenName = user.GivenName.String
+			}
+			if user.FamilyName.Valid {
+				idClaims.FamilyName = user.FamilyName.String
+			}
+			if user.Picture.Valid {
+				idClaims.Picture = user.Picture.String
+			}
+		}
+		idToken, err = s.jwtGenerator.GenerateIDToken(
+			userID.String(),
+			client.ClientID,
+			accessToken,
+			scope,
+			idClaims,
+			accessTokenExpiresIn,
+		)
+		if err != nil {
+			return TokenPair{}, fmt.Errorf("failed to generate ID token: %w", err)
+		}
+	}
+
 	return TokenPair{
 		AccessToken:  accessToken, // Return full JWT to client
 		RefreshToken: refreshToken,
+		IDToken:      idToken,
 		ExpiresIn:    int(accessTokenExpiresIn.Seconds()),
 		Scope:        scope,
 	}, nil

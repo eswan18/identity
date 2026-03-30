@@ -1,6 +1,7 @@
 package jwt
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -350,6 +351,115 @@ func TestJoinScope(t *testing.T) {
 		result := joinScope(tt.input)
 		if result != tt.expected {
 			t.Errorf("joinScope(%v) = %q, expected %q", tt.input, result, tt.expected)
+		}
+	}
+}
+
+func TestGenerateIDToken(t *testing.T) {
+	g, err := NewGenerator(testPrivateKey, "https://issuer.example.com", "key-1")
+	if err != nil {
+		t.Fatalf("NewGenerator failed: %v", err)
+	}
+
+	emailVerified := true
+	idClaims := IDTokenClaims{
+		Email:         "test@example.com",
+		EmailVerified: &emailVerified,
+		Username:      "testuser",
+		GivenName:     "Test",
+		FamilyName:    "User",
+	}
+
+	accessToken := "fake-access-token-for-at-hash"
+	idToken, err := g.GenerateIDToken(
+		"user-123",
+		"my-client-id",
+		accessToken,
+		[]string{"openid", "profile", "email"},
+		idClaims,
+		time.Hour,
+	)
+	if err != nil {
+		t.Fatalf("GenerateIDToken failed: %v", err)
+	}
+
+	// Parse and verify the ID token
+	claims, err := g.ValidateToken(idToken, "my-client-id")
+	if err != nil {
+		t.Fatalf("ValidateToken failed: %v", err)
+	}
+
+	if claims.Subject != "user-123" {
+		t.Errorf("expected sub %q, got %q", "user-123", claims.Subject)
+	}
+	if claims.Issuer != "https://issuer.example.com" {
+		t.Errorf("expected issuer %q, got %q", "https://issuer.example.com", claims.Issuer)
+	}
+	if len(claims.Audience) != 1 || claims.Audience[0] != "my-client-id" {
+		t.Errorf("expected audience [my-client-id], got %v", claims.Audience)
+	}
+
+	// Verify ID-token-specific claims by parsing the raw payload
+	parts := strings.Split(idToken, ".")
+	if len(parts) != 3 {
+		t.Fatalf("expected 3 JWT parts, got %d", len(parts))
+	}
+	var rawClaims map[string]interface{}
+	payload, _ := base64.RawURLEncoding.DecodeString(parts[1])
+	json.Unmarshal(payload, &rawClaims)
+
+	if rawClaims["email"] != "test@example.com" {
+		t.Errorf("expected email %q, got %v", "test@example.com", rawClaims["email"])
+	}
+	if rawClaims["email_verified"] != true {
+		t.Errorf("expected email_verified true, got %v", rawClaims["email_verified"])
+	}
+	if rawClaims["preferred_username"] != "testuser" {
+		t.Errorf("expected preferred_username %q, got %v", "testuser", rawClaims["preferred_username"])
+	}
+	if rawClaims["given_name"] != "Test" {
+		t.Errorf("expected given_name %q, got %v", "Test", rawClaims["given_name"])
+	}
+	if rawClaims["at_hash"] == nil || rawClaims["at_hash"] == "" {
+		t.Error("expected non-empty at_hash")
+	}
+}
+
+func TestGenerateIDToken_OmitsEmptyClaims(t *testing.T) {
+	g, err := NewGenerator(testPrivateKey, "https://issuer.example.com", "key-1")
+	if err != nil {
+		t.Fatalf("NewGenerator failed: %v", err)
+	}
+
+	// No email or profile claims set
+	idToken, err := g.GenerateIDToken(
+		"user-123",
+		"my-client-id",
+		"fake-access-token",
+		[]string{"openid"},
+		IDTokenClaims{},
+		time.Hour,
+	)
+	if err != nil {
+		t.Fatalf("GenerateIDToken failed: %v", err)
+	}
+
+	parts := strings.Split(idToken, ".")
+	var rawClaims map[string]interface{}
+	payload, _ := base64.RawURLEncoding.DecodeString(parts[1])
+	json.Unmarshal(payload, &rawClaims)
+
+	// These should be absent (omitempty)
+	for _, key := range []string{"email", "email_verified", "preferred_username", "given_name", "family_name", "picture"} {
+		if _, ok := rawClaims[key]; ok {
+			t.Errorf("expected %q to be omitted, but it was present: %v", key, rawClaims[key])
+		}
+	}
+
+	// These should always be present
+	for _, key := range []string{"sub", "iss", "aud", "exp", "iat", "at_hash"} {
+		if _, ok := rawClaims[key]; !ok {
+			t.Errorf("expected %q to be present", key)
 		}
 	}
 }

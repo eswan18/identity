@@ -1366,7 +1366,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Token response with access_token, token_type, expires_in, refresh_token, and scope",
+                        "description": "Token response with access_token, token_type, expires_in, refresh_token, scope, and id_token (when openid scope requested)",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -1768,6 +1768,9 @@ const docTemplate = `{
                 },
                 "expires_in": {
                     "type": "integer"
+                },
+                "id_token": {
+                    "type": "string"
                 },
                 "refresh_token": {
                     "type": "string"
