@@ -446,6 +446,88 @@ func (s *OAuthFlowSuite) TestFullOAuthFlow() {
 	})
 }
 
+// TestTokenResponseIncludesIDToken verifies that the token response includes an id_token
+// when the openid scope is requested, per OIDC Core Section 3.1.3.3.
+func (s *OAuthFlowSuite) TestTokenResponseIncludesIDToken() {
+	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "http://localhost:8080",
+	})
+
+	// ID token should be present
+	s.NotEmpty(result.TokenResponse.IDToken, "id_token should be present when openid scope is requested")
+
+	// Parse the ID token to verify claims
+	parts := strings.Split(result.TokenResponse.IDToken, ".")
+	s.Require().Len(parts, 3, "id_token should be a valid JWT")
+
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	s.Require().NoError(err)
+
+	var claims map[string]interface{}
+	err = json.Unmarshal(payload, &claims)
+	s.Require().NoError(err)
+
+	// Required OIDC claims
+	s.Equal(result.User.ID.String(), claims["sub"], "sub should be user ID")
+	s.Equal("http://localhost:8080", claims["iss"], "issuer should match")
+	s.NotNil(claims["exp"], "exp should be present")
+	s.NotNil(claims["iat"], "iat should be present")
+	s.NotNil(claims["at_hash"], "at_hash should be present")
+
+	// Audience should be the client_id (not the resource server audience)
+	s.Equal(result.Client.ClientID, claims["aud"], "audience should be client_id")
+
+	// email scope claims
+	s.Equal(result.User.Email, claims["email"], "email should match")
+	s.Equal(false, claims["email_verified"], "new user should not be verified")
+
+	// profile scope claims
+	s.Equal(result.User.Username, claims["preferred_username"], "preferred_username should match")
+}
+
+// TestTokenResponseIDTokenAbsentWithoutOpenID verifies that no id_token is returned
+// when the openid scope is not requested.
+func (s *OAuthFlowSuite) TestTokenResponseIDTokenAbsentWithoutOpenID() {
+	// Create a client that only has admin scopes (no openid)
+	clientSecret := s.mustGenerateRandomString(32)
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"admin:users:read"},
+		IsConfidential: true,
+		Audience:       "http://localhost:8080",
+	})
+
+	// Use client credentials (no openid scope)
+	form := url.Values{
+		"grant_type":    {"client_credentials"},
+		"client_id":     {client.ClientID},
+		"client_secret": {clientSecret},
+		"scope":         {"admin:users:read"},
+	}
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/token", form)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+
+	// Verify no id_token field in response
+	var rawResponse map[string]interface{}
+	err = json.Unmarshal(body, &rawResponse)
+	s.Require().NoError(err)
+	s.NotContains(rawResponse, "id_token", "id_token should not be present without openid scope")
+}
+
 // TestJWKSEndpoint verifies that clients can fetch and parse the public key.
 func (s *OAuthFlowSuite) TestJWKSEndpoint() {
 	resp, err := s.httpClient.Get("http://localhost:8080/.well-known/jwks.json")
