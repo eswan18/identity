@@ -481,7 +481,11 @@ func (s *OAuthFlowSuite) TestTokenResponseIncludesIDToken() {
 	s.NotNil(claims["at_hash"], "at_hash should be present")
 
 	// Audience should be the client_id (not the resource server audience)
-	s.Equal(result.Client.ClientID, claims["aud"], "audience should be client_id")
+	// JWT aud claim is serialized as an array
+	aud, ok := claims["aud"].([]interface{})
+	s.Require().True(ok, "aud should be an array")
+	s.Require().Len(aud, 1)
+	s.Equal(result.Client.ClientID, aud[0], "audience should be client_id")
 
 	// email scope claims
 	s.Equal(result.User.Email, claims["email"], "email should match")
