@@ -464,17 +464,21 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Return OIDC standard claims from JWT
+	// Return OIDC standard claims from JWT.
+	// Only "sub" is always included; other claims are gated by scope per OIDC Core Section 5.4.
 	userInfo := map[string]interface{}{
-		"sub":            claims.Subject,  // Subject (user ID)
-		"username":       claims.Username,
-		"email":          claims.Email,
-		"email_verified": true, // JWT was issued after authentication
+		"sub": claims.Subject,
 	}
 
-	// Include scope-specific claims
+	// "email" scope: email and email_verified
+	if strings.Contains(claims.Scope, "email") {
+		userInfo["email"] = claims.Email
+		userInfo["email_verified"] = claims.EmailVerified
+	}
+
+	// "profile" scope: username and profile fields from DB
 	if strings.Contains(claims.Scope, "profile") {
-		// Fetch user from DB to get profile fields
+		userInfo["username"] = claims.Username
 		userID, err := uuid.Parse(claims.Subject)
 		if err == nil {
 			user, err := s.datastore.Q.GetUserByID(r.Context(), userID)

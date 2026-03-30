@@ -194,8 +194,15 @@ func (s *OAuthFlowSuite) mustCreateStateAndCodeVerifier() StateAndCodeVerifier {
 
 // mustCompleteOAuthFlow performs the full OAuth flow and returns the tokens.
 // This helper enables tests to get tokens without duplicating the flow logic.
-func (s *OAuthFlowSuite) mustCompleteOAuthFlow(clientParams db.CreateOAuthClientParams) OAuthFlowResult {
+// mustCompleteOAuthFlow completes a full OAuth flow and returns the result.
+// An optional scope string can be passed; if omitted, defaults to "openid profile email".
+func (s *OAuthFlowSuite) mustCompleteOAuthFlow(clientParams db.CreateOAuthClientParams, scopeOverride ...string) OAuthFlowResult {
 	s.T().Helper()
+
+	scope := "openid profile email"
+	if len(scopeOverride) > 0 {
+		scope = scopeOverride[0]
+	}
 
 	client := s.mustRegisterOAuthClient(clientParams)
 	user := s.mustRegisterUser(
@@ -216,7 +223,7 @@ func (s *OAuthFlowSuite) mustCompleteOAuthFlow(clientParams db.CreateOAuthClient
 		"code_challenge":        {scv.CodeChallenge},
 		"code_challenge_method": {scv.CodeChallengeMethod},
 		"state":                 {scv.State},
-		"scope":                 {"openid profile email"},
+		"scope":                 {scope},
 	}
 	formValues := url.Values{
 		"username":              {user.Username},
@@ -224,7 +231,7 @@ func (s *OAuthFlowSuite) mustCompleteOAuthFlow(clientParams db.CreateOAuthClient
 		"client_id":             {client.ClientID},
 		"redirect_uri":          {redirectURI},
 		"state":                 {scv.State},
-		"scope":                 {"openid profile email"},
+		"scope":                 {scope},
 		"code_challenge":        {scv.CodeChallenge},
 		"code_challenge_method": {scv.CodeChallengeMethod},
 	}
@@ -642,7 +649,57 @@ func (s *OAuthFlowSuite) TestUserInfoEndpoint() {
 	s.Equal(result.User.ID.String(), userInfo.Sub, "sub should be user ID")
 	s.Equal(result.User.Username, userInfo.Username, "username should match")
 	s.Equal(result.User.Email, userInfo.Email, "email should match")
-	s.True(userInfo.EmailVerified, "email_verified should be true")
+	s.False(userInfo.EmailVerified, "email_verified should be false for new unverified user")
+}
+
+// TestUserInfoScopeGating verifies that UserInfo only returns claims for requested scopes.
+// Per OIDC Core Section 5.4, email/email_verified require "email" scope, and
+// username/given_name/family_name/picture require "profile" scope.
+func (s *OAuthFlowSuite) TestUserInfoScopeGating() {
+	// Complete OAuth flow with only "openid" scope (no email or profile)
+	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "http://localhost:8000",
+	}, "openid") // only request openid scope
+
+	accessToken := result.TokenResponse.AccessToken
+	s.Require().NotEmpty(accessToken)
+
+	// Call userinfo endpoint
+	req, err := http.NewRequest("GET", "http://localhost:8080/oauth/userinfo", nil)
+	s.Require().NoError(err)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := s.httpClient.Do(req)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+
+	var userInfo map[string]interface{}
+	err = json.Unmarshal(body, &userInfo)
+	s.Require().NoError(err)
+
+	// "sub" should always be present
+	s.Contains(userInfo, "sub", "sub should always be present")
+	s.Equal(result.User.ID.String(), userInfo["sub"], "sub should be user ID")
+
+	// Claims gated by "email" scope should be absent
+	s.NotContains(userInfo, "email", "email should not be present without email scope")
+	s.NotContains(userInfo, "email_verified", "email_verified should not be present without email scope")
+
+	// Claims gated by "profile" scope should be absent
+	s.NotContains(userInfo, "username", "username should not be present without profile scope")
+	s.NotContains(userInfo, "given_name", "given_name should not be present without profile scope")
+	s.NotContains(userInfo, "family_name", "family_name should not be present without profile scope")
+	s.NotContains(userInfo, "picture", "picture should not be present without profile scope")
 }
 
 // TestOAuthFlowWithMFA verifies that users with MFA enabled are redirected to the MFA page
