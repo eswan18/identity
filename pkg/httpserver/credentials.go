@@ -40,11 +40,11 @@ var (
 	ErrInvalidScope       = errors.New("invalid scope")
 )
 
-// authenticateClient extracts client_id and client_secret from the request form,
+// authenticateClient extracts client credentials from the request using either
+// client_secret_post (form values) or client_secret_basic (Authorization header),
 // looks up the client, and verifies the secret for confidential clients.
 func (s *Server) authenticateClient(r *http.Request) (db.OauthClient, error) {
-	clientID := r.FormValue("client_id")
-	clientSecret := r.FormValue("client_secret")
+	clientID, clientSecret := parseClientCredentials(r)
 
 	client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
 	if err != nil {
@@ -58,6 +58,16 @@ func (s *Server) authenticateClient(r *http.Request) (db.OauthClient, error) {
 	}
 
 	return client, nil
+}
+
+// parseClientCredentials extracts client_id and client_secret from the request.
+// It checks the Authorization header for Basic auth first (client_secret_basic),
+// then falls back to form values (client_secret_post).
+func parseClientCredentials(r *http.Request) (clientID, clientSecret string) {
+	if username, password, ok := r.BasicAuth(); ok {
+		return username, password
+	}
+	return r.FormValue("client_id"), r.FormValue("client_secret")
 }
 
 // validateOAuthClient validates that the client exists and the redirect URI and scopes are allowed.
