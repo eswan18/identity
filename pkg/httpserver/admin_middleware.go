@@ -2,7 +2,6 @@ package httpserver
 
 import (
 	"database/sql"
-	"encoding/json"
 	"log"
 	"net/http"
 	"slices"
@@ -61,10 +60,5 @@ func (s *Server) AdminAuthMiddleware(requiredScopes ...string) func(http.Handler
 
 // writeAdminError writes an OAuth2-format error response for admin endpoints
 func (s *Server) writeAdminError(w http.ResponseWriter, statusCode int, errorCode, description string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(map[string]string{
-		"error":             errorCode,
-		"error_description": description,
-	})
+	writeJSONError(w, statusCode, errorCode, description)
 }

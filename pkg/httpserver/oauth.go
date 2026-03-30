@@ -3,7 +3,6 @@ package httpserver
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -148,22 +147,11 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 // @Router       /oauth/token [post]
 func (s *Server) HandleOauthToken(w http.ResponseWriter, r *http.Request) {
 	grantType := r.FormValue("grant_type")
-	clientID := r.FormValue("client_id")
-	clientSecret := r.FormValue("client_secret")
 
-	// Validate client credentials
-	client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
+	client, err := s.authenticateClient(r)
 	if err != nil {
 		s.writeTokenError(w, "invalid_client", "Invalid client credentials")
 		return
-	}
-
-	// For confidential clients, verify client secret
-	if client.IsConfidential {
-		if !client.ClientSecret.Valid || subtle.ConstantTimeCompare([]byte(client.ClientSecret.String), []byte(clientSecret)) != 1 {
-			s.writeTokenError(w, "invalid_client", "Invalid client credentials")
-			return
-		}
 	}
 
 	switch grantType {
@@ -191,25 +179,12 @@ func (s *Server) HandleOauthToken(w http.ResponseWriter, r *http.Request) {
 // @Failure      400 {object} map[string]string "OAuth2 error response (invalid_request, invalid_grant, invalid_client, etc.)"
 // @Router       /oauth/refresh [post]
 func (s *Server) HandleOauthRefresh(w http.ResponseWriter, r *http.Request) {
-	clientID := r.FormValue("client_id")
-	clientSecret := r.FormValue("client_secret")
-
-	// Validate client credentials
-	client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
+	client, err := s.authenticateClient(r)
 	if err != nil {
 		s.writeTokenError(w, "invalid_client", "Invalid client credentials")
 		return
 	}
 
-	// For confidential clients, verify client secret
-	if client.IsConfidential {
-		if !client.ClientSecret.Valid || subtle.ConstantTimeCompare([]byte(client.ClientSecret.String), []byte(clientSecret)) != 1 {
-			s.writeTokenError(w, "invalid_client", "Invalid client credentials")
-			return
-		}
-	}
-
-	// Handle the refresh token grant
 	s.handleRefreshTokenGrant(w, r, client)
 }
 
@@ -415,14 +390,9 @@ func (s *Server) writeClientCredentialsTokenResponse(w http.ResponseWriter, r *h
 	json.NewEncoder(w).Encode(response)
 }
 
-// writeTokenError writes an OAuth2 error response
+// writeTokenError writes an OAuth2 error response with 400 status
 func (s *Server) writeTokenError(w http.ResponseWriter, errorCode, description string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusBadRequest)
-	json.NewEncoder(w).Encode(map[string]string{
-		"error":             errorCode,
-		"error_description": description,
-	})
+	writeJSONError(w, http.StatusBadRequest, errorCode, description)
 }
 
 // handleUserInfo godoc
@@ -542,24 +512,14 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 // @Failure      401 {object} map[string]string "Unauthorized - invalid client credentials"
 // @Router       /oauth/introspect [post]
 func (s *Server) HandleIntrospect(w http.ResponseWriter, r *http.Request) {
-	clientID := r.FormValue("client_id")
-	clientSecret := r.FormValue("client_secret")
 	token := r.FormValue("token")
 	tokenTypeHint := r.FormValue("token_type_hint")
 
 	// Authenticate the calling client
-	client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
+	_, err := s.authenticateClient(r)
 	if err != nil {
 		s.writeIntrospectError(w, http.StatusUnauthorized, "invalid_client", "Invalid client credentials")
 		return
-	}
-
-	// For confidential clients, verify client secret
-	if client.IsConfidential {
-		if !client.ClientSecret.Valid || subtle.ConstantTimeCompare([]byte(client.ClientSecret.String), []byte(clientSecret)) != 1 {
-			s.writeIntrospectError(w, http.StatusUnauthorized, "invalid_client", "Invalid client credentials")
-			return
-		}
 	}
 
 	if token == "" {
@@ -660,12 +620,7 @@ func (s *Server) introspectRefreshToken(ctx context.Context, token string) map[s
 
 // writeIntrospectError writes an error response for the introspection endpoint
 func (s *Server) writeIntrospectError(w http.ResponseWriter, statusCode int, errorCode, description string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(map[string]string{
-		"error":             errorCode,
-		"error_description": description,
-	})
+	writeJSONError(w, statusCode, errorCode, description)
 }
 
 // handleRevoke godoc
@@ -683,24 +638,14 @@ func (s *Server) writeIntrospectError(w http.ResponseWriter, statusCode int, err
 // @Failure      401 {object} map[string]string "Unauthorized - invalid client credentials"
 // @Router       /oauth/revoke [post]
 func (s *Server) HandleOauthRevoke(w http.ResponseWriter, r *http.Request) {
-	clientID := r.FormValue("client_id")
-	clientSecret := r.FormValue("client_secret")
 	token := r.FormValue("token")
 	tokenTypeHint := r.FormValue("token_type_hint")
 
 	// Authenticate the calling client
-	client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
+	_, err := s.authenticateClient(r)
 	if err != nil {
 		s.writeRevokeError(w, http.StatusUnauthorized, "invalid_client", "Invalid client credentials")
 		return
-	}
-
-	// For confidential clients, verify client secret
-	if client.IsConfidential {
-		if !client.ClientSecret.Valid || subtle.ConstantTimeCompare([]byte(client.ClientSecret.String), []byte(clientSecret)) != 1 {
-			s.writeRevokeError(w, http.StatusUnauthorized, "invalid_client", "Invalid client credentials")
-			return
-		}
 	}
 
 	if token == "" {
@@ -765,12 +710,7 @@ func (s *Server) extractJTIFromToken(token string) string {
 
 // writeRevokeError writes an error response for the revocation endpoint
 func (s *Server) writeRevokeError(w http.ResponseWriter, statusCode int, errorCode, description string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(map[string]string{
-		"error":             errorCode,
-		"error_description": description,
-	})
+	writeJSONError(w, statusCode, errorCode, description)
 }
 
 // getSessionFromCookie checks if the user is authenticated via session cookie.

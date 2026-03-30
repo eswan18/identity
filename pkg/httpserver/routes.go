@@ -8,43 +8,31 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger"
 )
 
-// corsMiddleware creates a CORS middleware that allows requests from any origin
-// Safe for public endpoints like health checks that don't expose sensitive data
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		w.Header().Set("Access-Control-Max-Age", "3600")
+// newCorsMiddleware creates a CORS middleware with the given allowed methods and headers.
+func newCorsMiddleware(methods, headers string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", methods)
+			w.Header().Set("Access-Control-Allow-Headers", headers)
+			w.Header().Set("Access-Control-Max-Age", "3600")
 
-		// Handle preflight requests
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
 
-		next.ServeHTTP(w, r)
-	})
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
-// oauthCorsMiddleware creates a CORS middleware for OAuth endpoints
-// Allows POST requests with Authorization headers from any origin
-func oauthCorsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		w.Header().Set("Access-Control-Max-Age", "3600")
+// corsMiddleware allows GET requests with Content-Type headers from any origin.
+// Safe for public endpoints like health checks that don't expose sensitive data.
+var corsMiddleware = newCorsMiddleware("GET, OPTIONS", "Content-Type")
 
-		// Handle preflight requests
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
+// oauthCorsMiddleware allows GET/POST requests with Authorization headers from any origin.
+var oauthCorsMiddleware = newCorsMiddleware("GET, POST, OPTIONS", "Content-Type, Authorization")
 
 // registerRoutes registers all routes on the given router.
 func (s *Server) registerRoutes() {

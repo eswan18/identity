@@ -1,8 +1,10 @@
 package httpserver
 
-// This file contains things that should be in the standard library but somehow aren't.
+// This file contains small helpers that don't belong to any single handler file.
 
 import (
+	"encoding/json"
+	"net/http"
 	"slices"
 )
 
@@ -16,4 +18,14 @@ func containsAll[T comparable](haystack, needles []T) (bool, []T) {
 		}
 	}
 	return len(missing) == 0, missing
+}
+
+// writeJSONError writes an OAuth2-style JSON error response.
+func writeJSONError(w http.ResponseWriter, statusCode int, errorCode, description string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(map[string]string{
+		"error":             errorCode,
+		"error_description": description,
+	})
 }

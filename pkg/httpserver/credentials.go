@@ -3,11 +3,13 @@ package httpserver
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -37,6 +39,26 @@ var (
 	ErrInvalidRedirectURI = errors.New("invalid redirect URI")
 	ErrInvalidScope       = errors.New("invalid scope")
 )
+
+// authenticateClient extracts client_id and client_secret from the request form,
+// looks up the client, and verifies the secret for confidential clients.
+func (s *Server) authenticateClient(r *http.Request) (db.OauthClient, error) {
+	clientID := r.FormValue("client_id")
+	clientSecret := r.FormValue("client_secret")
+
+	client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
+	if err != nil {
+		return db.OauthClient{}, fmt.Errorf("invalid client: %w", err)
+	}
+
+	if client.IsConfidential {
+		if !client.ClientSecret.Valid || subtle.ConstantTimeCompare([]byte(client.ClientSecret.String), []byte(clientSecret)) != 1 {
+			return db.OauthClient{}, errors.New("invalid client credentials")
+		}
+	}
+
+	return client, nil
+}
 
 // validateOAuthClient validates that the client exists and the redirect URI and scopes are allowed.
 // Returns the client on success. On failure, returns one of:
@@ -71,13 +93,25 @@ func (s *Server) validateOAuthClient(ctx context.Context, clientID, redirectURI 
 // wrong password) is logged for debugging but not exposed to the client.
 // Note: This function only returns active users.
 func (s *Server) validateCredentials(ctx context.Context, username, password string) (db.AuthUser, error) {
+	return s.doValidateCredentials(ctx, username, password, s.datastore.Q.GetUserByUsername)
+}
+
+// validateCredentialsIncludingInactive validates a username and password against the database,
+// including deactivated users. This is used for direct login to the account settings page,
+// where deactivated users should still be able to log in.
+func (s *Server) validateCredentialsIncludingInactive(ctx context.Context, username, password string) (db.AuthUser, error) {
+	return s.doValidateCredentials(ctx, username, password, s.datastore.Q.GetUserByUsernameIncludingInactive)
+}
+
+// doValidateCredentials is the shared implementation for credential validation.
+// The getUserByUsername parameter selects which DB query to use (active-only vs all users).
+func (s *Server) doValidateCredentials(ctx context.Context, username, password string, getUserByUsername func(context.Context, string) (db.AuthUser, error)) (db.AuthUser, error) {
 	if username == "" || password == "" {
 		return db.AuthUser{}, ErrMissingCredentials
 	}
 
-	user, err := s.datastore.Q.GetUserByUsername(ctx, username)
+	user, err := getUserByUsername(ctx, username)
 	if err == sql.ErrNoRows {
-		// User doesn't exist - log for debugging but return generic error to prevent enumeration
 		log.Printf("validateCredentials: user not found: %s", username)
 		return db.AuthUser{}, ErrInvalidCredentials
 	}
@@ -91,45 +125,7 @@ func (s *Server) validateCredentials(ctx context.Context, username, password str
 		return db.AuthUser{}, ErrInternal
 	}
 	if !valid {
-		// Wrong password - log for debugging but return generic error to prevent enumeration
 		log.Printf("validateCredentials: invalid password for user: %s", username)
-		return db.AuthUser{}, ErrInvalidCredentials
-	}
-
-	return user, nil
-}
-
-// validateCredentialsIncludingInactive validates a username and password against the database,
-// including deactivated users. Returns the user on success. On failure, returns one of:
-//   - ErrMissingCredentials (400)
-//   - ErrInvalidCredentials (401)
-//   - ErrInternal (500)
-//
-// This function is used for direct login to the account settings page, where deactivated
-// users should still be able to log in.
-func (s *Server) validateCredentialsIncludingInactive(ctx context.Context, username, password string) (db.AuthUser, error) {
-	if username == "" || password == "" {
-		return db.AuthUser{}, ErrMissingCredentials
-	}
-
-	user, err := s.datastore.Q.GetUserByUsernameIncludingInactive(ctx, username)
-	if err == sql.ErrNoRows {
-		// User doesn't exist - log for debugging but return generic error to prevent enumeration
-		log.Printf("validateCredentialsIncludingInactive: user not found: %s", username)
-		return db.AuthUser{}, ErrInvalidCredentials
-	}
-	if err != nil {
-		return db.AuthUser{}, ErrInternal
-	}
-
-	valid, err := auth.VerifyPassword(password, user.PasswordHash)
-	if err != nil {
-		log.Printf("validateCredentialsIncludingInactive: password verification error for user %s: %v", username, err)
-		return db.AuthUser{}, ErrInternal
-	}
-	if !valid {
-		// Wrong password - log for debugging but return generic error to prevent enumeration
-		log.Printf("validateCredentialsIncludingInactive: invalid password for user: %s", username)
 		return db.AuthUser{}, ErrInvalidCredentials
 	}
 
