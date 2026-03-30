@@ -991,7 +991,7 @@ paths:
       responses:
         "200":
           description: Token response with access_token, token_type, expires_in, refresh_token,
-            id_token, and scope
+            and scope
           schema:
             additionalProperties: true
             type: object
@@ -1007,9 +1007,10 @@ paths:
       - oauth2
   /oauth/userinfo:
     get:
-      description: Returns user profile claims (sub, username, email, email_verified)
-        for the authenticated user. This endpoint provides user identity information,
-        not token metadata.
+      description: 'Returns user identity claims for the authenticated user. Claims
+        are gated by scope per OIDC Core Section 5.4: "sub" is always returned; "email"
+        and "email_verified" require the "email" scope; "username", "given_name",
+        "family_name", and "picture" require the "profile" scope.'
       parameters:
       - description: Bearer access token
         in: header
@@ -1020,7 +1021,7 @@ paths:
       - application/json
       responses:
         "200":
-          description: User profile claims (sub, username, email, email_verified)
+          description: User identity claims (scope-dependent)
           schema:
             additionalProperties: true
             type: object

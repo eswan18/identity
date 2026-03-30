@@ -1366,7 +1366,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Token response with access_token, token_type, expires_in, refresh_token, id_token, and scope",
+                        "description": "Token response with access_token, token_type, expires_in, refresh_token, and scope",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -1391,7 +1391,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns user profile claims (sub, username, email, email_verified) for the authenticated user. This endpoint provides user identity information, not token metadata.",
+                "description": "Returns user identity claims for the authenticated user. Claims are gated by scope per OIDC Core Section 5.4: \"sub\" is always returned; \"email\" and \"email_verified\" require the \"email\" scope; \"username\", \"given_name\", \"family_name\", and \"picture\" require the \"profile\" scope.",
                 "produces": [
                     "application/json"
                 ],
@@ -1410,7 +1410,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "User profile claims (sub, username, email, email_verified)",
+                        "description": "User identity claims (scope-dependent)",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
