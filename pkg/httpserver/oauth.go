@@ -760,7 +760,6 @@ func (s *Server) HandleOIDCDiscovery(w http.ResponseWriter, r *http.Request) {
 
 		// Recommended fields
 		"userinfo_endpoint":                   issuer + "/oauth/userinfo",
-		"registration_endpoint":               issuer + "/oauth/register",
 		"scopes_supported":                    []string{"openid", "profile", "email"},
 		"response_types_supported":            []string{"code"},
 		"response_modes_supported":            []string{"query"},
@@ -769,7 +768,9 @@ func (s *Server) HandleOIDCDiscovery(w http.ResponseWriter, r *http.Request) {
 		"subject_types_supported":             []string{"public"},
 		"id_token_signing_alg_values_supported": []string{"ES256"},
 		"claims_supported": []string{
-			"sub", "iss", "aud", "exp", "iat", "name", "email", "email_verified",
+			"sub", "iss", "aud", "exp", "iat", "at_hash",
+			"email", "email_verified",
+			"preferred_username", "given_name", "family_name", "picture",
 		},
 		"code_challenge_methods_supported": []string{"S256"},
 

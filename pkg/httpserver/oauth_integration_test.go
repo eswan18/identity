@@ -1488,6 +1488,18 @@ func (s *OAuthFlowSuite) TestOIDCDiscoveryEndpoint() {
 	s.Equal("http://localhost:8080/oauth/introspect", discovery["introspection_endpoint"])
 	s.Equal("http://localhost:8080/oauth/revoke", discovery["revocation_endpoint"])
 	s.Equal("http://localhost:8080/oauth/logout", discovery["end_session_endpoint"])
+
+	// claims_supported should list actually-returned claims, not "name"
+	claimsSupported := discovery["claims_supported"].([]interface{})
+	s.NotContains(claimsSupported, "name", "claims_supported should not list 'name' (never returned)")
+	s.Contains(claimsSupported, "preferred_username")
+	s.Contains(claimsSupported, "given_name")
+	s.Contains(claimsSupported, "family_name")
+	s.Contains(claimsSupported, "picture")
+	s.Contains(claimsSupported, "at_hash")
+
+	// registration_endpoint should not be present (not RFC 7591 dynamic registration)
+	s.Nil(discovery["registration_endpoint"], "registration_endpoint should not be present (not RFC 7591 dynamic registration)")
 }
 
 func (s *OAuthFlowSuite) TestOIDCDiscoveryCORSHeaders() {
