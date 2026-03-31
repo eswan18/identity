@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"net/http"
+	"slices"
 
 	_ "github.com/eswan18/identity/docs"
 	"github.com/go-chi/chi/v5"
@@ -199,13 +200,22 @@ func (s *Server) HandleLogout(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	// Redirect to post_logout_redirect_uri if provided, otherwise to login page
-	redirectURI := r.URL.Query().Get("post_logout_redirect_uri")
-	if redirectURI == "" {
-		redirectURI = r.FormValue("post_logout_redirect_uri")
+	// Redirect to post_logout_redirect_uri if provided and valid, otherwise to login page.
+	// Per OIDC RP-Initiated Logout, the URI must be validated against the client's
+	// registered redirect URIs. A client_id parameter is required to identify the client.
+	redirectURI := "/oauth/login"
+	postLogoutURI := r.URL.Query().Get("post_logout_redirect_uri")
+	if postLogoutURI == "" {
+		postLogoutURI = r.FormValue("post_logout_redirect_uri")
 	}
-	if redirectURI == "" {
-		redirectURI = "/oauth/login"
+	if postLogoutURI != "" {
+		clientID := r.URL.Query().Get("client_id")
+		if clientID != "" {
+			client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
+			if err == nil && slices.Contains(client.RedirectUris, postLogoutURI) {
+				redirectURI = postLogoutURI
+			}
+		}
 	}
 
 	http.Redirect(w, r, redirectURI, http.StatusFound)
