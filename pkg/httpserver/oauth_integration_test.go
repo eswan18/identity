@@ -1517,6 +1517,91 @@ func (s *OAuthFlowSuite) TestOIDCDiscoveryCORSHeaders() {
 	s.Equal("*", resp.Header.Get("Access-Control-Allow-Origin"))
 }
 
+// Logout Tests
+
+func (s *OAuthFlowSuite) TestLogoutRedirectsToLoginByDefault() {
+	resp, err := s.httpClient.Post("http://localhost:8080/oauth/logout", "", nil)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	s.Equal(http.StatusFound, resp.StatusCode)
+	s.Equal("/oauth/login", resp.Header.Get("Location"))
+}
+
+func (s *OAuthFlowSuite) TestLogoutWithValidPostLogoutRedirectURI() {
+	// Register a client with a known redirect URI
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       "logout-test-client",
+		Name:           "Logout Test Client",
+		RedirectUris:   []string{"http://example.com/callback"},
+		AllowedScopes:  []string{"openid"},
+		IsConfidential: false,
+		Audience:       "test-audience",
+	})
+
+	// Logout with a valid post_logout_redirect_uri and client_id
+	resp, err := s.httpClient.Post(
+		"http://localhost:8080/oauth/logout?post_logout_redirect_uri=http://example.com/callback&client_id="+client.ClientID,
+		"", nil,
+	)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	s.Equal(http.StatusFound, resp.StatusCode)
+	s.Equal("http://example.com/callback", resp.Header.Get("Location"))
+}
+
+func (s *OAuthFlowSuite) TestLogoutRejectsUnregisteredPostLogoutRedirectURI() {
+	// Register a client with a known redirect URI
+	s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       "logout-reject-client",
+		Name:           "Logout Reject Client",
+		RedirectUris:   []string{"http://example.com/callback"},
+		AllowedScopes:  []string{"openid"},
+		IsConfidential: false,
+		Audience:       "test-audience",
+	})
+
+	// Logout with a redirect URI that is NOT in the client's registered URIs
+	resp, err := s.httpClient.Post(
+		"http://localhost:8080/oauth/logout?post_logout_redirect_uri=https://evil.com/phishing&client_id=logout-reject-client",
+		"", nil,
+	)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	// Should ignore the invalid URI and redirect to login
+	s.Equal(http.StatusFound, resp.StatusCode)
+	s.Equal("/oauth/login", resp.Header.Get("Location"))
+}
+
+func (s *OAuthFlowSuite) TestLogoutRejectsPostLogoutRedirectURIWithUnknownClientID() {
+	// Providing a client_id that doesn't exist should fall back to login
+	resp, err := s.httpClient.Post(
+		"http://localhost:8080/oauth/logout?post_logout_redirect_uri=http://example.com/callback&client_id=nonexistent-client",
+		"", nil,
+	)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	s.Equal(http.StatusFound, resp.StatusCode)
+	s.Equal("/oauth/login", resp.Header.Get("Location"))
+}
+
+func (s *OAuthFlowSuite) TestLogoutRejectsPostLogoutRedirectURIWithoutClientID() {
+	// Providing post_logout_redirect_uri without client_id should fall back to login
+	resp, err := s.httpClient.Post(
+		"http://localhost:8080/oauth/logout?post_logout_redirect_uri=http://example.com/callback",
+		"", nil,
+	)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	// Without client_id, can't validate the URI, so redirect to login
+	s.Equal(http.StatusFound, resp.StatusCode)
+	s.Equal("/oauth/login", resp.Header.Get("Location"))
+}
+
 // Token Introspection Tests
 
 func (s *OAuthFlowSuite) TestTokenIntrospectionAccessToken() {
