@@ -71,6 +71,24 @@ func parseClientCredentials(r *http.Request) (clientID, clientSecret string) {
 	return r.FormValue("client_id"), r.FormValue("client_secret")
 }
 
+// validateOAuthClientRedirect validates that the client exists and the redirect URI is allowed.
+// This is used early in the authorize flow to establish whether we can safely redirect errors
+// back to the client. Returns the client on success. On failure, returns one of:
+//   - ErrInvalidClient (client doesn't exist)
+//   - ErrInvalidRedirectURI (redirect URI not in allowlist)
+func (s *Server) validateOAuthClientRedirect(ctx context.Context, clientID, redirectURI string) (db.OauthClient, error) {
+	client, err := s.datastore.Q.GetOAuthClientByClientID(ctx, clientID)
+	if err != nil {
+		log.Printf("validateOAuthClientRedirect: error getting client by client ID: %s\n", err)
+		return db.OauthClient{}, ErrInvalidClient
+	}
+	if !slices.Contains(client.RedirectUris, redirectURI) {
+		log.Printf("validateOAuthClientRedirect: redirect URI %s not in allowlist for client: %s\n", redirectURI, clientID)
+		return db.OauthClient{}, ErrInvalidRedirectURI
+	}
+	return client, nil
+}
+
 // validateOAuthClient validates that the client exists and the redirect URI and scopes are allowed.
 // Returns the client on success. On failure, returns one of:
 //   - ErrInvalidClient (client doesn't exist)

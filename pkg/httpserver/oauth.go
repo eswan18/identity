@@ -58,10 +58,8 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
 	state := r.URL.Query().Get("state")
 
-	if responseType != "code" {
-		http.Error(w, "Invalid response type", http.StatusBadRequest)
-		return
-	}
+	// Phase 1: Validate client_id and redirect_uri first.
+	// Per RFC 6749 4.1.2.1, if these are invalid we MUST NOT redirect — show error directly.
 	if clientID == "" {
 		http.Error(w, "Client ID is required", http.StatusBadRequest)
 		return
@@ -70,53 +68,68 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Redirect URI is required", http.StatusBadRequest)
 		return
 	}
-	if codeChallenge == "" {
-		http.Error(w, "Code challenge is required", http.StatusBadRequest)
-		return
-	}
-	if codeChallengeMethod == "" {
-		http.Error(w, "Code challenge method is required", http.StatusBadRequest)
-		return
-	}
-	if codeChallengeMethod != "S256" {
-		http.Error(w, "Invalid code challenge method", http.StatusBadRequest)
+	client, err := s.validateOAuthClientRedirect(r.Context(), clientID, redirectURI)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Check if user is authenticated via session cookie
+	// redirectError is a helper that redirects OAuth errors to the client per RFC 6749 4.1.2.1.
+	// Only safe to use after client_id and redirect_uri have been validated above.
+	redirectError := func(errorCode, description string) {
+		redirectURL, _ := url.Parse(redirectURI)
+		q := redirectURL.Query()
+		q.Set("error", errorCode)
+		q.Set("error_description", description)
+		q.Set("state", state)
+		redirectURL.RawQuery = q.Encode()
+		http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+	}
+
+	// Phase 2: Validate remaining parameters. These errors are redirected to the client.
+	if responseType != "code" {
+		redirectError("unsupported_response_type", "Only 'code' response type is supported")
+		return
+	}
+	if codeChallenge == "" || codeChallengeMethod == "" {
+		redirectError("invalid_request", "Code challenge and code challenge method are required")
+		return
+	}
+	if codeChallengeMethod != "S256" {
+		redirectError("invalid_request", "Code challenge method must be S256")
+		return
+	}
+
+	// Validate scopes against client's allowed scopes
+	if scopesAllowed, invalidScopes := containsAll(client.AllowedScopes, scope); !scopesAllowed {
+		redirectError("invalid_scope", fmt.Sprintf("Scopes %v not allowed for this client", invalidScopes))
+		return
+	}
+
+	// Phase 3: Check authentication and user status.
 	session, err := s.getSessionFromCookie(r)
 	if err != nil {
-		// If not authenticated, redirect to login page with OAuth parameters preserved -- just pull the whole query string
+		// If not authenticated, redirect to login page with OAuth parameters preserved
 		loginURL := "/oauth/login?" + r.URL.RawQuery
 		http.Redirect(w, r, loginURL, http.StatusFound)
 		return
 	}
 
-	// Check if the user is deactivated - they should not be able to authorize OAuth clients
 	user, err := s.datastore.Q.GetUserByIDIncludingInactive(r.Context(), session.UserID)
 	if err != nil {
-		http.Error(w, "An error occurred", http.StatusInternalServerError)
+		redirectError("server_error", "An error occurred")
 		return
 	}
 	if !user.IsActive {
-		// Deactivated users cannot authorize OAuth clients
-		// Redirect to login page with error message
 		loginURL := "/oauth/login?error=account_deactivated&" + r.URL.RawQuery
 		http.Redirect(w, r, loginURL, http.StatusFound)
 		return
 	}
 
-	client, err := s.validateOAuthClient(r.Context(), clientID, redirectURI, scope)
-	if err != nil {
-		// All OAuth client validation errors are 400 Bad Request
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// generate authorization code and redirect to redirect_uri
+	// Phase 4: Generate authorization code and redirect.
 	authorizationCode, err := s.generateAuthorizationCode(r.Context(), session.UserID, client.ID, redirectURI, scope, codeChallenge, codeChallengeMethod)
 	if err != nil {
-		http.Error(w, "An error occurred", http.StatusInternalServerError)
+		redirectError("server_error", "An error occurred")
 		return
 	}
 	redirectURL, err := url.Parse(redirectURI)

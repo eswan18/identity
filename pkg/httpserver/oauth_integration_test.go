@@ -1449,6 +1449,198 @@ func (s *OAuthFlowSuite) TestForgotUsernameMissingEmail() {
 	s.Equal(http.StatusBadRequest, resp.StatusCode)
 }
 
+// Authorize Error Redirect Tests
+//
+// Per RFC 6749 4.1.2.1, when the redirect_uri is valid and the client is known,
+// errors should be redirected back to the client as query parameters.
+// When the client or redirect_uri is invalid/unknown, errors must be shown directly.
+
+// mustLoginAndGetAuthorizeClient is a helper that creates a user, logs in to get a session,
+// and returns an HTTP client with the session cookie and the registered OAuth client.
+func (s *OAuthFlowSuite) mustLoginAndGetAuthorizeClient(clientParams db.CreateOAuthClientParams) (*http.Client, db.OauthClient) {
+	s.T().Helper()
+	client := s.mustRegisterOAuthClient(clientParams)
+	username := s.mustGenerateRandomString(8)
+	password := s.mustGenerateRandomString(16)
+	s.mustRegisterUser(username, password, fmt.Sprintf("%s@example.com", username))
+
+	jar, err := cookiejar.New(nil)
+	s.Require().NoError(err)
+	httpClient := &http.Client{
+		Jar: jar,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	// Login to establish a session
+	resp, err := httpClient.PostForm("http://localhost:8080/oauth/login", url.Values{
+		"username": {username},
+		"password": {password},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode)
+
+	return httpClient, client
+}
+
+func (s *OAuthFlowSuite) TestAuthorizeInvalidScopeRedirectsErrorToClient() {
+	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
+		ClientID:       "authz-error-scope-client",
+		Name:           "Authz Error Scope Client",
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid"},
+		IsConfidential: false,
+		Audience:       "test-audience",
+	})
+	scv := s.mustCreateStateAndCodeVerifier()
+
+	// Request a scope the client doesn't support
+	query := url.Values{
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {"http://localhost:8080/callback"},
+		"response_type":         {"code"},
+		"scope":                 {"openid admin:users:read"},
+		"state":                 {scv.State},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	}
+	resp, err := httpClient.Get("http://localhost:8080/oauth/authorize?" + query.Encode())
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	// Should redirect back to the client with error params, not show a raw error page
+	s.Equal(http.StatusFound, resp.StatusCode)
+	location, err := url.Parse(resp.Header.Get("Location"))
+	s.Require().NoError(err)
+	s.Equal("/callback", location.Path)
+	s.Equal("invalid_scope", location.Query().Get("error"))
+	s.Equal(scv.State, location.Query().Get("state"))
+}
+
+func (s *OAuthFlowSuite) TestAuthorizeMissingPKCERedirectsErrorToClient() {
+	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
+		ClientID:       "authz-error-pkce-client",
+		Name:           "Authz Error PKCE Client",
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid"},
+		IsConfidential: false,
+		Audience:       "test-audience",
+	})
+
+	// Omit code_challenge and code_challenge_method
+	query := url.Values{
+		"client_id":     {client.ClientID},
+		"redirect_uri":  {"http://localhost:8080/callback"},
+		"response_type": {"code"},
+		"scope":         {"openid"},
+		"state":         {"test-state"},
+	}
+	resp, err := httpClient.Get("http://localhost:8080/oauth/authorize?" + query.Encode())
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	// Should redirect back to client with error, not show a raw error page
+	s.Equal(http.StatusFound, resp.StatusCode)
+	location, err := url.Parse(resp.Header.Get("Location"))
+	s.Require().NoError(err)
+	s.Equal("/callback", location.Path)
+	s.Equal("invalid_request", location.Query().Get("error"))
+	s.Equal("test-state", location.Query().Get("state"))
+}
+
+func (s *OAuthFlowSuite) TestAuthorizeInvalidResponseTypeRedirectsErrorToClient() {
+	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
+		ClientID:       "authz-error-rt-client",
+		Name:           "Authz Error RT Client",
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid"},
+		IsConfidential: false,
+		Audience:       "test-audience",
+	})
+
+	scv := s.mustCreateStateAndCodeVerifier()
+	// Use an unsupported response_type
+	query := url.Values{
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {"http://localhost:8080/callback"},
+		"response_type":         {"token"},
+		"scope":                 {"openid"},
+		"state":                 {scv.State},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	}
+	resp, err := httpClient.Get("http://localhost:8080/oauth/authorize?" + query.Encode())
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	// Should redirect back to client with error
+	s.Equal(http.StatusFound, resp.StatusCode)
+	location, err := url.Parse(resp.Header.Get("Location"))
+	s.Require().NoError(err)
+	s.Equal("/callback", location.Path)
+	s.Equal("unsupported_response_type", location.Query().Get("error"))
+	s.Equal(scv.State, location.Query().Get("state"))
+}
+
+func (s *OAuthFlowSuite) TestAuthorizeInvalidClientShowsDirectError() {
+	// Login first to get a session, using a dummy client
+	httpClient, _ := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
+		ClientID:       "authz-dummy-client",
+		Name:           "Dummy Client",
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid"},
+		IsConfidential: false,
+		Audience:       "test-audience",
+	})
+
+	// Now try to authorize with a nonexistent client — can't trust the redirect_uri
+	query := url.Values{
+		"client_id":             {"nonexistent-client"},
+		"redirect_uri":          {"http://evil.com/callback"},
+		"response_type":         {"code"},
+		"scope":                 {"openid"},
+		"state":                 {"test-state"},
+		"code_challenge":        {"challenge"},
+		"code_challenge_method": {"S256"},
+	}
+	resp, err := httpClient.Get("http://localhost:8080/oauth/authorize?" + query.Encode())
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	// Should NOT redirect to the untrusted URI — show error directly
+	s.Equal(http.StatusBadRequest, resp.StatusCode)
+}
+
+func (s *OAuthFlowSuite) TestAuthorizeInvalidRedirectURIShowsDirectError() {
+	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
+		ClientID:       "authz-error-redir-client",
+		Name:           "Authz Error Redir Client",
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid"},
+		IsConfidential: false,
+		Audience:       "test-audience",
+	})
+
+	// Use a redirect_uri that's NOT registered for this client
+	query := url.Values{
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {"http://evil.com/steal-tokens"},
+		"response_type":         {"code"},
+		"scope":                 {"openid"},
+		"state":                 {"test-state"},
+		"code_challenge":        {"challenge"},
+		"code_challenge_method": {"S256"},
+	}
+	resp, err := httpClient.Get("http://localhost:8080/oauth/authorize?" + query.Encode())
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	// Should NOT redirect to the untrusted URI — show error directly
+	s.Equal(http.StatusBadRequest, resp.StatusCode)
+}
+
 // OIDC Discovery Tests
 
 func (s *OAuthFlowSuite) TestOIDCDiscoveryEndpoint() {
