@@ -200,48 +200,21 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate OAuth client, redirect URI, and scopes
-	log.Printf("[DEBUG] HandleLoginPost: Validating OAuth client: %s", clientID)
-	client, err := s.validateOAuthClient(r.Context(), clientID, redirectURI, scope)
-	if err != nil {
-		log.Printf("[ERROR] HandleLoginPost: OAuth client validation failed: %v", err)
-		s.renderLoginError(w, http.StatusBadRequest, err.Error(), oauthParams)
-		return
+	// Redirect back to /oauth/authorize to handle consent and code generation.
+	// The session is now established, so authorize will find the user authenticated.
+	authorizeQuery := url.Values{
+		"client_id":             {clientID},
+		"redirect_uri":          {redirectURI},
+		"response_type":         {"code"},
+		"scope":                 {strings.Join(scope, " ")},
+		"state":                 {state},
+		"code_challenge":        {codeChallenge},
+		"code_challenge_method": {codeChallengeMethod},
+		"nonce":                 {nonce},
 	}
-	log.Printf("[DEBUG] HandleLoginPost: OAuth client validated: %s", client.ID)
-
-	if redirectURI == "" {
-		// OAuth flow but no redirect URI - show success page
-		log.Printf("[DEBUG] HandleLoginPost: No redirect URI, redirecting to success page")
-		http.Redirect(w, r, "/oauth/success", http.StatusFound)
-		return
-	}
-
-	// Generate and store authorization code
-	log.Printf("[DEBUG] HandleLoginPost: Generating authorization code")
-	authorizationCode, err := s.generateAuthorizationCode(r.Context(), user.ID, client.ID, redirectURI, scope, codeChallenge, codeChallengeMethod, nonce)
-	if err != nil {
-		log.Printf("[ERROR] HandleLoginPost: Failed to generate authorization code: %v", err)
-		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
-		return
-	}
-	log.Printf("[DEBUG] HandleLoginPost: Authorization code generated successfully")
-
-	// Build the final redirect URL with the authorization code and other OAuth parameters.
-	log.Printf("[DEBUG] HandleLoginPost: Building redirect URL to: %s", redirectURI)
-	redirectURL, err := url.Parse(redirectURI)
-	if err != nil {
-		log.Printf("[ERROR] HandleLoginPost: Failed to parse redirect URI: %v", err)
-		s.renderLoginError(w, http.StatusBadRequest, "Invalid redirect URI", oauthParams)
-		return
-	}
-	q := redirectURL.Query()
-	q.Set("state", state)
-	q.Set("code", authorizationCode)
-	redirectURL.RawQuery = q.Encode()
-
-	log.Printf("[DEBUG] HandleLoginPost: Redirecting to: %s", redirectURL.String())
-	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+	authorizeURL := "/oauth/authorize?" + authorizeQuery.Encode()
+	log.Printf("[DEBUG] HandleLoginPost: Redirecting to authorize: %s", authorizeURL)
+	http.Redirect(w, r, authorizeURL, http.StatusFound)
 }
 
 // renderLoginError renders the login page with an error message, preserving OAuth parameters.

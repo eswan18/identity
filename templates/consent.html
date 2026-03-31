@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authorize Application</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="card bg-base-100 shadow-xl w-full max-w-md">
+        <div class="card-body">
+            <div class="text-center mb-6">
+                <h1 class="card-title justify-center text-2xl">Authorize Application</h1>
+                <p class="text-sm text-base-content/60 mt-2">
+                    <strong>{{.ClientName}}</strong> is requesting access to your account
+                </p>
+            </div>
+
+            {{if .Error}}
+            <div class="alert alert-error mb-6">
+                <svg class="shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm-.75 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 12a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
+                </svg>
+                <span>{{.Error}}</span>
+            </div>
+            {{end}}
+
+            <div class="mb-6">
+                <p class="text-sm font-medium mb-3">This application will be able to:</p>
+                <ul class="space-y-2">
+                    {{range .ScopeDescriptions}}
+                    <li class="flex items-start gap-2 text-sm">
+                        <svg class="shrink-0 mt-0.5 text-primary" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.78 5.28-4.5 6a.75.75 0 0 1-1.18.02l-2.25-2.5a.75.75 0 1 1 1.12-1l1.63 1.81 3.92-5.23a.75.75 0 1 1 1.26.9z"/>
+                        </svg>
+                        <span>{{.Description}}</span>
+                    </li>
+                    {{end}}
+                </ul>
+            </div>
+
+            <form method="POST" action="/oauth/consent" class="space-y-3">
+                <input type="hidden" name="client_id" value="{{.ClientID}}">
+                <input type="hidden" name="redirect_uri" value="{{.RedirectURI}}">
+                <input type="hidden" name="response_type" value="{{.ResponseType}}">
+                <input type="hidden" name="state" value="{{.State}}">
+                <input type="hidden" name="scope" value="{{range $i, $s := .Scope}}{{if $i}} {{end}}{{$s}}{{end}}">
+                <input type="hidden" name="code_challenge" value="{{.CodeChallenge}}">
+                <input type="hidden" name="code_challenge_method" value="{{.CodeChallengeMethod}}">
+                <input type="hidden" name="nonce" value="{{.Nonce}}">
+
+                <button type="submit" name="decision" value="allow" class="btn btn-primary w-full">Allow</button>
+                <button type="submit" name="decision" value="deny" class="btn btn-outline w-full">Deny</button>
+            </form>
+
+            <div class="divider"></div>
+            <div class="text-center text-xs text-base-content/50">
+                Identity Service
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -119,49 +119,20 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Continue with OAuth flow
-	clientID := pending.ClientID.String
-	redirectURI := pending.RedirectUri.String
-	state := pending.State.String
-	scope := pending.Scope
-	codeChallenge := pending.CodeChallenge.String
-	codeChallengeMethod := pending.CodeChallengeMethod.String
-	nonce := pending.Nonce.String
-
-	// Validate OAuth client
-	client, err := s.validateOAuthClient(r.Context(), clientID, redirectURI, scope)
-	if err != nil {
-		log.Printf("[ERROR] HandleMFAPost: OAuth client validation failed: %v", err)
-		http.Redirect(w, r, "/oauth/login", http.StatusFound)
-		return
+	// Redirect back to /oauth/authorize to handle consent and code generation.
+	authorizeQuery := url.Values{
+		"client_id":             {pending.ClientID.String},
+		"redirect_uri":          {pending.RedirectUri.String},
+		"response_type":         {"code"},
+		"scope":                 {strings.Join(pending.Scope, " ")},
+		"state":                 {pending.State.String},
+		"code_challenge":        {pending.CodeChallenge.String},
+		"code_challenge_method": {pending.CodeChallengeMethod.String},
+		"nonce":                 {pending.Nonce.String},
 	}
-
-	if redirectURI == "" {
-		http.Redirect(w, r, "/oauth/success", http.StatusFound)
-		return
-	}
-
-	// Generate authorization code
-	authorizationCode, err := s.generateAuthorizationCode(r.Context(), pending.UserID, client.ID, redirectURI, scope, codeChallenge, codeChallengeMethod, nonce)
-	if err != nil {
-		log.Printf("[ERROR] HandleMFAPost: Failed to generate authorization code: %v", err)
-		http.Redirect(w, r, "/oauth/login", http.StatusFound)
-		return
-	}
-
-	// Build redirect URL
-	redirectURL, err := url.Parse(redirectURI)
-	if err != nil {
-		log.Printf("[ERROR] HandleMFAPost: Failed to parse redirect URI: %v", err)
-		http.Redirect(w, r, "/oauth/login", http.StatusFound)
-		return
-	}
-	q := redirectURL.Query()
-	q.Set("state", state)
-	q.Set("code", authorizationCode)
-	redirectURL.RawQuery = q.Encode()
-
-	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+	authorizeURL := "/oauth/authorize?" + authorizeQuery.Encode()
+	log.Printf("[DEBUG] HandleMFAPost: Redirecting to authorize: %s", authorizeURL)
+	http.Redirect(w, r, authorizeURL, http.StatusFound)
 }
 
 // createMFAPendingSession creates a pending MFA session after password validation.

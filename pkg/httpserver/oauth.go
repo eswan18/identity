@@ -127,7 +127,19 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Phase 4: Generate authorization code and redirect.
+	// Phase 4: Check consent. If user hasn't consented to these scopes, redirect to consent page.
+	consent, err := s.datastore.Q.GetUserConsent(r.Context(), db.GetUserConsentParams{
+		UserID:   session.UserID,
+		ClientID: client.ID,
+	})
+	if err != nil || !scopesCovered(consent.Scopes, scope) {
+		// Need consent — redirect to consent page with all OAuth params
+		consentURL := "/oauth/consent?" + r.URL.RawQuery
+		http.Redirect(w, r, consentURL, http.StatusFound)
+		return
+	}
+
+	// Phase 5: Generate authorization code and redirect.
 	authorizationCode, err := s.generateAuthorizationCode(r.Context(), session.UserID, client.ID, redirectURI, scope, codeChallenge, codeChallengeMethod, nonce)
 	if err != nil {
 		redirectError("server_error", "An error occurred")
@@ -821,4 +833,153 @@ func (s *Server) HandleOIDCDiscovery(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(discovery)
+}
+
+// scopesCovered returns true if all requested scopes are present in the stored scopes.
+func scopesCovered(storedScopes, requestedScopes []string) bool {
+	for _, s := range requestedScopes {
+		if !slices.Contains(storedScopes, s) {
+			return false
+		}
+	}
+	return true
+}
+
+// scopeDescriptions maps scope strings to human-readable descriptions.
+var scopeDescriptionMap = map[string]string{
+	"openid":  "Verify your identity",
+	"profile": "View your profile information (name, username, avatar)",
+	"email":   "View your email address",
+}
+
+// HandleConsentGet renders the consent page.
+func (s *Server) HandleConsentGet(w http.ResponseWriter, r *http.Request) {
+	// Verify session
+	session, err := s.getSessionFromCookie(r)
+	if err != nil {
+		http.Redirect(w, r, "/oauth/login?"+r.URL.RawQuery, http.StatusFound)
+		return
+	}
+	_ = session
+
+	clientID := r.URL.Query().Get("client_id")
+	scopeParam := r.URL.Query().Get("scope")
+	var scope []string
+	if scopeParam == "" {
+		scope = []string{"openid"}
+	} else {
+		scope = strings.Split(scopeParam, " ")
+	}
+
+	// Look up client name
+	client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
+	if err != nil {
+		http.Error(w, "Invalid client", http.StatusBadRequest)
+		return
+	}
+
+	// Build scope descriptions
+	var descriptions []ScopeDescription
+	for _, sc := range scope {
+		desc, ok := scopeDescriptionMap[sc]
+		if ok {
+			descriptions = append(descriptions, ScopeDescription{Scope: sc, Description: desc})
+		} else {
+			descriptions = append(descriptions, ScopeDescription{Scope: sc, Description: sc})
+		}
+	}
+
+	data := ConsentPageData{
+		ClientName:          client.Name,
+		ClientID:            clientID,
+		RedirectURI:         r.URL.Query().Get("redirect_uri"),
+		State:               r.URL.Query().Get("state"),
+		Scope:               scope,
+		ScopeDescriptions:   descriptions,
+		CodeChallenge:       r.URL.Query().Get("code_challenge"),
+		CodeChallengeMethod: r.URL.Query().Get("code_challenge_method"),
+		Nonce:               r.URL.Query().Get("nonce"),
+		ResponseType:        r.URL.Query().Get("response_type"),
+	}
+
+	if err := s.consentTemplate.Execute(w, data); err != nil {
+		http.Error(w, "An error occurred", http.StatusInternalServerError)
+	}
+}
+
+// HandleConsentPost processes the consent decision.
+func (s *Server) HandleConsentPost(w http.ResponseWriter, r *http.Request) {
+	session, err := s.getSessionFromCookie(r)
+	if err != nil {
+		http.Error(w, "Not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	decision := r.FormValue("decision")
+	clientID := r.FormValue("client_id")
+	redirectURI := r.FormValue("redirect_uri")
+	state := r.FormValue("state")
+	scopeParam := r.FormValue("scope")
+	var scope []string
+	if scopeParam == "" {
+		scope = []string{"openid"}
+	} else {
+		scope = strings.Split(scopeParam, " ")
+	}
+	codeChallenge := r.FormValue("code_challenge")
+	codeChallengeMethod := r.FormValue("code_challenge_method")
+	nonce := r.FormValue("nonce")
+
+	// Validate the client and redirect URI
+	client, err := s.validateOAuthClientRedirect(r.Context(), clientID, redirectURI)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Helper to redirect errors to the client
+	redirectError := func(errorCode, description string) {
+		redirectURL, _ := url.Parse(redirectURI)
+		q := redirectURL.Query()
+		q.Set("error", errorCode)
+		q.Set("error_description", description)
+		q.Set("state", state)
+		redirectURL.RawQuery = q.Encode()
+		http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+	}
+
+	if decision == "deny" {
+		redirectError("access_denied", "User denied consent")
+		return
+	}
+
+	// Store consent
+	err = s.datastore.Q.UpsertUserConsent(r.Context(), db.UpsertUserConsentParams{
+		UserID:   session.UserID,
+		ClientID: client.ID,
+		Scopes:   scope,
+	})
+	if err != nil {
+		log.Printf("HandleConsentPost: failed to store consent: %v", err)
+		redirectError("server_error", "Failed to store consent")
+		return
+	}
+
+	// Generate authorization code and redirect to client
+	authorizationCode, err := s.generateAuthorizationCode(r.Context(), session.UserID, client.ID, redirectURI, scope, codeChallenge, codeChallengeMethod, nonce)
+	if err != nil {
+		redirectError("server_error", "An error occurred")
+		return
+	}
+
+	redirectURL, err := url.Parse(redirectURI)
+	if err != nil {
+		http.Error(w, "Invalid redirect URI", http.StatusBadRequest)
+		return
+	}
+	q := redirectURL.Query()
+	q.Set("code", authorizationCode)
+	q.Set("state", state)
+	redirectURL.RawQuery = q.Encode()
+	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 }

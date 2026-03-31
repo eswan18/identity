@@ -282,6 +282,21 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteUserConsent = `-- name: DeleteUserConsent :exec
+DELETE FROM oauth_user_consents
+WHERE user_id = $1 AND client_id = $2
+`
+
+type DeleteUserConsentParams struct {
+	UserID   uuid.UUID `json:"user_id"`
+	ClientID uuid.UUID `json:"client_id"`
+}
+
+func (q *Queries) DeleteUserConsent(ctx context.Context, arg DeleteUserConsentParams) error {
+	_, err := q.db.ExecContext(ctx, deleteUserConsent, arg.UserID, arg.ClientID)
+	return err
+}
+
 const deleteUserEmailTokens = `-- name: DeleteUserEmailTokens :exec
 DELETE FROM auth_email_tokens WHERE user_id = $1 AND token_type = $2
 `
@@ -718,6 +733,32 @@ func (q *Queries) GetUserByUsernameIncludingInactive(ctx context.Context, userna
 	return i, err
 }
 
+const getUserConsent = `-- name: GetUserConsent :one
+
+SELECT id, user_id, client_id, scopes, created_at, updated_at FROM oauth_user_consents
+WHERE user_id = $1 AND client_id = $2
+`
+
+type GetUserConsentParams struct {
+	UserID   uuid.UUID `json:"user_id"`
+	ClientID uuid.UUID `json:"client_id"`
+}
+
+// Consent queries
+func (q *Queries) GetUserConsent(ctx context.Context, arg GetUserConsentParams) (OauthUserConsent, error) {
+	row := q.db.QueryRowContext(ctx, getUserConsent, arg.UserID, arg.ClientID)
+	var i OauthUserConsent
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ClientID,
+		pq.Array(&i.Scopes),
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getUserMFAStatus = `-- name: GetUserMFAStatus :one
 
 SELECT id, mfa_enabled, mfa_secret FROM auth_users WHERE id = $1
@@ -1142,5 +1183,23 @@ type UpdateUserUsernameParams struct {
 
 func (q *Queries) UpdateUserUsername(ctx context.Context, arg UpdateUserUsernameParams) error {
 	_, err := q.db.ExecContext(ctx, updateUserUsername, arg.Username, arg.ID)
+	return err
+}
+
+const upsertUserConsent = `-- name: UpsertUserConsent :exec
+INSERT INTO oauth_user_consents (user_id, client_id, scopes)
+VALUES ($1, $2, $3)
+ON CONFLICT (user_id, client_id)
+DO UPDATE SET scopes = $3, updated_at = now()
+`
+
+type UpsertUserConsentParams struct {
+	UserID   uuid.UUID `json:"user_id"`
+	ClientID uuid.UUID `json:"client_id"`
+	Scopes   []string  `json:"scopes"`
+}
+
+func (q *Queries) UpsertUserConsent(ctx context.Context, arg UpsertUserConsentParams) error {
+	_, err := q.db.ExecContext(ctx, upsertUserConsent, arg.UserID, arg.ClientID, pq.Array(arg.Scopes))
 	return err
 }

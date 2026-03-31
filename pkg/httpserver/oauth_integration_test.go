@@ -147,6 +147,74 @@ func (s *OAuthFlowSuite) mustGenerateAlphanumericString(length int) string {
 	return string(b)
 }
 
+// mustLoginAndConsent performs login, follows the redirect to authorize, approves consent,
+// and returns the authorization code. Uses a cookie jar to maintain session.
+func (s *OAuthFlowSuite) mustLoginAndConsent(user UserWithPassword, clientID, redirectURI, scope string, scv StateAndCodeVerifier) string {
+	s.T().Helper()
+
+	jar, err := cookiejar.New(nil)
+	s.Require().NoError(err)
+	httpClient := &http.Client{
+		Jar: jar,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	// Step 1: Login
+	formValues := url.Values{
+		"username":              {user.Username},
+		"password":              {user.Password},
+		"client_id":             {clientID},
+		"redirect_uri":          {redirectURI},
+		"state":                 {scv.State},
+		"scope":                 {scope},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	}
+	resp, err := httpClient.PostForm("http://localhost:8080/oauth/login", formValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode, "login should redirect")
+
+	// Step 2: Follow redirect to /oauth/authorize → /oauth/consent
+	authorizeURL := resp.Header.Get("Location")
+	if !strings.HasPrefix(authorizeURL, "http") {
+		authorizeURL = "http://localhost:8080" + authorizeURL
+	}
+	resp, err = httpClient.Get(authorizeURL)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode, "authorize should redirect to consent")
+
+	// Step 3: Approve consent
+	consentLocation := resp.Header.Get("Location")
+	consentURL, err := url.Parse(consentLocation)
+	s.Require().NoError(err)
+	consentForm := url.Values{
+		"decision":              {"allow"},
+		"client_id":             {consentURL.Query().Get("client_id")},
+		"redirect_uri":          {consentURL.Query().Get("redirect_uri")},
+		"response_type":         {consentURL.Query().Get("response_type")},
+		"scope":                 {consentURL.Query().Get("scope")},
+		"state":                 {consentURL.Query().Get("state")},
+		"code_challenge":        {consentURL.Query().Get("code_challenge")},
+		"code_challenge_method": {consentURL.Query().Get("code_challenge_method")},
+		"nonce":                 {consentURL.Query().Get("nonce")},
+	}
+	resp, err = httpClient.PostForm("http://localhost:8080/oauth/consent", consentForm)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode, "consent should redirect to client")
+
+	location := resp.Header.Get("Location")
+	redirectUrl, err := url.ParseRequestURI(location)
+	s.Require().NoError(err)
+	code := redirectUrl.Query().Get("code")
+	s.Require().NotEmpty(code, "should receive authorization code")
+	return code
+}
+
 func (s *OAuthFlowSuite) mustRegisterOAuthClient(params db.CreateOAuthClientParams) db.OauthClient {
 	client, err := s.datastore.Q.CreateOAuthClient(s.T().Context(), params)
 	s.Require().NoError(err)
@@ -215,16 +283,17 @@ func (s *OAuthFlowSuite) mustCompleteOAuthFlow(clientParams db.CreateOAuthClient
 	host := "localhost:8080"
 	redirectURI := clientParams.RedirectUris[0]
 
-	// Step 1: Login and get authorization code
-	loginQuery := url.Values{
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {redirectURI},
-		"response_type":         {"code"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
-		"state":                 {scv.State},
-		"scope":                 {scope},
+	// Use a cookie jar client to maintain session across login → authorize → consent
+	jar, err := cookiejar.New(nil)
+	s.Require().NoError(err)
+	httpClient := &http.Client{
+		Jar: jar,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
+
+	// Step 1: Login (establishes session, redirects to /oauth/authorize)
 	formValues := url.Values{
 		"username":              {user.Username},
 		"password":              {user.Password},
@@ -235,11 +304,42 @@ func (s *OAuthFlowSuite) mustCompleteOAuthFlow(clientParams db.CreateOAuthClient
 		"code_challenge":        {scv.CodeChallenge},
 		"code_challenge_method": {scv.CodeChallengeMethod},
 	}
-	postLoginUrl := fmt.Sprintf("http://%s/oauth/login?%s", host, loginQuery.Encode())
-	resp, err := s.httpClient.PostForm(postLoginUrl, formValues)
+	postLoginUrl := fmt.Sprintf("http://%s/oauth/login", host)
+	resp, err := httpClient.PostForm(postLoginUrl, formValues)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 	s.Require().Equal(http.StatusFound, resp.StatusCode, "login should redirect")
+
+	// Step 2: Follow redirect to /oauth/authorize (redirects to /oauth/consent)
+	authorizeURL := resp.Header.Get("Location")
+	if !strings.HasPrefix(authorizeURL, "http") {
+		authorizeURL = fmt.Sprintf("http://%s%s", host, authorizeURL)
+	}
+	resp, err = httpClient.Get(authorizeURL)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode, "authorize should redirect to consent")
+
+	// Step 3: Approve consent (redirects to client with code)
+	consentLocation := resp.Header.Get("Location")
+	consentURL, err := url.Parse(consentLocation)
+	s.Require().NoError(err)
+	consentFormValues := url.Values{
+		"decision":              {"allow"},
+		"client_id":             {consentURL.Query().Get("client_id")},
+		"redirect_uri":          {consentURL.Query().Get("redirect_uri")},
+		"response_type":         {consentURL.Query().Get("response_type")},
+		"scope":                 {consentURL.Query().Get("scope")},
+		"state":                 {consentURL.Query().Get("state")},
+		"code_challenge":        {consentURL.Query().Get("code_challenge")},
+		"code_challenge_method": {consentURL.Query().Get("code_challenge_method")},
+		"nonce":                 {consentURL.Query().Get("nonce")},
+	}
+	postConsentUrl := fmt.Sprintf("http://%s/oauth/consent", host)
+	resp, err = httpClient.PostForm(postConsentUrl, consentFormValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode, "consent should redirect to client")
 
 	location := resp.Header.Get("Location")
 	redirectUrl, err := url.ParseRequestURI(location)
@@ -247,7 +347,7 @@ func (s *OAuthFlowSuite) mustCompleteOAuthFlow(clientParams db.CreateOAuthClient
 	authorizationCode := redirectUrl.Query().Get("code")
 	s.Require().NotEmpty(authorizationCode, "should receive authorization code")
 
-	// Step 2: Exchange authorization code for tokens
+	// Step 4: Exchange authorization code for tokens
 	tokenQuery := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {authorizationCode},
@@ -256,7 +356,7 @@ func (s *OAuthFlowSuite) mustCompleteOAuthFlow(clientParams db.CreateOAuthClient
 		"code_verifier": {scv.CodeVerifier},
 	}
 	postTokenUrl := fmt.Sprintf("http://%s/oauth/token", host)
-	resp, err = s.httpClient.PostForm(postTokenUrl, tokenQuery)
+	resp, err = httpClient.PostForm(postTokenUrl, tokenQuery)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 	s.Require().Equal(http.StatusOK, resp.StatusCode, "token exchange should succeed")
@@ -324,61 +424,8 @@ func (s *OAuthFlowSuite) TestFullOAuthFlow() {
 	// Create a variable to store the returned authorization code, which we'll use later.
 	var authorizationCode string
 	s.Run("/oauth/login", func() {
-		// Calling login should render the login page with the OAuth parameters preserved.
-
-		// Call /login
-		host := "localhost:8080"
-		route := "/oauth/login"
-		loginQuery := url.Values{
-			"client_id":             {client.ClientID},
-			"redirect_uri":          {clientCallbackURI},
-			"response_type":         {"code"},
-			"code_challenge":        {scv.CodeChallenge},
-			"code_challenge_method": {scv.CodeChallengeMethod},
-			"state":                 {scv.State},
-			"scope":                 {"openid profile email"},
-		}
-		getLoginUrl := fmt.Sprintf("http://%s%s?%s", host, route, loginQuery.Encode())
-		resp, err := s.httpClient.Get(getLoginUrl)
-		s.Require().NoError(err)
-		defer resp.Body.Close()
-		s.Equal(http.StatusOK, resp.StatusCode)
-		// Verify we get something that looks like the login page.
-		body, err := io.ReadAll(resp.Body)
-		s.Require().NoError(err)
-		s.Contains(string(body), "Sign In")
-		// Submit the login form.
-		formValues := url.Values{
-			// Login creds...
-			"username": {user.Username},
-			"password": {user.Password},
-			// ...along with the original OAuth parameters.
-			"client_id":             {client.ClientID},
-			"redirect_uri":          {clientCallbackURI},
-			"state":                 {scv.State},
-			"scope":                 {"openid profile email"},
-			"code_challenge":        {scv.CodeChallenge},
-			"code_challenge_method": {scv.CodeChallengeMethod},
-		}
-		postLoginUrl := fmt.Sprintf("http://%s%s", host, route)
-		resp, err = s.httpClient.PostForm(postLoginUrl, formValues)
-		s.Require().NoError(err)
-		defer resp.Body.Close()
-		if !s.Equal(http.StatusFound, resp.StatusCode) {
-			body, err := io.ReadAll(resp.Body)
-			s.Require().NoError(err)
-			s.T().Logf("response body: %s", string(body))
-			s.FailNow("unexpected status code found")
-		}
-		// Verify it redirects to the callback URL with an authorization code.
-		location := resp.Header.Get("Location")
-		redirectUrl, err := url.ParseRequestURI(location)
-		s.Require().NoError(err)
-		s.Equal("localhost", redirectUrl.Hostname())
-		s.Equal("8080", redirectUrl.Port())
-		s.Equal("/callback", redirectUrl.Path)
-		// Verify the authorization code is in the query parameters.
-		authorizationCode = redirectUrl.Query().Get("code")
+		// Login + consent flow: login → authorize → consent → approve → callback with code
+		authorizationCode = s.mustLoginAndConsent(user, client.ClientID, clientCallbackURI, "openid profile email", scv)
 		s.NotEmpty(authorizationCode)
 	})
 
@@ -523,7 +570,7 @@ func (s *OAuthFlowSuite) TestIDTokenIncludesNonce() {
 		},
 	}
 
-	// Login to get a session
+	// Login (with nonce) → authorize → consent → approve → callback with code
 	resp, err := httpClient.PostForm("http://localhost:8080/oauth/login", url.Values{
 		"username":              {username},
 		"password":              {password},
@@ -534,6 +581,35 @@ func (s *OAuthFlowSuite) TestIDTokenIncludesNonce() {
 		"code_challenge":        {scv.CodeChallenge},
 		"code_challenge_method": {scv.CodeChallengeMethod},
 		"nonce":                 {nonce},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode)
+
+	// Follow redirect to /oauth/authorize → /oauth/consent
+	authorizeURL := resp.Header.Get("Location")
+	if !strings.HasPrefix(authorizeURL, "http") {
+		authorizeURL = "http://localhost:8080" + authorizeURL
+	}
+	resp, err = httpClient.Get(authorizeURL)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode)
+
+	// Approve consent
+	consentLocation := resp.Header.Get("Location")
+	consentURL, err := url.Parse(consentLocation)
+	s.Require().NoError(err)
+	resp, err = httpClient.PostForm("http://localhost:8080/oauth/consent", url.Values{
+		"decision":              {"allow"},
+		"client_id":             {consentURL.Query().Get("client_id")},
+		"redirect_uri":          {consentURL.Query().Get("redirect_uri")},
+		"response_type":         {consentURL.Query().Get("response_type")},
+		"scope":                 {consentURL.Query().Get("scope")},
+		"state":                 {consentURL.Query().Get("state")},
+		"code_challenge":        {consentURL.Query().Get("code_challenge")},
+		"code_challenge_method": {consentURL.Query().Get("code_challenge_method")},
+		"nonce":                 {consentURL.Query().Get("nonce")},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -976,16 +1052,17 @@ func (s *OAuthFlowSuite) TestOAuthFlowWithMFA() {
 	scv := s.mustCreateStateAndCodeVerifier()
 	host := "localhost:8080"
 
-	// Step 1: Submit login - should redirect to MFA page instead of callback
-	loginQuery := url.Values{
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {clientCallbackURI},
-		"response_type":         {"code"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
-		"state":                 {scv.State},
-		"scope":                 {"openid profile email"},
+	// Use cookie jar to maintain session across MFA → authorize → consent
+	jar, err := cookiejar.New(nil)
+	s.Require().NoError(err)
+	httpClient := &http.Client{
+		Jar: jar,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
+
+	// Step 1: Submit login - should redirect to MFA page
 	formValues := url.Values{
 		"username":              {user.Username},
 		"password":              {user.Password},
@@ -996,47 +1073,59 @@ func (s *OAuthFlowSuite) TestOAuthFlowWithMFA() {
 		"code_challenge":        {scv.CodeChallenge},
 		"code_challenge_method": {scv.CodeChallengeMethod},
 	}
-	postLoginUrl := fmt.Sprintf("http://%s/oauth/login?%s", host, loginQuery.Encode())
-	resp, err := s.httpClient.PostForm(postLoginUrl, formValues)
+	resp, err := httpClient.PostForm(fmt.Sprintf("http://%s/oauth/login", host), formValues)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 	s.Require().Equal(http.StatusFound, resp.StatusCode, "login should redirect")
 
-	// Verify redirect is to MFA page, not callback
 	location := resp.Header.Get("Location")
 	s.Contains(location, "/oauth/mfa", "should redirect to MFA page")
 
-	// Extract pending ID from redirect URL
 	redirectUrl, err := url.ParseRequestURI(location)
 	s.Require().NoError(err)
 	pendingID := redirectUrl.Query().Get("pending")
 	s.NotEmpty(pendingID, "should have pending ID")
 
-	// Step 2: GET MFA page - should show form
-	mfaPageUrl := fmt.Sprintf("http://%s%s", host, location)
-	resp, err = s.httpClient.Get(mfaPageUrl)
-	s.Require().NoError(err)
-	defer resp.Body.Close()
-	s.Equal(http.StatusOK, resp.StatusCode)
-	body, _ := io.ReadAll(resp.Body)
-	s.Contains(string(body), "Two-Factor Authentication")
-
-	// Step 3: Submit valid MFA code - should redirect to callback with auth code
-	// Generate a valid TOTP code
+	// Step 2: Submit valid MFA code - should redirect to /oauth/authorize
 	validCode, err := generateTOTPCode(totpSecret)
 	s.Require().NoError(err)
 
-	mfaFormValues := url.Values{
+	resp, err = httpClient.PostForm(fmt.Sprintf("http://%s/oauth/mfa", host), url.Values{
 		"pending_id": {pendingID},
 		"code":       {validCode},
-	}
-	postMfaUrl := fmt.Sprintf("http://%s/oauth/mfa", host)
-	resp, err = s.httpClient.PostForm(postMfaUrl, mfaFormValues)
+	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 	s.Require().Equal(http.StatusFound, resp.StatusCode, "MFA verification should redirect")
 
-	// Verify redirect is to callback with authorization code
+	// Step 3: Follow redirect to /oauth/authorize → /oauth/consent
+	authorizeURL := resp.Header.Get("Location")
+	if !strings.HasPrefix(authorizeURL, "http") {
+		authorizeURL = fmt.Sprintf("http://%s%s", host, authorizeURL)
+	}
+	resp, err = httpClient.Get(authorizeURL)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode, "authorize should redirect to consent")
+
+	// Step 4: Approve consent
+	consentLocation := resp.Header.Get("Location")
+	consentURL, err := url.Parse(consentLocation)
+	s.Require().NoError(err)
+	resp, err = httpClient.PostForm(fmt.Sprintf("http://%s/oauth/consent", host), url.Values{
+		"decision":              {"allow"},
+		"client_id":             {consentURL.Query().Get("client_id")},
+		"redirect_uri":          {consentURL.Query().Get("redirect_uri")},
+		"response_type":         {consentURL.Query().Get("response_type")},
+		"scope":                 {consentURL.Query().Get("scope")},
+		"state":                 {consentURL.Query().Get("state")},
+		"code_challenge":        {consentURL.Query().Get("code_challenge")},
+		"code_challenge_method": {consentURL.Query().Get("code_challenge_method")},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode, "consent should redirect to client")
+
 	location = resp.Header.Get("Location")
 	redirectUrl, err = url.ParseRequestURI(location)
 	s.Require().NoError(err)
@@ -1044,21 +1133,19 @@ func (s *OAuthFlowSuite) TestOAuthFlowWithMFA() {
 	authorizationCode := redirectUrl.Query().Get("code")
 	s.NotEmpty(authorizationCode, "should receive authorization code")
 
-	// Step 4: Exchange authorization code for tokens (verify flow completes)
-	tokenQuery := url.Values{
+	// Step 5: Exchange authorization code for tokens
+	resp, err = httpClient.PostForm(fmt.Sprintf("http://%s/oauth/token", host), url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {authorizationCode},
 		"redirect_uri":  {clientCallbackURI},
 		"client_id":     {client.ClientID},
 		"code_verifier": {scv.CodeVerifier},
-	}
-	postTokenUrl := fmt.Sprintf("http://%s/oauth/token", host)
-	resp, err = s.httpClient.PostForm(postTokenUrl, tokenQuery)
+	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 	s.Require().Equal(http.StatusOK, resp.StatusCode, "token exchange should succeed")
 
-	body, err = io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	s.Require().NoError(err)
 	var tokenResponse TokenResponse
 	err = json.Unmarshal(body, &tokenResponse)
@@ -1388,7 +1475,7 @@ func (s *OAuthFlowSuite) TestPasswordResetFlow() {
 	defer resp.Body.Close()
 	s.Equal(http.StatusUnauthorized, resp.StatusCode)
 
-	// Try login with new password (should succeed)
+	// Try login with new password (should succeed — redirects to authorize)
 	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/login", url.Values{
 		"username":              {username},
 		"password":              {newPassword},
@@ -1402,7 +1489,7 @@ func (s *OAuthFlowSuite) TestPasswordResetFlow() {
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 	s.Equal(http.StatusFound, resp.StatusCode)
-	s.Contains(resp.Header.Get("Location"), "code=")
+	s.Contains(resp.Header.Get("Location"), "/oauth/authorize")
 }
 
 func (s *OAuthFlowSuite) TestPasswordResetWithInvalidToken() {
@@ -1800,6 +1887,204 @@ func (s *OAuthFlowSuite) TestAuthorizeInvalidRedirectURIShowsDirectError() {
 	s.Equal(http.StatusBadRequest, resp.StatusCode)
 }
 
+// Consent Screen Tests
+
+func (s *OAuthFlowSuite) TestConsentScreenShownOnFirstAuthorize() {
+	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
+		ClientID:       "consent-test-client",
+		Name:           "Consent Test App",
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "test-audience",
+	})
+	scv := s.mustCreateStateAndCodeVerifier()
+
+	query := url.Values{
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {"http://localhost:8080/callback"},
+		"response_type":         {"code"},
+		"scope":                 {"openid profile email"},
+		"state":                 {scv.State},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	}
+	resp, err := httpClient.Get("http://localhost:8080/oauth/authorize?" + query.Encode())
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	// Should redirect to consent page, not directly to client
+	s.Equal(http.StatusFound, resp.StatusCode)
+	location, err := url.Parse(resp.Header.Get("Location"))
+	s.Require().NoError(err)
+	s.Equal("/oauth/consent", location.Path)
+}
+
+func (s *OAuthFlowSuite) TestConsentApproveGeneratesCode() {
+	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
+		ClientID:       "consent-approve-client",
+		Name:           "Consent Approve App",
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "test-audience",
+	})
+	scv := s.mustCreateStateAndCodeVerifier()
+
+	// POST consent approval
+	resp, err := httpClient.PostForm("http://localhost:8080/oauth/consent", url.Values{
+		"decision":              {"allow"},
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {"http://localhost:8080/callback"},
+		"response_type":         {"code"},
+		"scope":                 {"openid profile email"},
+		"state":                 {scv.State},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	// Should redirect to client with authorization code
+	s.Equal(http.StatusFound, resp.StatusCode)
+	location, err := url.Parse(resp.Header.Get("Location"))
+	s.Require().NoError(err)
+	s.Equal("/callback", location.Path)
+	s.NotEmpty(location.Query().Get("code"), "should have authorization code")
+	s.Equal(scv.State, location.Query().Get("state"))
+}
+
+func (s *OAuthFlowSuite) TestConsentDenyRedirectsWithError() {
+	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
+		ClientID:       "consent-deny-client",
+		Name:           "Consent Deny App",
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid"},
+		IsConfidential: false,
+		Audience:       "test-audience",
+	})
+	scv := s.mustCreateStateAndCodeVerifier()
+
+	// POST consent denial
+	resp, err := httpClient.PostForm("http://localhost:8080/oauth/consent", url.Values{
+		"decision":              {"deny"},
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {"http://localhost:8080/callback"},
+		"response_type":         {"code"},
+		"scope":                 {"openid"},
+		"state":                 {scv.State},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	// Should redirect to client with access_denied error
+	s.Equal(http.StatusFound, resp.StatusCode)
+	location, err := url.Parse(resp.Header.Get("Location"))
+	s.Require().NoError(err)
+	s.Equal("/callback", location.Path)
+	s.Equal("access_denied", location.Query().Get("error"))
+	s.Equal(scv.State, location.Query().Get("state"))
+}
+
+func (s *OAuthFlowSuite) TestConsentRemembered() {
+	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
+		ClientID:       "consent-remember-client",
+		Name:           "Consent Remember App",
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "test-audience",
+	})
+	scv := s.mustCreateStateAndCodeVerifier()
+
+	// First: approve consent
+	resp, err := httpClient.PostForm("http://localhost:8080/oauth/consent", url.Values{
+		"decision":              {"allow"},
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {"http://localhost:8080/callback"},
+		"response_type":         {"code"},
+		"scope":                 {"openid profile email"},
+		"state":                 {scv.State},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode)
+
+	// Second: authorize again with same scopes — should skip consent
+	scv2 := s.mustCreateStateAndCodeVerifier()
+	query := url.Values{
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {"http://localhost:8080/callback"},
+		"response_type":         {"code"},
+		"scope":                 {"openid profile email"},
+		"state":                 {scv2.State},
+		"code_challenge":        {scv2.CodeChallenge},
+		"code_challenge_method": {scv2.CodeChallengeMethod},
+	}
+	resp, err = httpClient.Get("http://localhost:8080/oauth/authorize?" + query.Encode())
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	// Should go directly to client with code (consent remembered)
+	s.Equal(http.StatusFound, resp.StatusCode)
+	location, err := url.Parse(resp.Header.Get("Location"))
+	s.Require().NoError(err)
+	s.Equal("/callback", location.Path, "should redirect to client, not consent page")
+	s.NotEmpty(location.Query().Get("code"), "should have authorization code")
+}
+
+func (s *OAuthFlowSuite) TestConsentRePromptedForNewScopes() {
+	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
+		ClientID:       "consent-reprompt-client",
+		Name:           "Consent Reprompt App",
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "test-audience",
+	})
+	scv := s.mustCreateStateAndCodeVerifier()
+
+	// First: approve consent for openid only
+	resp, err := httpClient.PostForm("http://localhost:8080/oauth/consent", url.Values{
+		"decision":              {"allow"},
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {"http://localhost:8080/callback"},
+		"response_type":         {"code"},
+		"scope":                 {"openid"},
+		"state":                 {scv.State},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode)
+
+	// Second: authorize with openid + email — new scope, should show consent again
+	scv2 := s.mustCreateStateAndCodeVerifier()
+	query := url.Values{
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {"http://localhost:8080/callback"},
+		"response_type":         {"code"},
+		"scope":                 {"openid email"},
+		"state":                 {scv2.State},
+		"code_challenge":        {scv2.CodeChallenge},
+		"code_challenge_method": {scv2.CodeChallengeMethod},
+	}
+	resp, err = httpClient.Get("http://localhost:8080/oauth/authorize?" + query.Encode())
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	// Should redirect to consent page (new scope requested)
+	s.Equal(http.StatusFound, resp.StatusCode)
+	location, err := url.Parse(resp.Header.Get("Location"))
+	s.Require().NoError(err)
+	s.Equal("/oauth/consent", location.Path, "should show consent for new scopes")
+}
+
 // OIDC Discovery Tests
 
 func (s *OAuthFlowSuite) TestOIDCDiscoveryEndpoint() {
@@ -1986,27 +2271,7 @@ func (s *OAuthFlowSuite) TestTokenIntrospectionAccessToken() {
 		fmt.Sprintf("%s@example.com", s.mustGenerateRandomString(8)),
 	)
 	scv := s.mustCreateStateAndCodeVerifier()
-
-	// Login and get authorization code
-	formValues := url.Values{
-		"username":              {user.Username},
-		"password":              {user.Password},
-		"client_id":             {tokenClient.ClientID},
-		"redirect_uri":          {tokenClient.RedirectUris[0]},
-		"state":                 {scv.State},
-		"scope":                 {"openid profile email"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
-	}
-	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/login", formValues)
-	s.Require().NoError(err)
-	defer resp.Body.Close()
-	s.Require().Equal(http.StatusFound, resp.StatusCode)
-
-	location := resp.Header.Get("Location")
-	redirectUrl, err := url.ParseRequestURI(location)
-	s.Require().NoError(err)
-	authCode := redirectUrl.Query().Get("code")
+	authCode := s.mustLoginAndConsent(user, tokenClient.ClientID, tokenClient.RedirectUris[0], "openid profile email", scv)
 
 	// Exchange code for tokens
 	tokenValues := url.Values{
@@ -2016,7 +2281,7 @@ func (s *OAuthFlowSuite) TestTokenIntrospectionAccessToken() {
 		"client_id":     {tokenClient.ClientID},
 		"code_verifier": {scv.CodeVerifier},
 	}
-	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/token", tokenValues)
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/token", tokenValues)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 	s.Require().Equal(http.StatusOK, resp.StatusCode)
@@ -2088,25 +2353,7 @@ func (s *OAuthFlowSuite) TestTokenIntrospectionRefreshToken() {
 	)
 	scv := s.mustCreateStateAndCodeVerifier()
 
-	formValues := url.Values{
-		"username":              {user.Username},
-		"password":              {user.Password},
-		"client_id":             {tokenClient.ClientID},
-		"redirect_uri":          {tokenClient.RedirectUris[0]},
-		"state":                 {scv.State},
-		"scope":                 {"openid profile email"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
-	}
-	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/login", formValues)
-	s.Require().NoError(err)
-	defer resp.Body.Close()
-	s.Require().Equal(http.StatusFound, resp.StatusCode)
-
-	location := resp.Header.Get("Location")
-	redirectUrl, err := url.ParseRequestURI(location)
-	s.Require().NoError(err)
-	authCode := redirectUrl.Query().Get("code")
+	authCode := s.mustLoginAndConsent(user, tokenClient.ClientID, tokenClient.RedirectUris[0], "openid profile email", scv)
 
 	tokenValues := url.Values{
 		"grant_type":    {"authorization_code"},
@@ -2115,7 +2362,7 @@ func (s *OAuthFlowSuite) TestTokenIntrospectionRefreshToken() {
 		"client_id":     {tokenClient.ClientID},
 		"code_verifier": {scv.CodeVerifier},
 	}
-	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/token", tokenValues)
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/token", tokenValues)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 	s.Require().Equal(http.StatusOK, resp.StatusCode)
@@ -2271,25 +2518,7 @@ func (s *OAuthFlowSuite) TestTokenRevocationAccessToken() {
 	)
 	scv := s.mustCreateStateAndCodeVerifier()
 
-	formValues := url.Values{
-		"username":              {user.Username},
-		"password":              {user.Password},
-		"client_id":             {tokenClient.ClientID},
-		"redirect_uri":          {tokenClient.RedirectUris[0]},
-		"state":                 {scv.State},
-		"scope":                 {"openid profile email"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
-	}
-	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/login", formValues)
-	s.Require().NoError(err)
-	defer resp.Body.Close()
-	s.Require().Equal(http.StatusFound, resp.StatusCode)
-
-	location := resp.Header.Get("Location")
-	redirectUrl, err := url.ParseRequestURI(location)
-	s.Require().NoError(err)
-	authCode := redirectUrl.Query().Get("code")
+	authCode := s.mustLoginAndConsent(user, tokenClient.ClientID, tokenClient.RedirectUris[0], "openid profile email", scv)
 
 	tokenValues := url.Values{
 		"grant_type":    {"authorization_code"},
@@ -2298,7 +2527,7 @@ func (s *OAuthFlowSuite) TestTokenRevocationAccessToken() {
 		"client_id":     {tokenClient.ClientID},
 		"code_verifier": {scv.CodeVerifier},
 	}
-	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/token", tokenValues)
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/token", tokenValues)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 	s.Require().Equal(http.StatusOK, resp.StatusCode)
@@ -2385,25 +2614,7 @@ func (s *OAuthFlowSuite) TestTokenRevocationRefreshToken() {
 	)
 	scv := s.mustCreateStateAndCodeVerifier()
 
-	formValues := url.Values{
-		"username":              {user.Username},
-		"password":              {user.Password},
-		"client_id":             {tokenClient.ClientID},
-		"redirect_uri":          {tokenClient.RedirectUris[0]},
-		"state":                 {scv.State},
-		"scope":                 {"openid profile email"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
-	}
-	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/login", formValues)
-	s.Require().NoError(err)
-	defer resp.Body.Close()
-	s.Require().Equal(http.StatusFound, resp.StatusCode)
-
-	location := resp.Header.Get("Location")
-	redirectUrl, err := url.ParseRequestURI(location)
-	s.Require().NoError(err)
-	authCode := redirectUrl.Query().Get("code")
+	authCode := s.mustLoginAndConsent(user, tokenClient.ClientID, tokenClient.RedirectUris[0], "openid profile email", scv)
 
 	tokenValues := url.Values{
 		"grant_type":    {"authorization_code"},
@@ -2412,7 +2623,7 @@ func (s *OAuthFlowSuite) TestTokenRevocationRefreshToken() {
 		"client_id":     {tokenClient.ClientID},
 		"code_verifier": {scv.CodeVerifier},
 	}
-	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/token", tokenValues)
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/token", tokenValues)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 	s.Require().Equal(http.StatusOK, resp.StatusCode)
