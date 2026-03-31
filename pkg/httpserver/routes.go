@@ -162,7 +162,11 @@ func (s *Server) HandleHealthCheck(w http.ResponseWriter, r *http.Request) {
 // @Success      200 {string} string "HTML success page"
 // @Router       /success [get]
 func (s *Server) HandleSuccess(w http.ResponseWriter, r *http.Request) {
-	// TODO: Verify user is actually authenticated (check session)
+	_, err := s.getSessionFromCookie(r)
+	if err != nil {
+		http.Redirect(w, r, "/oauth/login", http.StatusFound)
+		return
+	}
 	if err := s.successTemplate.Execute(w, nil); err != nil {
 		http.Error(w, "An error occurred while rendering the success page", http.StatusInternalServerError)
 	}
