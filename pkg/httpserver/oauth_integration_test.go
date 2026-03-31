@@ -1449,6 +1449,50 @@ func (s *OAuthFlowSuite) TestForgotUsernameMissingEmail() {
 	s.Equal(http.StatusBadRequest, resp.StatusCode)
 }
 
+// Success Page Tests
+
+func (s *OAuthFlowSuite) TestSuccessPageRequiresAuthentication() {
+	// Unauthenticated request to /oauth/success should redirect to login
+	resp, err := s.httpClient.Get("http://localhost:8080/oauth/success")
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	s.Equal(http.StatusFound, resp.StatusCode)
+	s.Equal("/oauth/login", resp.Header.Get("Location"))
+}
+
+func (s *OAuthFlowSuite) TestSuccessPageRendersWhenAuthenticated() {
+	// Log in first to get a session
+	username := s.mustGenerateRandomString(8)
+	password := s.mustGenerateRandomString(16)
+	s.mustRegisterUser(username, password, fmt.Sprintf("%s@example.com", username))
+
+	jar, err := cookiejar.New(nil)
+	s.Require().NoError(err)
+	httpClient := &http.Client{
+		Jar: jar,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	// Login to establish a session
+	resp, err := httpClient.PostForm("http://localhost:8080/oauth/login", url.Values{
+		"username": {username},
+		"password": {password},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode)
+
+	// Now access /oauth/success — should render the page
+	resp, err = httpClient.Get("http://localhost:8080/oauth/success")
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	s.Equal(http.StatusOK, resp.StatusCode)
+}
+
 // Authorize Error Redirect Tests
 //
 // Per RFC 6749 4.1.2.1, when the redirect_uri is valid and the client is known,

@@ -555,14 +555,26 @@ func (s *Server) HandleIntrospect(w http.ResponseWriter, r *http.Request) {
 		response = s.introspectRefreshToken(r.Context(), token)
 	} else if tokenTypeHint == "access_token" || tokenTypeHint == "" {
 		// Try access token first
-		response = s.introspectAccessToken(r.Context(), token)
+		var err error
+		response, err = s.introspectAccessToken(r.Context(), token)
+		if err != nil {
+			log.Printf("HandleIntrospect: %v", err)
+			s.writeIntrospectError(w, http.StatusInternalServerError, "server_error", "Failed to verify token status")
+			return
+		}
 		// If not active and no hint was provided, try refresh token
 		if !response["active"].(bool) && tokenTypeHint == "" {
 			response = s.introspectRefreshToken(r.Context(), token)
 		}
 	} else {
 		// Unknown hint, try both
-		response = s.introspectAccessToken(r.Context(), token)
+		var err error
+		response, err = s.introspectAccessToken(r.Context(), token)
+		if err != nil {
+			log.Printf("HandleIntrospect: %v", err)
+			s.writeIntrospectError(w, http.StatusInternalServerError, "server_error", "Failed to verify token status")
+			return
+		}
 		if !response["active"].(bool) {
 			response = s.introspectRefreshToken(r.Context(), token)
 		}
@@ -572,19 +584,27 @@ func (s *Server) HandleIntrospect(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// introspectAccessToken attempts to introspect a JWT access token
-func (s *Server) introspectAccessToken(ctx context.Context, token string) map[string]interface{} {
+// introspectAccessToken attempts to introspect a JWT access token.
+// Returns the introspection response and an error. If the error is non-nil,
+// the caller should return a server error to the client.
+func (s *Server) introspectAccessToken(ctx context.Context, token string) (map[string]interface{}, error) {
+	inactive := map[string]interface{}{"active": false}
+
 	// Parse the JWT without audience validation (resource server may have different audience)
 	claims, err := s.jwtGenerator.ValidateToken(token, "")
 	if err != nil {
-		return map[string]interface{}{"active": false}
+		return inactive, nil
 	}
 
 	// Check if the token has been revoked by looking up the JTI
 	dbToken, err := s.datastore.Q.GetTokenByAccessToken(ctx, sql.NullString{String: claims.ID, Valid: true})
 	if err != nil {
-		// Token not found in DB or revoked
-		return map[string]interface{}{"active": false}
+		if errors.Is(err, sql.ErrNoRows) {
+			// Token not found in DB — treat as inactive
+			return inactive, nil
+		}
+		// Database error — report to caller so it can return a server error
+		return nil, fmt.Errorf("introspectAccessToken: database error: %w", err)
 	}
 
 	// Token is valid and not revoked
@@ -605,7 +625,7 @@ func (s *Server) introspectAccessToken(ctx context.Context, token string) map[st
 		response["aud"] = claims.Audience[0]
 	}
 
-	return response
+	return response, nil
 }
 
 // introspectRefreshToken attempts to introspect a refresh token
