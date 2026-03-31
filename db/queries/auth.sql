@@ -74,9 +74,10 @@ INSERT INTO oauth_authorization_codes (
   scope,
   code_challenge,
   code_challenge_method,
-  expires_at
+  expires_at,
+  nonce
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 
 -- name: GetAuthorizationCode :one
 SELECT *
@@ -222,8 +223,8 @@ SET mfa_enabled = false, mfa_secret = NULL, mfa_verified_at = NULL, updated_at =
 WHERE id = $1;
 
 -- name: CreateMFAPending :exec
-INSERT INTO auth_mfa_pending (id, user_id, client_id, redirect_uri, state, scope, code_challenge, code_challenge_method, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+INSERT INTO auth_mfa_pending (id, user_id, client_id, redirect_uri, state, scope, code_challenge, code_challenge_method, expires_at, nonce)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
 
 -- name: GetMFAPending :one
 SELECT * FROM auth_mfa_pending

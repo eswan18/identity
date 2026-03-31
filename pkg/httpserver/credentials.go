@@ -183,7 +183,7 @@ func normalizeCodeChallenge(challenge string) string {
 }
 
 // generateAuthorizationCode generates a new authorization code and stores it in the database
-func (s *Server) generateAuthorizationCode(ctx context.Context, userID uuid.UUID, clientID uuid.UUID, redirectURI string, scope []string, codeChallenge string, codeChallengeMethod string) (string, error) {
+func (s *Server) generateAuthorizationCode(ctx context.Context, userID uuid.UUID, clientID uuid.UUID, redirectURI string, scope []string, codeChallenge string, codeChallengeMethod string, nonce string) (string, error) {
 	code, err := generateRandomString(32)
 	if err != nil {
 		return "", err
@@ -202,6 +202,7 @@ func (s *Server) generateAuthorizationCode(ctx context.Context, userID uuid.UUID
 		CodeChallenge:       sql.NullString{String: normalizedChallenge, Valid: codeChallenge != ""},
 		CodeChallengeMethod: sql.NullString{String: codeChallengeMethod, Valid: codeChallengeMethod != ""},
 		ExpiresAt:           time.Now().Add(authorizationCodeExpiresIn),
+		Nonce:               sql.NullString{String: nonce, Valid: nonce != ""},
 	})
 	if err != nil {
 		return "", err
@@ -241,7 +242,7 @@ func (s *Server) createSession(ctx context.Context, userID uuid.UUID) (Session, 
 
 // generateTokens creates new access and refresh tokens and stores them in the database.
 // Returns the token pair on success.
-func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID uuid.UUID, scope []string) (TokenPair, error) {
+func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID uuid.UUID, scope []string, nonce string) (TokenPair, error) {
 	// Fetch user information for JWT claims
 	user, err := s.datastore.Q.GetUserByID(ctx, userID)
 	if err != nil {
@@ -298,7 +299,7 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 	// Generate OIDC ID token when openid scope is requested
 	var idToken string
 	if slices.Contains(scope, "openid") {
-		idClaims := jwtpkg.IDTokenClaims{}
+		idClaims := jwtpkg.IDTokenClaims{Nonce: nonce}
 		if slices.Contains(scope, "email") {
 			idClaims.Email = user.Email
 			idClaims.EmailVerified = &user.EmailVerified

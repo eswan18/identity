@@ -57,6 +57,7 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	codeChallenge := r.URL.Query().Get("code_challenge")
 	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
 	state := r.URL.Query().Get("state")
+	nonce := r.URL.Query().Get("nonce")
 
 	// Phase 1: Validate client_id and redirect_uri first.
 	// Per RFC 6749 4.1.2.1, if these are invalid we MUST NOT redirect — show error directly.
@@ -127,7 +128,7 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Phase 4: Generate authorization code and redirect.
-	authorizationCode, err := s.generateAuthorizationCode(r.Context(), session.UserID, client.ID, redirectURI, scope, codeChallenge, codeChallengeMethod)
+	authorizationCode, err := s.generateAuthorizationCode(r.Context(), session.UserID, client.ID, redirectURI, scope, codeChallenge, codeChallengeMethod, nonce)
 	if err != nil {
 		redirectError("server_error", "An error occurred")
 		return
@@ -271,8 +272,12 @@ func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Generate tokens
-	s.writeTokenResponse(w, r, client.ID, authCode.UserID, authCode.Scope)
+	// Generate tokens, passing nonce for inclusion in the ID token
+	nonce := ""
+	if authCode.Nonce.Valid {
+		nonce = authCode.Nonce.String
+	}
+	s.writeTokenResponse(w, r, client.ID, authCode.UserID, authCode.Scope, nonce)
 }
 
 // handleRefreshTokenGrant exchanges a refresh token for new tokens
@@ -323,17 +328,18 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// Issue new tokens with the same user and scope
+	// Issue new tokens with the same user and scope (no nonce on refresh)
 	var userID uuid.UUID
 	if token.UserID.Valid {
 		userID = token.UserID.UUID
 	}
-	s.writeTokenResponse(w, r, client.ID, userID, token.Scope)
+	s.writeTokenResponse(w, r, client.ID, userID, token.Scope, "")
 }
 
-// writeTokenResponse generates tokens and writes the JSON response
-func (s *Server) writeTokenResponse(w http.ResponseWriter, r *http.Request, clientID uuid.UUID, userID uuid.UUID, scope []string) {
-	tokens, err := s.generateTokens(r.Context(), clientID, userID, scope)
+// writeTokenResponse generates tokens and writes the JSON response.
+// nonce is included in the ID token if non-empty (per OIDC Core 3.1.2.1).
+func (s *Server) writeTokenResponse(w http.ResponseWriter, r *http.Request, clientID uuid.UUID, userID uuid.UUID, scope []string, nonce string) {
+	tokens, err := s.generateTokens(r.Context(), clientID, userID, scope, nonce)
 	if err != nil {
 		s.writeTokenError(w, "server_error", "Failed to generate tokens")
 		return
