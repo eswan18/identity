@@ -109,6 +109,7 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 	scope := strings.Split(r.FormValue("scope"), " ")
 	codeChallenge := r.FormValue("code_challenge")
 	codeChallengeMethod := r.FormValue("code_challenge_method")
+	nonce := r.FormValue("nonce")
 
 	log.Printf("[DEBUG] HandleLoginPost: username=%s, clientID=%s, redirectURI=%s", username, clientID, redirectURI)
 
@@ -120,6 +121,7 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 		Scope:               scope,
 		CodeChallenge:       codeChallenge,
 		CodeChallengeMethod: codeChallengeMethod,
+		Nonce:               nonce,
 	}
 	// Validate credentials - use the function that includes inactive users
 	// so we can handle deactivated users appropriately based on the login type
@@ -217,7 +219,7 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 
 	// Generate and store authorization code
 	log.Printf("[DEBUG] HandleLoginPost: Generating authorization code")
-	authorizationCode, err := s.generateAuthorizationCode(r.Context(), user.ID, client.ID, redirectURI, scope, codeChallenge, codeChallengeMethod)
+	authorizationCode, err := s.generateAuthorizationCode(r.Context(), user.ID, client.ID, redirectURI, scope, codeChallenge, codeChallengeMethod, nonce)
 	if err != nil {
 		log.Printf("[ERROR] HandleLoginPost: Failed to generate authorization code: %v", err)
 		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)

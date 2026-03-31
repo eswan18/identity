@@ -126,6 +126,7 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 	scope := pending.Scope
 	codeChallenge := pending.CodeChallenge.String
 	codeChallengeMethod := pending.CodeChallengeMethod.String
+	nonce := pending.Nonce.String
 
 	// Validate OAuth client
 	client, err := s.validateOAuthClient(r.Context(), clientID, redirectURI, scope)
@@ -141,7 +142,7 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate authorization code
-	authorizationCode, err := s.generateAuthorizationCode(r.Context(), pending.UserID, client.ID, redirectURI, scope, codeChallenge, codeChallengeMethod)
+	authorizationCode, err := s.generateAuthorizationCode(r.Context(), pending.UserID, client.ID, redirectURI, scope, codeChallenge, codeChallengeMethod, nonce)
 	if err != nil {
 		log.Printf("[ERROR] HandleMFAPost: Failed to generate authorization code: %v", err)
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
@@ -180,6 +181,7 @@ func (s *Server) createMFAPendingSession(r *http.Request, userID uuid.UUID, oaut
 		CodeChallenge:       sql.NullString{String: oauthParams.CodeChallenge, Valid: oauthParams.CodeChallenge != ""},
 		CodeChallengeMethod: sql.NullString{String: oauthParams.CodeChallengeMethod, Valid: oauthParams.CodeChallengeMethod != ""},
 		ExpiresAt:           time.Now().Add(mfaPendingExpiresIn),
+		Nonce:               sql.NullString{String: oauthParams.Nonce, Valid: oauthParams.Nonce != ""},
 	}
 
 	if err := s.datastore.Q.CreateMFAPending(r.Context(), params); err != nil {

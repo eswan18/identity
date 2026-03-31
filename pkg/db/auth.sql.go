@@ -59,8 +59,8 @@ func (q *Queries) CreateEmailToken(ctx context.Context, arg CreateEmailTokenPara
 }
 
 const createMFAPending = `-- name: CreateMFAPending :exec
-INSERT INTO auth_mfa_pending (id, user_id, client_id, redirect_uri, state, scope, code_challenge, code_challenge_method, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO auth_mfa_pending (id, user_id, client_id, redirect_uri, state, scope, code_challenge, code_challenge_method, expires_at, nonce)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 `
 
 type CreateMFAPendingParams struct {
@@ -73,6 +73,7 @@ type CreateMFAPendingParams struct {
 	CodeChallenge       sql.NullString `json:"code_challenge"`
 	CodeChallengeMethod sql.NullString `json:"code_challenge_method"`
 	ExpiresAt           time.Time      `json:"expires_at"`
+	Nonce               sql.NullString `json:"nonce"`
 }
 
 func (q *Queries) CreateMFAPending(ctx context.Context, arg CreateMFAPendingParams) error {
@@ -86,6 +87,7 @@ func (q *Queries) CreateMFAPending(ctx context.Context, arg CreateMFAPendingPara
 		arg.CodeChallenge,
 		arg.CodeChallengeMethod,
 		arg.ExpiresAt,
+		arg.Nonce,
 	)
 	return err
 }
@@ -322,7 +324,7 @@ func (q *Queries) EnableMFA(ctx context.Context, arg EnableMFAParams) error {
 }
 
 const getAuthorizationCode = `-- name: GetAuthorizationCode :one
-SELECT code, user_id, client_id, redirect_uri, scope, code_challenge, code_challenge_method, expires_at, consumed_at, created_at
+SELECT code, user_id, client_id, redirect_uri, scope, code_challenge, code_challenge_method, expires_at, consumed_at, created_at, nonce
 FROM oauth_authorization_codes
 WHERE code = $1
 `
@@ -341,6 +343,7 @@ func (q *Queries) GetAuthorizationCode(ctx context.Context, code string) (OauthA
 		&i.ExpiresAt,
 		&i.ConsumedAt,
 		&i.CreatedAt,
+		&i.Nonce,
 	)
 	return i, err
 }
@@ -371,7 +374,7 @@ func (q *Queries) GetEmailToken(ctx context.Context, arg GetEmailTokenParams) (A
 }
 
 const getMFAPending = `-- name: GetMFAPending :one
-SELECT id, user_id, client_id, redirect_uri, state, scope, code_challenge, code_challenge_method, created_at, expires_at FROM auth_mfa_pending
+SELECT id, user_id, client_id, redirect_uri, state, scope, code_challenge, code_challenge_method, created_at, expires_at, nonce FROM auth_mfa_pending
 WHERE id = $1 AND expires_at > now()
 `
 
@@ -389,6 +392,7 @@ func (q *Queries) GetMFAPending(ctx context.Context, id string) (AuthMfaPending,
 		&i.CodeChallengeMethod,
 		&i.CreatedAt,
 		&i.ExpiresAt,
+		&i.Nonce,
 	)
 	return i, err
 }
@@ -742,9 +746,10 @@ INSERT INTO oauth_authorization_codes (
   scope,
   code_challenge,
   code_challenge_method,
-  expires_at
+  expires_at,
+  nonce
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 `
 
 type InsertAuthorizationCodeParams struct {
@@ -756,6 +761,7 @@ type InsertAuthorizationCodeParams struct {
 	CodeChallenge       sql.NullString `json:"code_challenge"`
 	CodeChallengeMethod sql.NullString `json:"code_challenge_method"`
 	ExpiresAt           time.Time      `json:"expires_at"`
+	Nonce               sql.NullString `json:"nonce"`
 }
 
 func (q *Queries) InsertAuthorizationCode(ctx context.Context, arg InsertAuthorizationCodeParams) error {
@@ -768,6 +774,7 @@ func (q *Queries) InsertAuthorizationCode(ctx context.Context, arg InsertAuthori
 		arg.CodeChallenge,
 		arg.CodeChallengeMethod,
 		arg.ExpiresAt,
+		arg.Nonce,
 	)
 	return err
 }

@@ -66,6 +66,7 @@
                 <input type="hidden" name="scope" value="{{range $i, $s := .Scope}}{{if $i}} {{end}}{{$s}}{{end}}">
                 <input type="hidden" name="code_challenge" value="{{.CodeChallenge}}">
                 <input type="hidden" name="code_challenge_method" value="{{.CodeChallengeMethod}}">
+                <input type="hidden" name="nonce" value="{{.Nonce}}">
 
                 <button type="submit" class="btn btn-primary w-full">Sign In</button>
             </form>
@@ -76,7 +77,7 @@
             </div>
 
             <div class="text-center mt-6 text-sm text-base-content/60">
-                Don't have an account? <a href="/oauth/register?client_id={{.ClientID}}&redirect_uri={{.RedirectURI}}&state={{.State}}&scope={{range $i, $s := .Scope}}{{if $i}}%20{{end}}{{$s}}{{end}}&code_challenge={{.CodeChallenge}}&code_challenge_method={{.CodeChallengeMethod}}" class="link link-primary">Sign up</a>
+                Don't have an account? <a href="/oauth/register?client_id={{.ClientID}}&redirect_uri={{.RedirectURI}}&state={{.State}}&scope={{range $i, $s := .Scope}}{{if $i}}%20{{end}}{{$s}}{{end}}&code_challenge={{.CodeChallenge}}&code_challenge_method={{.CodeChallengeMethod}}&nonce={{.Nonce}}" class="link link-primary">Sign up</a>
             </div>
 
             <div class="divider"></div>

@@ -32,6 +32,7 @@ type AuthMfaPending struct {
 	CodeChallengeMethod sql.NullString `json:"code_challenge_method"`
 	CreatedAt           time.Time      `json:"created_at"`
 	ExpiresAt           time.Time      `json:"expires_at"`
+	Nonce               sql.NullString `json:"nonce"`
 }
 
 type AuthSession struct {
@@ -72,6 +73,7 @@ type OauthAuthorizationCode struct {
 	ExpiresAt           time.Time      `json:"expires_at"`
 	ConsumedAt          sql.NullTime   `json:"consumed_at"`
 	CreatedAt           time.Time      `json:"created_at"`
+	Nonce               sql.NullString `json:"nonce"`
 }
 
 type OauthClient struct {

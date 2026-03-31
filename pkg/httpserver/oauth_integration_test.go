@@ -495,6 +495,121 @@ func (s *OAuthFlowSuite) TestTokenResponseIncludesIDToken() {
 	s.Equal(result.User.Username, claims["preferred_username"], "preferred_username should match")
 }
 
+// TestIDTokenIncludesNonce verifies that when a nonce is sent in the authorize request,
+// it appears in the ID token per OIDC Core Section 3.1.2.1.
+func (s *OAuthFlowSuite) TestIDTokenIncludesNonce() {
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "http://localhost:8080",
+	})
+	username := s.mustGenerateRandomString(8)
+	password := s.mustGenerateRandomString(16)
+	s.mustRegisterUser(username, password, fmt.Sprintf("%s@example.com", username))
+	scv := s.mustCreateStateAndCodeVerifier()
+	nonce := s.mustGenerateRandomString(32)
+
+	// Create a client with cookie jar to maintain session
+	jar, err := cookiejar.New(nil)
+	s.Require().NoError(err)
+	httpClient := &http.Client{
+		Jar: jar,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	// Login to get a session
+	resp, err := httpClient.PostForm("http://localhost:8080/oauth/login", url.Values{
+		"username":              {username},
+		"password":              {password},
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {"http://localhost:8080/callback"},
+		"state":                 {scv.State},
+		"scope":                 {"openid profile email"},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+		"nonce":                 {nonce},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode)
+
+	// Extract the authorization code from the redirect
+	location := resp.Header.Get("Location")
+	redirectURL, err := url.Parse(location)
+	s.Require().NoError(err)
+	authorizationCode := redirectURL.Query().Get("code")
+	s.Require().NotEmpty(authorizationCode, "authorization code should be present")
+
+	// Exchange the code for tokens
+	tokenForm := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {authorizationCode},
+		"redirect_uri":  {"http://localhost:8080/callback"},
+		"client_id":     {client.ClientID},
+		"code_verifier": {scv.CodeVerifier},
+	}
+	resp, err = httpClient.PostForm("http://localhost:8080/oauth/token", tokenForm)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+
+	var tokenResponse TokenResponse
+	err = json.Unmarshal(body, &tokenResponse)
+	s.Require().NoError(err)
+	s.Require().NotEmpty(tokenResponse.IDToken, "id_token should be present")
+
+	// Parse the ID token and verify the nonce claim
+	parts := strings.Split(tokenResponse.IDToken, ".")
+	s.Require().Len(parts, 3, "id_token should be a valid JWT")
+
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	s.Require().NoError(err)
+
+	var claims map[string]interface{}
+	err = json.Unmarshal(payload, &claims)
+	s.Require().NoError(err)
+
+	s.Equal(nonce, claims["nonce"], "nonce in ID token should match the nonce sent in authorize request")
+}
+
+// TestIDTokenOmitsNonceWhenNotProvided verifies that when no nonce is sent,
+// the ID token does not include a nonce claim.
+func (s *OAuthFlowSuite) TestIDTokenOmitsNonceWhenNotProvided() {
+	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "http://localhost:8080",
+	})
+
+	s.Require().NotEmpty(result.TokenResponse.IDToken)
+
+	parts := strings.Split(result.TokenResponse.IDToken, ".")
+	s.Require().Len(parts, 3)
+
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	s.Require().NoError(err)
+
+	var claims map[string]interface{}
+	err = json.Unmarshal(payload, &claims)
+	s.Require().NoError(err)
+
+	_, hasNonce := claims["nonce"]
+	s.False(hasNonce, "nonce should not be present when not sent in authorize request")
+}
+
 // TestTokenResponseIDTokenAbsentWithoutOpenID verifies that no id_token is returned
 // when the openid scope is not requested.
 func (s *OAuthFlowSuite) TestTokenResponseIDTokenAbsentWithoutOpenID() {

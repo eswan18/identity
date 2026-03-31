@@ -9,6 +9,7 @@ type LoginPageData struct {
 	Scope               []string
 	CodeChallenge       string
 	CodeChallengeMethod string
+	Nonce               string
 }
 
 // RegisterPageData holds the data needed to render the registration page template.

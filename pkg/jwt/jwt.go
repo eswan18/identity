@@ -149,6 +149,7 @@ type IDTokenClaims struct {
 	FamilyName    string `json:"family_name,omitempty"`
 	Picture       string `json:"picture,omitempty"`
 	AtHash        string `json:"at_hash,omitempty"`
+	Nonce         string `json:"nonce,omitempty"`
 }
 
 // GenerateIDToken creates a signed OIDC ID token per OIDC Core Section 3.1.3.3.
