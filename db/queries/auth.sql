@@ -284,3 +284,19 @@ WHERE token_hash = $1 AND token_type = 'password_reset';
 DELETE FROM auth_email_tokens
 WHERE token_type = 'password_reset'
   AND (expires_at <= now() OR used_at IS NOT NULL);
+
+-- Consent queries
+
+-- name: GetUserConsent :one
+SELECT * FROM oauth_user_consents
+WHERE user_id = $1 AND client_id = $2;
+
+-- name: UpsertUserConsent :exec
+INSERT INTO oauth_user_consents (user_id, client_id, scopes)
+VALUES ($1, $2, $3)
+ON CONFLICT (user_id, client_id)
+DO UPDATE SET scopes = $3, updated_at = now();
+
+-- name: DeleteUserConsent :exec
+DELETE FROM oauth_user_consents
+WHERE user_id = $1 AND client_id = $2;

@@ -103,6 +103,15 @@ type OauthToken struct {
 	CreatedAt        time.Time      `json:"created_at"`
 }
 
+type OauthUserConsent struct {
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	ClientID  uuid.UUID `json:"client_id"`
+	Scopes    []string  `json:"scopes"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type SchemaMigration struct {
 	Version int64 `json:"version"`
 	Dirty   bool  `json:"dirty"`

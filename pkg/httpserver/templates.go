@@ -25,6 +25,27 @@ type RegisterPageData struct {
 	CodeChallengeMethod string
 }
 
+// ScopeDescription maps a scope string to a human-readable description.
+type ScopeDescription struct {
+	Scope       string
+	Description string
+}
+
+// ConsentPageData holds the data needed to render the consent page template.
+type ConsentPageData struct {
+	Error               string
+	ClientName          string
+	ClientID            string
+	RedirectURI         string
+	State               string
+	Scope               []string
+	ScopeDescriptions   []ScopeDescription
+	CodeChallenge       string
+	CodeChallengeMethod string
+	Nonce               string
+	ResponseType        string
+}
+
 // ErrorPageData holds the data needed to render the error page template.
 type ErrorPageData struct {
 	Title       string

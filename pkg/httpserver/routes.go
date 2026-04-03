@@ -62,6 +62,8 @@ func (s *Server) registerRoutes() {
 		r.Get("/authorize", s.HandleOauthAuthorize)
 		r.Get("/login", s.HandleLoginGet)
 		r.Post("/login", s.HandleLoginPost)
+		r.Get("/consent", s.HandleConsentGet)
+		r.Post("/consent", s.HandleConsentPost)
 		r.Post("/token", s.HandleOauthToken)
 		r.Post("/refresh", s.HandleOauthRefresh)
 		// Registration stuff
