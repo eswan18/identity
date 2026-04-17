@@ -31,6 +31,7 @@ func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
 	scope := strings.Split(r.URL.Query().Get("scope"), " ")
 	codeChallenge := r.URL.Query().Get("code_challenge")
 	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
+	nonce := r.URL.Query().Get("nonce")
 
 	// If code_challenge_method is provided, it must be S256 -- meaning a sha256 hash of the code verifier.
 	if codeChallengeMethod != "" && codeChallengeMethod != "S256" {
@@ -52,6 +53,7 @@ func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
 			Scope:               scope,
 			CodeChallenge:       codeChallenge,
 			CodeChallengeMethod: codeChallengeMethod,
+			Nonce:               nonce,
 		})
 		return
 	}
@@ -78,6 +80,7 @@ func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
 		Scope:               scope,
 		CodeChallenge:       codeChallenge,
 		CodeChallengeMethod: codeChallengeMethod,
+		Nonce:               nonce,
 	})
 }
 
@@ -229,6 +232,7 @@ func (s *Server) renderLoginError(w http.ResponseWriter, statusCode int, errorMs
 		Scope:               oauthParams.Scope,
 		CodeChallenge:       oauthParams.CodeChallenge,
 		CodeChallengeMethod: oauthParams.CodeChallengeMethod,
+		Nonce:               oauthParams.Nonce,
 	})
 	if err != nil {
 		// Fallback to error template if login template fails

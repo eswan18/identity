@@ -686,6 +686,188 @@ func (s *OAuthFlowSuite) TestIDTokenOmitsNonceWhenNotProvided() {
 	s.False(hasNonce, "nonce should not be present when not sent in authorize request")
 }
 
+// TestLoginGetPreservesNonce verifies that the login page renders the nonce from
+// the query string into the hidden form field. Without this, a fresh login through
+// the browser flow (authorize → login GET → login POST) strips the nonce, and the
+// resulting ID token is missing the nonce claim — breaking clients like authlib
+// that validate the nonce.
+func (s *OAuthFlowSuite) TestLoginGetPreservesNonce() {
+	nonce := s.mustGenerateRandomString(32)
+	loginURL := "http://localhost:8080/oauth/login?" + url.Values{
+		"client_id":             {"any"},
+		"redirect_uri":          {"http://localhost:8080/callback"},
+		"state":                 {"state"},
+		"scope":                 {"openid"},
+		"code_challenge":        {"challenge"},
+		"code_challenge_method": {"S256"},
+		"nonce":                 {nonce},
+	}.Encode()
+
+	resp, err := s.httpClient.Get(loginURL)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	s.Contains(string(body), fmt.Sprintf(`name="nonce" value="%s"`, nonce),
+		"login page should render nonce from query string into hidden form field")
+}
+
+// TestIDTokenIncludesNonceThroughBrowserFlow verifies end-to-end that a nonce sent to
+// /oauth/authorize survives the full browser flow (authorize → login GET → login POST →
+// authorize → consent → token) and appears in the ID token. This guards against the
+// earlier regression where HandleLoginGet silently dropped the nonce.
+func (s *OAuthFlowSuite) TestIDTokenIncludesNonceThroughBrowserFlow() {
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "http://localhost:8080",
+	})
+	username := s.mustGenerateAlphanumericString(12)
+	password := s.mustGenerateRandomString(16)
+	s.mustRegisterUser(username, password, fmt.Sprintf("%s@example.com", username))
+	scv := s.mustCreateStateAndCodeVerifier()
+	nonce := s.mustGenerateRandomString(32)
+
+	jar, err := cookiejar.New(nil)
+	s.Require().NoError(err)
+	httpClient := &http.Client{
+		Jar: jar,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	// Step 1: GET /oauth/authorize — user is unauthenticated, gets redirected to /oauth/login.
+	authorizeQuery := url.Values{
+		"response_type":         {"code"},
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {"http://localhost:8080/callback"},
+		"scope":                 {"openid profile email"},
+		"state":                 {scv.State},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+		"nonce":                 {nonce},
+	}
+	resp, err := httpClient.Get("http://localhost:8080/oauth/authorize?" + authorizeQuery.Encode())
+	s.Require().NoError(err)
+	s.Require().NoError(resp.Body.Close())
+	s.Require().Equal(http.StatusFound, resp.StatusCode)
+	loginLocation := resp.Header.Get("Location")
+	if !strings.HasPrefix(loginLocation, "http") {
+		loginLocation = "http://localhost:8080" + loginLocation
+	}
+
+	// Step 2: GET the login page to retrieve the rendered form (the browser step).
+	resp, err = httpClient.Get(loginLocation)
+	s.Require().NoError(err)
+	s.Require().Equal(http.StatusOK, resp.StatusCode)
+	loginBody, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	s.Require().NoError(resp.Body.Close())
+	s.Require().Contains(string(loginBody), fmt.Sprintf(`name="nonce" value="%s"`, nonce),
+		"login form must include the nonce so the browser submits it back")
+
+	// Step 3: POST login credentials — simulate the form submit. Mirror what the
+	// rendered form would send, sourcing values from the login URL query string.
+	loginURL, err := url.Parse(loginLocation)
+	s.Require().NoError(err)
+	loginForm := url.Values{
+		"username":              {username},
+		"password":              {password},
+		"client_id":             {loginURL.Query().Get("client_id")},
+		"redirect_uri":          {loginURL.Query().Get("redirect_uri")},
+		"state":                 {loginURL.Query().Get("state")},
+		"scope":                 {loginURL.Query().Get("scope")},
+		"code_challenge":        {loginURL.Query().Get("code_challenge")},
+		"code_challenge_method": {loginURL.Query().Get("code_challenge_method")},
+		"nonce":                 {loginURL.Query().Get("nonce")},
+	}
+	resp, err = httpClient.PostForm("http://localhost:8080/oauth/login", loginForm)
+	s.Require().NoError(err)
+	s.Require().NoError(resp.Body.Close())
+	s.Require().Equal(http.StatusFound, resp.StatusCode)
+
+	// Step 4: Follow redirect to /oauth/authorize, which now sees session and redirects to consent.
+	authorizeLocation := resp.Header.Get("Location")
+	if !strings.HasPrefix(authorizeLocation, "http") {
+		authorizeLocation = "http://localhost:8080" + authorizeLocation
+	}
+	resp, err = httpClient.Get(authorizeLocation)
+	s.Require().NoError(err)
+	s.Require().NoError(resp.Body.Close())
+	s.Require().Equal(http.StatusFound, resp.StatusCode)
+
+	// Step 5: Approve consent.
+	consentLocation := resp.Header.Get("Location")
+	consentURL, err := url.Parse(consentLocation)
+	s.Require().NoError(err)
+	consentForm := url.Values{
+		"decision":              {"allow"},
+		"client_id":             {consentURL.Query().Get("client_id")},
+		"redirect_uri":          {consentURL.Query().Get("redirect_uri")},
+		"response_type":         {consentURL.Query().Get("response_type")},
+		"scope":                 {consentURL.Query().Get("scope")},
+		"state":                 {consentURL.Query().Get("state")},
+		"code_challenge":        {consentURL.Query().Get("code_challenge")},
+		"code_challenge_method": {consentURL.Query().Get("code_challenge_method")},
+		"nonce":                 {consentURL.Query().Get("nonce")},
+	}
+	resp, err = httpClient.PostForm("http://localhost:8080/oauth/consent", consentForm)
+	s.Require().NoError(err)
+	s.Require().NoError(resp.Body.Close())
+	s.Require().Equal(http.StatusFound, resp.StatusCode)
+
+	// Step 6: Extract the authorization code and exchange for tokens.
+	callbackLocation := resp.Header.Get("Location")
+	callbackURL, err := url.Parse(callbackLocation)
+	s.Require().NoError(err)
+	authorizationCode := callbackURL.Query().Get("code")
+	s.Require().NotEmpty(authorizationCode)
+
+	resp, err = httpClient.PostForm("http://localhost:8080/oauth/token", url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {authorizationCode},
+		"redirect_uri":  {"http://localhost:8080/callback"},
+		"client_id":     {client.ClientID},
+		"code_verifier": {scv.CodeVerifier},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	var tokenResponse TokenResponse
+	s.Require().NoError(json.Unmarshal(body, &tokenResponse))
+	s.Require().NotEmpty(tokenResponse.IDToken)
+
+	parts := strings.Split(tokenResponse.IDToken, ".")
+	s.Require().Len(parts, 3)
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	s.Require().NoError(err)
+	var claims map[string]interface{}
+	s.Require().NoError(json.Unmarshal(payload, &claims))
+	s.Equal(nonce, claims["nonce"], "nonce must survive the full browser login flow")
+}
+
+// TestLogoutAcceptsGET verifies that the logout endpoint (advertised as
+// end_session_endpoint in OIDC discovery) accepts GET requests per OIDC
+// RP-Initiated Logout 1.0, which expects browsers to navigate to it via redirect.
+func (s *OAuthFlowSuite) TestLogoutAcceptsGET() {
+	resp, err := s.httpClient.Get("http://localhost:8080/oauth/logout")
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	// Without a session cookie, we still expect a redirect to the login page
+	// rather than a 404/405. That's the signal that GET is wired up.
+	s.Equal(http.StatusFound, resp.StatusCode)
+}
+
 // TestTokenResponseIDTokenAbsentWithoutOpenID verifies that no id_token is returned
 // when the openid scope is not requested.
 func (s *OAuthFlowSuite) TestTokenResponseIDTokenAbsentWithoutOpenID() {
