@@ -251,6 +251,31 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Atomically mark the token as used BEFORE updating the password. The WHERE
+	// clause guards against TOCTOU: if another request already consumed this
+	// token between the earlier lookup and now, the UPDATE affects 0 rows and
+	// we refuse to reset. Ordering matters — if we updated the password first
+	// and the mark-used write failed or raced, the token would remain valid and
+	// could reset the password again. Failing the reset when the user has to
+	// request a new token is strictly safer than allowing replay.
+	rowsAffected, err := s.datastore.Q.MarkPasswordResetTokenUsed(r.Context(), tokenHash)
+	if err != nil {
+		log.Printf("[ERROR] HandleResetPasswordPost: Failed to mark token as used: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		s.resetPasswordTemplate.Execute(w, ResetPasswordPageData{
+			Error: "An error occurred. Please try again.",
+			Token: token,
+		})
+		return
+	}
+	if rowsAffected == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		s.resetPasswordTemplate.Execute(w, ResetPasswordPageData{
+			Error: "This password reset link is invalid or has expired. Please request a new one.",
+		})
+		return
+	}
+
 	// Update password
 	err = s.datastore.Q.UpdateUserPasswordWithTimestamp(r.Context(), db.UpdateUserPasswordWithTimestampParams{
 		PasswordHash: passwordHash,
@@ -264,13 +289,6 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 			Token: token,
 		})
 		return
-	}
-
-	// Mark token as used
-	err = s.datastore.Q.MarkPasswordResetTokenUsed(r.Context(), tokenHash)
-	if err != nil {
-		// Log but don't fail - password was already updated
-		log.Printf("[ERROR] HandleResetPasswordPost: Failed to mark token as used: %v", err)
 	}
 
 	log.Printf("[DEBUG] HandleResetPasswordPost: Password reset successfully for user %s", tokenRecord.Username)
