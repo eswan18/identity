@@ -14,15 +14,21 @@ import (
 	"github.com/lib/pq"
 )
 
-const consumeAuthorizationCode = `-- name: ConsumeAuthorizationCode :exec
+const consumeAuthorizationCode = `-- name: ConsumeAuthorizationCode :execrows
 UPDATE oauth_authorization_codes
 SET consumed_at = now()
-WHERE code = $1
+WHERE code = $1 AND consumed_at IS NULL
 `
 
-func (q *Queries) ConsumeAuthorizationCode(ctx context.Context, code string) error {
-	_, err := q.db.ExecContext(ctx, consumeAuthorizationCode, code)
-	return err
+// Atomically consume an authorization code. Returns 1 if the code was consumed,
+// 0 if it was already consumed (or doesn't exist). Callers MUST check the row
+// count to prevent token issuance on a replayed code — see RFC 6749 §10.5.
+func (q *Queries) ConsumeAuthorizationCode(ctx context.Context, code string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, consumeAuthorizationCode, code)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const countUsers = `-- name: CountUsers :one
@@ -976,15 +982,22 @@ func (q *Queries) MarkEmailTokenUsed(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
-const markPasswordResetTokenUsed = `-- name: MarkPasswordResetTokenUsed :exec
+const markPasswordResetTokenUsed = `-- name: MarkPasswordResetTokenUsed :execrows
 UPDATE auth_email_tokens
 SET used_at = now()
-WHERE token_hash = $1 AND token_type = 'password_reset'
+WHERE token_hash = $1 AND token_type = 'password_reset' AND used_at IS NULL
 `
 
-func (q *Queries) MarkPasswordResetTokenUsed(ctx context.Context, tokenHash string) error {
-	_, err := q.db.ExecContext(ctx, markPasswordResetTokenUsed, tokenHash)
-	return err
+// Atomically mark a password reset token as used. Returns 1 if the token was
+// marked, 0 if it was already used (or doesn't exist / wrong type). Callers
+// MUST check the row count and refuse the reset if 0 — otherwise a replayed
+// token can reset the password more than once.
+func (q *Queries) MarkPasswordResetTokenUsed(ctx context.Context, tokenHash string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markPasswordResetTokenUsed, tokenHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const reactivateUser = `-- name: ReactivateUser :exec

@@ -84,10 +84,13 @@ SELECT *
 FROM oauth_authorization_codes
 WHERE code = $1;
 
--- name: ConsumeAuthorizationCode :exec
+-- name: ConsumeAuthorizationCode :execrows
+-- Atomically consume an authorization code. Returns 1 if the code was consumed,
+-- 0 if it was already consumed (or doesn't exist). Callers MUST check the row
+-- count to prevent token issuance on a replayed code — see RFC 6749 §10.5.
 UPDATE oauth_authorization_codes
 SET consumed_at = now()
-WHERE code = $1;
+WHERE code = $1 AND consumed_at IS NULL;
 
 -- name: InsertToken :one
 INSERT INTO oauth_tokens (
@@ -275,10 +278,14 @@ WHERE et.token_hash = $1
   AND et.expires_at > now()
   AND et.used_at IS NULL;
 
--- name: MarkPasswordResetTokenUsed :exec
+-- name: MarkPasswordResetTokenUsed :execrows
+-- Atomically mark a password reset token as used. Returns 1 if the token was
+-- marked, 0 if it was already used (or doesn't exist / wrong type). Callers
+-- MUST check the row count and refuse the reset if 0 — otherwise a replayed
+-- token can reset the password more than once.
 UPDATE auth_email_tokens
 SET used_at = now()
-WHERE token_hash = $1 AND token_type = 'password_reset';
+WHERE token_hash = $1 AND token_type = 'password_reset' AND used_at IS NULL;
 
 -- name: DeleteExpiredPasswordResetTokens :exec
 DELETE FROM auth_email_tokens

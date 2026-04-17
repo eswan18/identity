@@ -277,10 +277,18 @@ func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	// Mark the authorization code as consumed
-	err = s.datastore.Q.ConsumeAuthorizationCode(r.Context(), code)
+	// Atomically mark the authorization code as consumed. The WHERE clause
+	// guards against TOCTOU: if the earlier `authCode.ConsumedAt.Valid` check
+	// passed but a concurrent request already consumed the code in the meantime,
+	// this UPDATE affects 0 rows and we refuse to issue tokens. RFC 6749 §10.5
+	// requires that an authorization code be usable at most once.
+	rowsAffected, err := s.datastore.Q.ConsumeAuthorizationCode(r.Context(), code)
 	if err != nil {
 		s.writeTokenError(w, "server_error", "Failed to consume authorization code")
+		return
+	}
+	if rowsAffected == 0 {
+		s.writeTokenError(w, "invalid_grant", "Authorization code has already been used")
 		return
 	}
 

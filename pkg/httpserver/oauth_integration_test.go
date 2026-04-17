@@ -856,6 +856,110 @@ func (s *OAuthFlowSuite) TestIDTokenIncludesNonceThroughBrowserFlow() {
 	s.Equal(nonce, claims["nonce"], "nonce must survive the full browser login flow")
 }
 
+// TestAuthorizationCodeCannotBeReused verifies that an authorization code is
+// single-use: the first token exchange succeeds, the second with the same code
+// is rejected with invalid_grant. Guards against the TOCTOU where two concurrent
+// token requests could both consume the same code.
+func (s *OAuthFlowSuite) TestAuthorizationCodeCannotBeReused() {
+	clientCallbackURI := "http://localhost:8080/callback"
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{clientCallbackURI},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "http://localhost:8080",
+	})
+	user := s.mustRegisterUser(
+		s.mustGenerateAlphanumericString(12),
+		s.mustGenerateRandomString(16),
+		fmt.Sprintf("%s@example.com", s.mustGenerateAlphanumericString(8)),
+	)
+	scv := s.mustCreateStateAndCodeVerifier()
+
+	code := s.mustLoginAndConsent(user, client.ClientID, clientCallbackURI, "openid profile email", scv)
+
+	tokenForm := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"redirect_uri":  {clientCallbackURI},
+		"client_id":     {client.ClientID},
+		"code_verifier": {scv.CodeVerifier},
+	}
+
+	// First exchange: succeeds.
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/token", tokenForm)
+	s.Require().NoError(err)
+	s.Require().NoError(resp.Body.Close())
+	s.Require().Equal(http.StatusOK, resp.StatusCode, "first code exchange should succeed")
+
+	// Second exchange with the same code: must be rejected.
+	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/token", tokenForm)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusBadRequest, resp.StatusCode, "replayed code must be rejected")
+
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	var errResp map[string]string
+	s.Require().NoError(json.Unmarshal(body, &errResp))
+	s.Equal("invalid_grant", errResp["error"], "replay should return invalid_grant")
+}
+
+// TestPasswordResetTokenCannotBeReused verifies that a password reset token is
+// single-use: the first reset succeeds, the second attempt with the same token
+// is rejected. Guards against the TOCTOU on auth_email_tokens.used_at.
+func (s *OAuthFlowSuite) TestPasswordResetTokenCannotBeReused() {
+	username := s.mustGenerateAlphanumericString(12)
+	password := s.mustGenerateRandomString(16)
+	user := s.mustRegisterUser(username, password, fmt.Sprintf("%s@example.com", username))
+
+	// Insert a password reset token directly (skips the "forgot password" email flow).
+	rawToken, tokenHash, err := generateResetToken()
+	s.Require().NoError(err)
+	err = s.datastore.Q.CreatePasswordResetToken(s.T().Context(), db.CreatePasswordResetTokenParams{
+		UserID:    user.ID,
+		TokenHash: tokenHash,
+		ExpiresAt: time.Now().Add(1 * time.Hour),
+	})
+	s.Require().NoError(err)
+
+	// auth.ValidatePassword rejects passwords containing the username, so keep them distinct.
+	newPassword := "NewS3cure-" + s.mustGenerateRandomString(16)
+
+	// First reset: succeeds and redirects to login.
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/reset-password", url.Values{
+		"token":            {rawToken},
+		"new_password":     {newPassword},
+		"confirm_password": {newPassword},
+	})
+	s.Require().NoError(err)
+	s.Require().NoError(resp.Body.Close())
+	s.Require().Equal(http.StatusFound, resp.StatusCode, "first reset should redirect to login")
+
+	// Second reset with same token: must be rejected.
+	secondPassword := "Another-" + s.mustGenerateRandomString(16)
+	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/reset-password", url.Values{
+		"token":            {rawToken},
+		"password":         {secondPassword},
+		"confirm_password": {secondPassword},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusBadRequest, resp.StatusCode, "replayed reset token must be rejected")
+
+	// Verify the first password still works (i.e. the replay attempt did NOT change it).
+	dbUser, err := s.datastore.Q.GetUserByUsername(s.T().Context(), username)
+	s.Require().NoError(err)
+	firstMatches, err := auth.VerifyPassword(newPassword, dbUser.PasswordHash)
+	s.Require().NoError(err)
+	s.True(firstMatches, "first reset password should still be valid after replay attempt")
+	secondMatches, err := auth.VerifyPassword(secondPassword, dbUser.PasswordHash)
+	s.Require().NoError(err)
+	s.False(secondMatches, "second reset attempt must not have changed the password")
+}
+
 // TestLogoutAcceptsGET verifies that the logout endpoint (advertised as
 // end_session_endpoint in OIDC discovery) accepts GET requests per OIDC
 // RP-Initiated Logout 1.0, which expects browsers to navigate to it via redirect.
