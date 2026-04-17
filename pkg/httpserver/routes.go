@@ -71,6 +71,9 @@ func (s *Server) registerRoutes() {
 		r.Post("/register", s.HandleRegisterPost)
 		// Other stuff
 		r.Get("/success", s.HandleSuccess)
+		// Both GET and POST per OIDC RP-Initiated Logout 1.0 — browsers navigating to
+		// end_session_endpoint via redirect use GET; form posts use POST.
+		r.Get("/logout", s.HandleLogout)
 		r.Post("/logout", s.HandleLogout)
 		r.Get("/userinfo", s.HandleOauthUserInfo)
 		r.Post("/introspect", s.HandleIntrospect)
