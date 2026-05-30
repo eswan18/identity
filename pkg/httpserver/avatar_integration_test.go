@@ -93,6 +93,11 @@ func (s *AvatarFlowSuite) SetupSuite() {
 	err = s.storageService.(*storage.S3Storage).CreateBucket(ctx)
 	s.Require().NoError(err)
 
+	// Grant anonymous read access so tests can fetch uploaded avatars by their
+	// public URL, mirroring the public bucket/CDN used in production.
+	err = s.storageService.(*storage.S3Storage).MakeBucketPublicRead(ctx)
+	s.Require().NoError(err)
+
 	// Setup server
 	cfg := &config.Config{
 		HTTPAddress:   ":8081", // Use different port than OAuthFlowSuite
@@ -526,7 +531,24 @@ func (s *AvatarFlowSuite) mustGenerateStateAndCodeVerifier() StateAndCodeVerifie
 	}
 }
 
-// mustCompleteAuthorizationFlow completes the OAuth authorization flow
+// codeFromLocation returns the authorization code embedded in a redirect
+// Location header, or "" if the URL does not carry one.
+func codeFromLocation(location string) string {
+	if !strings.Contains(location, "code=") {
+		return ""
+	}
+	parsed, err := url.Parse(location)
+	if err != nil {
+		return ""
+	}
+	return parsed.Query().Get("code")
+}
+
+// mustCompleteAuthorizationFlow drives the full authorization-code flow
+// (login -> /oauth/authorize -> consent) and returns the authorization code.
+// The server redirects through the consent screen on first authorization, so a
+// successful login does not yield a code directly; this mirrors the OAuthFlowSuite
+// helper mustLoginAndConsent.
 func (s *AvatarFlowSuite) mustCompleteAuthorizationFlow(
 	client *http.Client,
 	oauthClient db.OauthClient,
@@ -535,57 +557,91 @@ func (s *AvatarFlowSuite) mustCompleteAuthorizationFlow(
 	stateAndVerifier StateAndCodeVerifier,
 	scopes []string,
 ) string {
-	// Build authorization URL
+	scope := strings.Join(scopes, " ")
+	authParams := url.Values{
+		"client_id":             {oauthClient.ClientID},
+		"redirect_uri":          {oauthClient.RedirectUris[0]},
+		"scope":                 {scope},
+		"state":                 {stateAndVerifier.State},
+		"code_challenge":        {stateAndVerifier.CodeChallenge},
+		"code_challenge_method": {stateAndVerifier.CodeChallengeMethod},
+	}
+
+	// Step 1: hit /oauth/authorize. When unauthenticated this redirects to the
+	// login page; when authenticated it redirects to the consent screen (or
+	// straight back to the client with a code if consent was already granted).
 	authURL := "http://localhost:8081/oauth/authorize?" + url.Values{
 		"response_type":         {"code"},
 		"client_id":             {oauthClient.ClientID},
 		"redirect_uri":          {oauthClient.RedirectUris[0]},
-		"scope":                 {strings.Join(scopes, " ")},
+		"scope":                 {scope},
 		"state":                 {stateAndVerifier.State},
 		"code_challenge":        {stateAndVerifier.CodeChallenge},
 		"code_challenge_method": {stateAndVerifier.CodeChallengeMethod},
 	}.Encode()
-
-	// Start authorization flow
 	resp, err := client.Get(authURL)
 	s.Require().NoError(err)
-	defer resp.Body.Close()
+	location := resp.Header.Get("Location")
+	resp.Body.Close()
 
-	// Should redirect to login or directly to callback if already logged in
-	if resp.StatusCode == http.StatusFound {
-		location := resp.Header.Get("Location")
-		if strings.Contains(location, "code=") {
-			// Already logged in, extract code
-			parsed, err := url.Parse(location)
-			s.Require().NoError(err)
-			return parsed.Query().Get("code")
+	if code := codeFromLocation(location); code != "" {
+		return code
+	}
+
+	// Step 2: if we were bounced to login, authenticate and follow the redirect
+	// back to /oauth/authorize, which then redirects to the consent screen.
+	if !strings.Contains(location, "/oauth/consent") {
+		loginURL := "http://localhost:8081/oauth/login?" + authParams.Encode()
+		form := url.Values{}
+		form.Set("username", user.Username)
+		form.Set("password", password)
+		resp, err = client.PostForm(loginURL, form)
+		s.Require().NoError(err)
+		s.Require().Equal(http.StatusFound, resp.StatusCode)
+		location = resp.Header.Get("Location")
+		resp.Body.Close()
+
+		if code := codeFromLocation(location); code != "" {
+			return code
+		}
+
+		if !strings.HasPrefix(location, "http") {
+			location = "http://localhost:8081" + location
+		}
+		resp, err = client.Get(location)
+		s.Require().NoError(err)
+		location = resp.Header.Get("Location")
+		resp.Body.Close()
+
+		if code := codeFromLocation(location); code != "" {
+			return code
 		}
 	}
 
-	// Need to login - post to login endpoint
-	loginURL := "http://localhost:8081/oauth/login?" + url.Values{
-		"client_id":             {oauthClient.ClientID},
-		"redirect_uri":          {oauthClient.RedirectUris[0]},
-		"scope":                 {strings.Join(scopes, " ")},
-		"state":                 {stateAndVerifier.State},
-		"code_challenge":        {stateAndVerifier.CodeChallenge},
-		"code_challenge_method": {stateAndVerifier.CodeChallengeMethod},
-	}.Encode()
-
-	form := url.Values{}
-	form.Set("username", user.Username)
-	form.Set("password", password)
-	resp, err = client.PostForm(loginURL, form)
+	// Step 3: approve consent, which redirects back to the client with the code.
+	s.Require().Contains(location, "/oauth/consent")
+	consentURL, err := url.Parse(location)
 	s.Require().NoError(err)
-	defer resp.Body.Close()
-
+	consentForm := url.Values{
+		"decision":              {"allow"},
+		"client_id":             {consentURL.Query().Get("client_id")},
+		"redirect_uri":          {consentURL.Query().Get("redirect_uri")},
+		"response_type":         {consentURL.Query().Get("response_type")},
+		"scope":                 {consentURL.Query().Get("scope")},
+		"state":                 {consentURL.Query().Get("state")},
+		"code_challenge":        {consentURL.Query().Get("code_challenge")},
+		"code_challenge_method": {consentURL.Query().Get("code_challenge_method")},
+		"nonce":                 {consentURL.Query().Get("nonce")},
+	}
+	resp, err = client.PostForm("http://localhost:8081/oauth/consent", consentForm)
+	s.Require().NoError(err)
 	s.Require().Equal(http.StatusFound, resp.StatusCode)
-	location := resp.Header.Get("Location")
-	s.Require().Contains(location, "code=")
+	location = resp.Header.Get("Location")
+	resp.Body.Close()
 
-	parsed, err := url.Parse(location)
-	s.Require().NoError(err)
-	return parsed.Query().Get("code")
+	code := codeFromLocation(location)
+	s.Require().NotEmpty(code, "should receive authorization code")
+	return code
 }
 
 // mustExchangeCodeForToken exchanges an authorization code for tokens
