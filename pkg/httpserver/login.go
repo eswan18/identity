@@ -181,43 +181,13 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 		// Non-fatal error - continue with login
 	}
 
-	// Set secure session cookie
-	// Secure flag should be true in production (HTTPS), false for local dev
-	isSecure := strings.HasPrefix(s.config.HTTPAddress, "https://") || strings.Contains(s.config.HTTPAddress, ":443")
-	log.Printf("[DEBUG] HandleLoginPost: Setting session cookie (secure=%v)", isSecure)
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session_id",
-		Value:    session.ID,
-		Path:     "/",
-		Expires:  session.ExpiresAt,
-		HttpOnly: true,
-		Secure:   isSecure,
-		SameSite: http.SameSiteLaxMode,
-	})
+	// Set the authenticated session cookie.
+	s.setSessionCookie(w, session)
 
-	// Check if this is a direct login (no OAuth flow)
-	if clientID == "" {
-		// Direct login: redirect to account settings
-		log.Printf("[DEBUG] HandleLoginPost: Direct login (no client_id), redirecting to account settings")
-		http.Redirect(w, r, "/oauth/account-settings", http.StatusFound)
-		return
-	}
-
-	// Redirect back to /oauth/authorize to handle consent and code generation.
-	// The session is now established, so authorize will find the user authenticated.
-	authorizeQuery := url.Values{
-		"client_id":             {clientID},
-		"redirect_uri":          {redirectURI},
-		"response_type":         {"code"},
-		"scope":                 {strings.Join(scope, " ")},
-		"state":                 {state},
-		"code_challenge":        {codeChallenge},
-		"code_challenge_method": {codeChallengeMethod},
-		"nonce":                 {nonce},
-	}
-	authorizeURL := "/oauth/authorize?" + authorizeQuery.Encode()
-	log.Printf("[DEBUG] HandleLoginPost: Redirecting to authorize: %s", authorizeURL)
-	http.Redirect(w, r, authorizeURL, http.StatusFound)
+	// Redirect onward: back into the OAuth authorize flow (which now finds the user
+	// authenticated and handles consent + code issuance), or to account settings for a
+	// direct login with no OAuth flow in progress.
+	s.redirectAfterAuth(w, r, oauthParams)
 }
 
 // renderLoginError renders the login page with an error message, preserving OAuth parameters.
@@ -248,4 +218,50 @@ func (s *Server) renderLoginError(w http.ResponseWriter, statusCode int, errorMs
 			http.Error(w, "An error occurred while rendering the error page", http.StatusInternalServerError)
 		}
 	}
+}
+
+// setSessionCookie writes the authenticated session cookie. The Secure attribute is
+// enabled when the configured public address is HTTPS (production) and left off for
+// plain-HTTP local development.
+func (s *Server) setSessionCookie(w http.ResponseWriter, session Session) {
+	isSecure := strings.HasPrefix(s.config.HTTPAddress, "https://") || strings.Contains(s.config.HTTPAddress, ":443")
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session_id",
+		Value:    session.ID,
+		Path:     "/",
+		Expires:  session.ExpiresAt,
+		HttpOnly: true,
+		Secure:   isSecure,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// buildAuthorizeURL builds the /oauth/authorize URL used to (re)enter the OAuth flow
+// once the user is authenticated. It mirrors the parameters originally supplied by the
+// client; the authorize endpoint re-validates client_id, redirect_uri and scope on
+// arrival, so these values are not trusted blindly.
+func buildAuthorizeURL(p LoginPageData) string {
+	q := url.Values{
+		"client_id":             {p.ClientID},
+		"redirect_uri":          {p.RedirectURI},
+		"response_type":         {"code"},
+		"scope":                 {strings.Join(p.Scope, " ")},
+		"state":                 {p.State},
+		"code_challenge":        {p.CodeChallenge},
+		"code_challenge_method": {p.CodeChallengeMethod},
+		"nonce":                 {p.Nonce},
+	}
+	return "/oauth/authorize?" + q.Encode()
+}
+
+// redirectAfterAuth sends a freshly-authenticated user onward. When an OAuth client
+// initiated the flow (client_id present) the user is routed back through
+// /oauth/authorize to handle consent and authorization-code issuance; otherwise this
+// was a direct login and the user is taken to account settings.
+func (s *Server) redirectAfterAuth(w http.ResponseWriter, r *http.Request, p LoginPageData) {
+	if p.ClientID == "" {
+		http.Redirect(w, r, "/oauth/account-settings", http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, buildAuthorizeURL(p), http.StatusFound)
 }
