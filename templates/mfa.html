@@ -42,6 +42,13 @@
                 </fieldset>
 
                 <input type="hidden" name="pending_id" value="{{.PendingID}}">
+                <input type="hidden" name="client_id" value="{{.ClientID}}">
+                <input type="hidden" name="redirect_uri" value="{{.RedirectURI}}">
+                <input type="hidden" name="state" value="{{.State}}">
+                <input type="hidden" name="scope" value="{{range $i, $s := .Scope}}{{if $i}} {{end}}{{$s}}{{end}}">
+                <input type="hidden" name="code_challenge" value="{{.CodeChallenge}}">
+                <input type="hidden" name="code_challenge_method" value="{{.CodeChallengeMethod}}">
+                <input type="hidden" name="nonce" value="{{.Nonce}}">
 
                 <button type="submit" class="btn btn-primary w-full">Verify</button>
             </form>
