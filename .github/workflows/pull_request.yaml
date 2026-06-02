@@ -7,6 +7,15 @@ on:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    env:
+      # Don't worry, this is a key used only for testing.
+      JWT_PRIVATE_KEY: |
+        -----BEGIN EC PRIVATE KEY-----
+        MHcCAQEEICQMNHONu2Sud2tu6jgOZs3LIj5yOZr89NBMLYiyqBK/oAoGCCqGSM49
+        AwEHoUQDQgAERCHWHrX20emk31HypGNgptwBjdZOyBybV/9BLTbJPj8UsZ/46ri5
+        /eFKkRfNApxFU/5lk1RGQJqt8t0GvkkJdw==
+        -----END EC PRIVATE KEY-----
+      JWT_ISSUER: http://localhost:8080
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -24,24 +33,14 @@ jobs:
 
       - name: Build
         run: go build -v ./...
-        env:
-          # Don't worry, this is a key used only for testing.
-          JWT_PRIVATE_KEY: |
-            -----BEGIN EC PRIVATE KEY-----
-            MHcCAQEEICQMNHONu2Sud2tu6jgOZs3LIj5yOZr89NBMLYiyqBK/oAoGCCqGSM49
-            AwEHoUQDQgAERCHWHrX20emk31HypGNgptwBjdZOyBybV/9BLTbJPj8UsZ/46ri5
-            /eFKkRfNApxFU/5lk1RGQJqt8t0GvkkJdw==
-            -----END EC PRIVATE KEY-----
-          JWT_ISSUER: http://localhost:8080
 
-      - name: Run tests
+      - name: Run unit tests
         run: go test -v ./...
-        env:
-          # Don't worry, this is a key used only for testing.
-          JWT_PRIVATE_KEY: |
-            -----BEGIN EC PRIVATE KEY-----
-            MHcCAQEEICQMNHONu2Sud2tu6jgOZs3LIj5yOZr89NBMLYiyqBK/oAoGCCqGSM49
-            AwEHoUQDQgAERCHWHrX20emk31HypGNgptwBjdZOyBybV/9BLTbJPj8UsZ/46ri5
-            /eFKkRfNApxFU/5lk1RGQJqt8t0GvkkJdw==
-            -----END EC PRIVATE KEY-----
-          JWT_ISSUER: http://localhost:8080
+
+      # Integration tests are gated behind the `integration` build tag. They use
+      # testcontainers to spin up Postgres/MinIO, which relies on the Docker
+      # daemon available on GitHub-hosted ubuntu runners. Scoped to the package
+      # that holds them and to the suite entrypoints so the untagged unit tests
+      # (already run above) aren't rebuilt and re-run a second time.
+      - name: Run integration tests
+        run: go test -v -tags integration -timeout 600s -run 'TestOAuthFlowSuite|TestAvatarFlowSuite' ./pkg/httpserver/

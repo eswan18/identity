@@ -94,3 +94,29 @@ func (s *S3Storage) CreateBucket(ctx context.Context) error {
 	}
 	return nil
 }
+
+// MakeBucketPublicRead grants anonymous read access to all objects in the
+// bucket. In production avatars are served from a public bucket or CDN; this
+// reproduces that so tests can fetch an uploaded avatar by its public URL.
+func (s *S3Storage) MakeBucketPublicRead(ctx context.Context) error {
+	policy := fmt.Sprintf(`{
+		"Version": "2012-10-17",
+		"Statement": [
+			{
+				"Effect": "Allow",
+				"Principal": "*",
+				"Action": "s3:GetObject",
+				"Resource": "arn:aws:s3:::%s/*"
+			}
+		]
+	}`, s.bucket)
+
+	_, err := s.client.PutBucketPolicy(ctx, &s3.PutBucketPolicyInput{
+		Bucket: aws.String(s.bucket),
+		Policy: aws.String(policy),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to set public-read bucket policy: %w", err)
+	}
+	return nil
+}

@@ -3,6 +3,7 @@ package httpserver
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"strings"
 	"testing"
 )
 
@@ -103,26 +104,26 @@ func TestBuildVerificationEmailHTML(t *testing.T) {
 	html := buildVerificationEmailHTML(username, verifyURL)
 
 	// Should contain username
-	if !contains(html, username) {
+	if !strings.Contains(html, username) {
 		t.Error("HTML should contain username")
 	}
 
 	// Should contain verify URL (twice - in button and plain text)
-	if !contains(html, verifyURL) {
+	if !strings.Contains(html, verifyURL) {
 		t.Error("HTML should contain verification URL")
 	}
 
 	// Should be valid HTML structure
-	if !contains(html, "<!DOCTYPE html>") {
+	if !strings.Contains(html, "<!DOCTYPE html>") {
 		t.Error("HTML should have DOCTYPE")
 	}
-	if !contains(html, "<html>") {
+	if !strings.Contains(html, "<html>") {
 		t.Error("HTML should have html tag")
 	}
-	if !contains(html, "Verify your email") {
+	if !strings.Contains(html, "Verify your email") {
 		t.Error("HTML should have verification message")
 	}
-	if !contains(html, "24 hours") {
+	if !strings.Contains(html, "24 hours") {
 		t.Error("HTML should mention expiration time")
 	}
 }
@@ -134,32 +135,17 @@ func TestBuildVerificationEmailText(t *testing.T) {
 	text := buildVerificationEmailText(username, verifyURL)
 
 	// Should contain username
-	if !contains(text, username) {
+	if !strings.Contains(text, username) {
 		t.Error("Text should contain username")
 	}
 
 	// Should contain verify URL
-	if !contains(text, verifyURL) {
+	if !strings.Contains(text, verifyURL) {
 		t.Error("Text should contain verification URL")
 	}
 
 	// Should mention expiration
-	if !contains(text, "24 hours") {
+	if !strings.Contains(text, "24 hours") {
 		t.Error("Text should mention expiration time")
 	}
-}
-
-// contains is a helper to check if a string contains a substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > 0 && len(substr) > 0 && findSubstring(s, substr)))
-}
-
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
