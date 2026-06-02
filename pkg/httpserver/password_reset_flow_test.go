@@ -14,6 +14,9 @@ import (
 	"github.com/eswan18/identity/pkg/db"
 )
 
+// TestPasswordResetTokenCannotBeReused verifies that a password reset token is
+// single-use: the first reset succeeds, the second attempt with the same token
+// is rejected. Guards against the TOCTOU on auth_email_tokens.used_at.
 func (s *OAuthFlowSuite) TestPasswordResetTokenCannotBeReused() {
 	username := s.mustGenerateAlphanumericString(12)
 	password := s.mustGenerateRandomString(16)
@@ -46,7 +49,7 @@ func (s *OAuthFlowSuite) TestPasswordResetTokenCannotBeReused() {
 	secondPassword := "Another-" + s.mustGenerateRandomString(16)
 	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/reset-password", url.Values{
 		"token":            {rawToken},
-		"password":         {secondPassword},
+		"new_password":     {secondPassword},
 		"confirm_password": {secondPassword},
 	})
 	s.Require().NoError(err)
@@ -64,9 +67,6 @@ func (s *OAuthFlowSuite) TestPasswordResetTokenCannotBeReused() {
 	s.False(secondMatches, "second reset attempt must not have changed the password")
 }
 
-// TestLogoutAcceptsGET verifies that the logout endpoint (advertised as
-// end_session_endpoint in OIDC discovery) accepts GET requests per OIDC
-// RP-Initiated Logout 1.0, which expects browsers to navigate to it via redirect.
 func (s *OAuthFlowSuite) TestPasswordResetFlow() {
 	// Register a user
 	username := s.mustGenerateRandomString(10)
@@ -278,7 +278,6 @@ func (s *OAuthFlowSuite) TestForgotPasswordGetPage() {
 	s.Equal(http.StatusOK, resp.StatusCode)
 }
 
-// Forgot Username Tests
 func (s *OAuthFlowSuite) TestForgotUsernameFlow() {
 	// Create a user
 	username := s.mustGenerateRandomString(10)
@@ -336,7 +335,7 @@ func (s *OAuthFlowSuite) TestForgotUsernameMissingEmail() {
 	s.Equal(http.StatusBadRequest, resp.StatusCode)
 }
 
-// Success Page Tests
+// TestPasswordResetUpdatesPasswordChangedAt verifies that resetting password via token updates password_changed_at.
 func (s *OAuthFlowSuite) TestPasswordResetUpdatesPasswordChangedAt() {
 	// Register a user
 	username := s.mustGenerateRandomString(8)

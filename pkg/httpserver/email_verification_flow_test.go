@@ -120,5 +120,3 @@ func (s *OAuthFlowSuite) TestResendVerificationRequiresAuth() {
 	location := resp.Header.Get("Location")
 	s.Contains(location, "/oauth/login")
 }
-
-// Password Reset Tests

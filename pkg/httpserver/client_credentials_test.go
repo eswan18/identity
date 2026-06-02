@@ -14,6 +14,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// TestClientCredentialsGrant tests the full client credentials flow
 func (s *OAuthFlowSuite) TestClientCredentialsGrant() {
 	// Create a confidential client with admin scopes
 	clientSecret := s.mustGenerateRandomString(32)
@@ -254,5 +255,3 @@ func (s *OAuthFlowSuite) TestClientCredentialsGrant_DefaultScopes() {
 	s.Contains(scope, "admin:users:read")
 	s.Contains(scope, "admin:users:write")
 }
-
-// TestAdminCreateUser_WithClientCredentials tests end-to-end: get token, create user

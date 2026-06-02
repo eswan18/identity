@@ -17,6 +17,8 @@ import (
 	"github.com/eswan18/identity/pkg/mfa"
 )
 
+// TestOAuthFlowWithMFA verifies that users with MFA enabled are redirected to the MFA page
+// and can complete the flow by entering a valid TOTP code.
 func (s *OAuthFlowSuite) TestOAuthFlowWithMFA() {
 	clientCallbackURI := "http://localhost:8080/callback"
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
@@ -455,8 +457,7 @@ func (s *OAuthFlowSuite) TestMFADoubleSubmitPreservesContext() {
 	s.Equal(client.ClientID, loc2.Query().Get("client_id"), "client_id must be preserved on replay")
 }
 
-// generateTOTPCode generates a valid TOTP code for the given secret.
-// This uses the same library as the server to ensure compatibility.
+// TestMFALoginSetsLastLoginAt verifies that successful MFA login updates the last_login_at timestamp.
 func (s *OAuthFlowSuite) TestMFALoginSetsLastLoginAt() {
 	// Register a user with MFA enabled
 	username := s.mustGenerateRandomString(8)
@@ -533,5 +534,3 @@ func (s *OAuthFlowSuite) TestMFALoginSetsLastLoginAt() {
 	s.True(userAfter.LastLoginAt.Valid, "last_login_at should be set after MFA login")
 	s.WithinDuration(time.Now(), userAfter.LastLoginAt.Time, 5*time.Second, "last_login_at should be recent")
 }
-
-// TestPasswordChangeUpdatesPasswordChangedAt verifies that changing password updates password_changed_at.

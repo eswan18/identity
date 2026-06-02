@@ -14,6 +14,7 @@ import (
 	"github.com/eswan18/identity/pkg/db"
 )
 
+// TestAdminCreateUser_WithClientCredentials tests end-to-end: get token, create user
 func (s *OAuthFlowSuite) TestAdminCreateUser_WithClientCredentials() {
 	// Create a confidential client with admin scope
 	clientSecret := s.mustGenerateRandomString(32)
@@ -546,5 +547,3 @@ func (s *OAuthFlowSuite) TestAdminGetUser_InvalidID() {
 	json.Unmarshal(body, &errorResponse)
 	s.Equal("invalid_request", errorResponse["error"])
 }
-
-// Helper function to get a client credentials token

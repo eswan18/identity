@@ -11,6 +11,9 @@ import (
 	"github.com/eswan18/identity/pkg/db"
 )
 
+// TestLogoutAcceptsGET verifies that the logout endpoint (advertised as
+// end_session_endpoint in OIDC discovery) accepts GET requests per OIDC
+// RP-Initiated Logout 1.0, which expects browsers to navigate to it via redirect.
 func (s *OAuthFlowSuite) TestLogoutAcceptsGET() {
 	resp, err := s.httpClient.Get("http://localhost:8080/oauth/logout")
 	s.Require().NoError(err)
@@ -20,8 +23,6 @@ func (s *OAuthFlowSuite) TestLogoutAcceptsGET() {
 	s.Equal(http.StatusFound, resp.StatusCode)
 }
 
-// TestTokenResponseIDTokenAbsentWithoutOpenID verifies that no id_token is returned
-// when the openid scope is not requested.
 func (s *OAuthFlowSuite) TestSuccessPageRequiresAuthentication() {
 	// Unauthenticated request to /oauth/success should redirect to login
 	resp, err := s.httpClient.Get("http://localhost:8080/oauth/success")
@@ -70,8 +71,6 @@ func (s *OAuthFlowSuite) TestSuccessPageRendersWhenAuthenticated() {
 // errors should be redirected back to the client as query parameters.
 // When the client or redirect_uri is invalid/unknown, errors must be shown directly.
 
-// mustLoginAndGetAuthorizeClient is a helper that creates a user, logs in to get a session,
-// and returns an HTTP client with the session cookie and the registered OAuth client.
 func (s *OAuthFlowSuite) TestAuthorizeInvalidScopeRedirectsErrorToClient() {
 	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
 		ClientID:       "authz-error-scope-client",
@@ -228,7 +227,6 @@ func (s *OAuthFlowSuite) TestAuthorizeInvalidRedirectURIShowsDirectError() {
 	s.Equal(http.StatusBadRequest, resp.StatusCode)
 }
 
-// Consent Screen Tests
 func (s *OAuthFlowSuite) TestConsentScreenShownOnFirstAuthorize() {
 	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
 		ClientID:       "consent-test-client",
@@ -425,7 +423,6 @@ func (s *OAuthFlowSuite) TestConsentRePromptedForNewScopes() {
 	s.Equal("/oauth/consent", location.Path, "should show consent for new scopes")
 }
 
-// OIDC Discovery Tests
 func (s *OAuthFlowSuite) TestLogoutRedirectsToLoginByDefault() {
 	resp, err := s.httpClient.Post("http://localhost:8080/oauth/logout", "", nil)
 	s.Require().NoError(err)
@@ -508,5 +505,3 @@ func (s *OAuthFlowSuite) TestLogoutRejectsPostLogoutRedirectURIWithoutClientID()
 	s.Equal(http.StatusFound, resp.StatusCode)
 	s.Equal("/oauth/login", resp.Header.Get("Location"))
 }
-
-// Token Introspection Tests

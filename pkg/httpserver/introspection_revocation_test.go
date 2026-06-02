@@ -257,7 +257,6 @@ func (s *OAuthFlowSuite) TestTokenIntrospectionMissingToken() {
 	s.Equal(http.StatusBadRequest, resp.StatusCode)
 }
 
-// Token Revocation Tests
 func (s *OAuthFlowSuite) TestTokenRevocationAccessToken() {
 	// Create a confidential client for revocation
 	clientSecret := s.mustGenerateRandomString(32)
@@ -523,5 +522,3 @@ func (s *OAuthFlowSuite) TestTokenRevocationMissingToken() {
 	defer resp.Body.Close()
 	s.Equal(http.StatusBadRequest, resp.StatusCode)
 }
-
-// TestClientCredentialsGrant tests the full client credentials flow

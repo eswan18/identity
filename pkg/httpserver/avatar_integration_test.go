@@ -581,6 +581,7 @@ func (s *AvatarFlowSuite) mustCompleteAuthorizationFlow(
 	}.Encode()
 	resp, err := client.Get(authURL)
 	s.Require().NoError(err)
+	s.Require().Equal(http.StatusFound, resp.StatusCode, "authorize should redirect (to login, consent, or back to client)")
 	location := resp.Header.Get("Location")
 	resp.Body.Close()
 

@@ -134,8 +134,10 @@ func (s *OAuthFlowSuite) TestFullOAuthFlow() {
 	})
 }
 
-// TestTokenResponseIncludesIDToken verifies that the token response includes an id_token
-// when the openid scope is requested, per OIDC Core Section 3.1.3.3.
+// TestAuthorizationCodeCannotBeReused verifies that an authorization code is
+// single-use: the first token exchange succeeds, the second with the same code
+// is rejected with invalid_grant. Guards against the TOCTOU where two concurrent
+// token requests could both consume the same code.
 func (s *OAuthFlowSuite) TestAuthorizationCodeCannotBeReused() {
 	clientCallbackURI := "http://localhost:8080/callback"
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
@@ -183,9 +185,9 @@ func (s *OAuthFlowSuite) TestAuthorizationCodeCannotBeReused() {
 	s.Equal("invalid_grant", errResp["error"], "replay should return invalid_grant")
 }
 
-// TestPasswordResetTokenCannotBeReused verifies that a password reset token is
-// single-use: the first reset succeeds, the second attempt with the same token
-// is rejected. Guards against the TOCTOU on auth_email_tokens.used_at.
+// TestLoginFailedPreservesAllScopes verifies that when login fails due to
+// invalid credentials, all OAuth scope parameters are preserved in the
+// re-rendered login form (not just the first scope).
 func (s *OAuthFlowSuite) TestLoginFailedPreservesAllScopes() {
 	// Create a user
 	username := s.mustGenerateRandomString(8)
@@ -286,7 +288,7 @@ func (s *OAuthFlowSuite) TestLoginSetsLastLoginAt() {
 	s.WithinDuration(time.Now(), userAfter.LastLoginAt.Time, 5*time.Second, "last_login_at should be recent")
 }
 
-// TestMFALoginSetsLastLoginAt verifies that successful MFA login updates the last_login_at timestamp.
+// TestPasswordChangeUpdatesPasswordChangedAt verifies that changing password updates password_changed_at.
 func (s *OAuthFlowSuite) TestPasswordChangeUpdatesPasswordChangedAt() {
 	// Register a user
 	username := s.mustGenerateRandomString(8)
@@ -335,5 +337,3 @@ func (s *OAuthFlowSuite) TestPasswordChangeUpdatesPasswordChangedAt() {
 	s.True(userAfter.PasswordChangedAt.Valid, "password_changed_at should be set after password change")
 	s.WithinDuration(time.Now(), userAfter.PasswordChangedAt.Time, 5*time.Second, "password_changed_at should be recent")
 }
-
-// TestPasswordResetUpdatesPasswordChangedAt verifies that resetting password via token updates password_changed_at.

@@ -21,6 +21,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// TestTokenResponseIncludesIDToken verifies that the token response includes an id_token
+// when the openid scope is requested, per OIDC Core Section 3.1.3.3.
 func (s *OAuthFlowSuite) TestTokenResponseIncludesIDToken() {
 	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
 		ClientID:       s.mustGenerateRandomString(8),
@@ -382,10 +384,8 @@ func (s *OAuthFlowSuite) TestIDTokenIncludesNonceThroughBrowserFlow() {
 	s.Equal(nonce, claims["nonce"], "nonce must survive the full browser login flow")
 }
 
-// TestAuthorizationCodeCannotBeReused verifies that an authorization code is
-// single-use: the first token exchange succeeds, the second with the same code
-// is rejected with invalid_grant. Guards against the TOCTOU where two concurrent
-// token requests could both consume the same code.
+// TestTokenResponseIDTokenAbsentWithoutOpenID verifies that no id_token is returned
+// when the openid scope is not requested.
 func (s *OAuthFlowSuite) TestTokenResponseIDTokenAbsentWithoutOpenID() {
 	// Create a client that only has admin scopes (no openid)
 	clientSecret := s.mustGenerateRandomString(32)
@@ -722,8 +722,6 @@ func (s *OAuthFlowSuite) TestUserInfoEmailScopeOnly() {
 	s.NotContains(userInfo, "picture", "picture should not be present without profile scope")
 }
 
-// TestOAuthFlowWithMFA verifies that users with MFA enabled are redirected to the MFA page
-// and can complete the flow by entering a valid TOTP code.
 func (s *OAuthFlowSuite) TestOIDCDiscoveryEndpoint() {
 	resp, err := s.httpClient.Get("http://localhost:8080/.well-known/openid-configuration")
 	s.Require().NoError(err)
@@ -789,5 +787,3 @@ func (s *OAuthFlowSuite) TestOIDCDiscoveryCORSHeaders() {
 	s.Equal(http.StatusOK, resp.StatusCode)
 	s.Equal("*", resp.Header.Get("Access-Control-Allow-Origin"))
 }
-
-// Logout Tests

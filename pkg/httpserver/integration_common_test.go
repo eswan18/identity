@@ -253,6 +253,8 @@ func (s *OAuthFlowSuite) mustCreateStateAndCodeVerifier() StateAndCodeVerifier {
 	return scv
 }
 
+// mustCompleteOAuthFlow performs the full OAuth flow and returns the tokens.
+// This helper enables tests to get tokens without duplicating the flow logic.
 // mustCompleteOAuthFlow completes a full OAuth flow and returns the result.
 // An optional scope string can be passed; if omitted, defaults to "openid profile email".
 func (s *OAuthFlowSuite) mustCompleteOAuthFlow(clientParams db.CreateOAuthClientParams, scopeOverride ...string) OAuthFlowResult {
@@ -365,6 +367,8 @@ func (s *OAuthFlowSuite) mustCompleteOAuthFlow(clientParams db.CreateOAuthClient
 	}
 }
 
+// generateTOTPCode generates a valid TOTP code for the given secret.
+// This uses the same library as the server to ensure compatibility.
 func generateTOTPCode(secret string) (string, error) {
 	// Use the pquerna/otp library to generate a code
 	// We need to import it properly
@@ -416,6 +420,8 @@ func prepareDatabase(t *testing.T) *postgres.PostgresContainer {
 	return pgContainer
 }
 
+// mustLoginAndGetAuthorizeClient is a helper that creates a user, logs in to get a session,
+// and returns an HTTP client with the session cookie and the registered OAuth client.
 func (s *OAuthFlowSuite) mustLoginAndGetAuthorizeClient(clientParams db.CreateOAuthClientParams) (*http.Client, db.OauthClient) {
 	s.T().Helper()
 	client := s.mustRegisterOAuthClient(clientParams)
@@ -444,6 +450,7 @@ func (s *OAuthFlowSuite) mustLoginAndGetAuthorizeClient(clientParams db.CreateOA
 	return httpClient, client
 }
 
+// Helper function to get a client credentials token
 func (s *OAuthFlowSuite) mustGetClientCredentialsToken(clientID, clientSecret, scope string) string {
 	tokenValues := url.Values{
 		"grant_type":    {"client_credentials"},
@@ -494,9 +501,6 @@ func (s *OAuthFlowSuite) mustCreateUserViaAdminAPI(token, username, email, passw
 	return createUserResp
 }
 
-// TestLoginFailedPreservesAllScopes verifies that when login fails due to
-// invalid credentials, all OAuth scope parameters are preserved in the
-// re-rendered login form (not just the first scope).
 func TestOAuthFlowSuite(t *testing.T) {
 	suite.Run(t, new(OAuthFlowSuite))
 }
