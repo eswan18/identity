@@ -1,22 +1,20 @@
+steps:
+  # Build with BuildKit, persisting the layer cache (all stages, via mode=max)
+  # to a `buildcache` tag in Artifact Registry. Cloud Build workers are
+  # ephemeral, so without a registry-backed cache every build starts cold.
+  - name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        docker buildx create --use --driver docker-container
+        docker buildx build \
+          --cache-from type=registry,ref=us-central1-docker.pkg.dev/ethans-services/containers/identity:buildcache \
+          --cache-to type=registry,ref=us-central1-docker.pkg.dev/ethans-services/containers/identity:buildcache,mode=max \
+          -t us-central1-docker.pkg.dev/ethans-services/containers/identity:$SHORT_SHA \
+          -t us-central1-docker.pkg.dev/ethans-services/containers/identity:latest \
+          --push \
+          .
+
 options:
   logging: CLOUD_LOGGING_ONLY
-
-steps:
-  - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'build'
-      - '-t'
-      - 'us-central1-docker.pkg.dev/ethans-services/containers/identity:$SHORT_SHA'
-      - '-t'
-      - 'us-central1-docker.pkg.dev/ethans-services/containers/identity:latest'
-      - '.'
-
-  - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'push'
-      - '--all-tags'
-      - 'us-central1-docker.pkg.dev/ethans-services/containers/identity'
-
-images:
-  - 'us-central1-docker.pkg.dev/ethans-services/containers/identity:$SHORT_SHA'
-  - 'us-central1-docker.pkg.dev/ethans-services/containers/identity:latest'
