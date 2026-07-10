@@ -1,9 +1,12 @@
 .env
 .env.*
 db/schema.sql
-identity
-identity-cli
-auth-service
+# Compiled binaries at the repo root (anchored: unanchored patterns would
+# also ignore source dirs like cmd/identity-cli/, which kept the CLI source
+# out of version control entirely until July 2026)
+/identity
+/identity-cli
+/auth-service
 
 # Generated CSS (built from Tailwind)
 static/style.css
