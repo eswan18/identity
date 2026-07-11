@@ -1,10 +1,16 @@
 package httpserver
 
 import (
+	"database/sql"
+	"errors"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/eswan18/identity/pkg/db"
+	"github.com/google/uuid"
 )
 
 func TestParseClientCredentials_BasicAuth(t *testing.T) {
@@ -106,5 +112,64 @@ func TestGenerateRandomStringDifferentLengths(t *testing.T) {
 		if len(str) != tt.expectedB64Len {
 			t.Errorf("generateRandomString(%d): expected %d chars, got %d", tt.byteLen, tt.expectedB64Len, len(str))
 		}
+	}
+}
+
+// TestRequireConfidentialClient_RejectsPublicClient covers the core of Issue 1: introspection
+// and revocation (via authenticateConfidentialClient) must reject a caller that only proved
+// it knows a public client's client_id, with no secret. This exercises the pure decision
+// logic behind authenticateConfidentialClient without needing a database, since
+// authenticateClient itself requires a live DB lookup.
+func TestRequireConfidentialClient_RejectsPublicClient(t *testing.T) {
+	publicClient := db.OauthClient{
+		ID:             uuid.New(),
+		ClientID:       "public-client",
+		IsConfidential: false,
+	}
+
+	client, err := requireConfidentialClient(publicClient, nil)
+	if err == nil {
+		t.Fatal("expected an error for a public client, got nil")
+	}
+	if !errors.Is(err, ErrConfidentialClientRequired) {
+		t.Errorf("expected ErrConfidentialClientRequired, got %v", err)
+	}
+	if !reflect.DeepEqual(client, db.OauthClient{}) {
+		t.Errorf("expected zero-value client on rejection, got %+v", client)
+	}
+}
+
+// TestRequireConfidentialClient_AllowsConfidentialClient ensures a client that authenticated
+// as confidential (i.e. authenticateClient already verified its secret) passes through
+// unchanged.
+func TestRequireConfidentialClient_AllowsConfidentialClient(t *testing.T) {
+	confidentialClient := db.OauthClient{
+		ID:             uuid.New(),
+		ClientID:       "confidential-client",
+		ClientSecret:   sql.NullString{String: "shh", Valid: true},
+		IsConfidential: true,
+	}
+
+	client, err := requireConfidentialClient(confidentialClient, nil)
+	if err != nil {
+		t.Fatalf("expected no error for a confidential client, got %v", err)
+	}
+	if !reflect.DeepEqual(client, confidentialClient) {
+		t.Errorf("expected client to be returned unchanged, got %+v", client)
+	}
+}
+
+// TestRequireConfidentialClient_PropagatesUpstreamError ensures that an authentication
+// failure from authenticateClient (e.g. unknown client_id, or wrong secret for a confidential
+// client) is passed through as-is rather than being masked.
+func TestRequireConfidentialClient_PropagatesUpstreamError(t *testing.T) {
+	upstreamErr := errors.New("invalid client credentials")
+
+	client, err := requireConfidentialClient(db.OauthClient{}, upstreamErr)
+	if !errors.Is(err, upstreamErr) {
+		t.Errorf("expected upstream error to propagate, got %v", err)
+	}
+	if !reflect.DeepEqual(client, db.OauthClient{}) {
+		t.Errorf("expected zero-value client on error, got %+v", client)
 	}
 }

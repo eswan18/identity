@@ -684,27 +684,18 @@ func (s *OAuthFlowSuite) TestUserInfoScopeGating() {
 // missing/revoked JTI row as "revocation tracking not enabled" and let the
 // request through.
 func (s *OAuthFlowSuite) TestUserInfoRejectsRevokedToken() {
-	// Confidential client used to call the revoke endpoint (RFC 7009 requires
-	// client authentication for revocation).
+	// Revocation requires confidential-client authentication (RFC 7009 §2.1), and the server
+	// enforces that a client can only revoke tokens issued to itself (RFC 7009 §2.1
+	// ownership check). So the same confidential client must both obtain and revoke the
+	// token here.
 	clientSecret := s.mustGenerateRandomString(32)
-	revokeClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
 		ClientID:       s.mustGenerateRandomString(8),
 		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
 		Name:           s.mustGenerateRandomString(8),
 		RedirectUris:   []string{"http://localhost:8080/callback"},
 		AllowedScopes:  []string{"openid", "profile", "email"},
 		IsConfidential: true,
-		Audience:       "http://localhost:8000",
-	})
-
-	// Complete OAuth flow to get an access token.
-	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
 		Audience:       "http://localhost:8000",
 	})
 	accessToken := result.TokenResponse.AccessToken
@@ -719,11 +710,11 @@ func (s *OAuthFlowSuite) TestUserInfoRejectsRevokedToken() {
 	resp.Body.Close()
 	s.Equal(http.StatusOK, resp.StatusCode, "userinfo should succeed before revocation")
 
-	// Revoke the access token.
+	// Revoke the access token, using the same client it was issued to.
 	revokeValues := url.Values{
 		"token":           {accessToken},
 		"token_type_hint": {"access_token"},
-		"client_id":       {revokeClient.ClientID},
+		"client_id":       {result.Client.ClientID},
 		"client_secret":   {clientSecret},
 	}
 	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/revoke", revokeValues)

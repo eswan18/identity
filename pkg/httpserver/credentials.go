@@ -40,6 +40,11 @@ var (
 	ErrInvalidScope       = errors.New("invalid scope")
 )
 
+// ErrConfidentialClientRequired is returned when an endpoint that requires a fully
+// authenticated confidential client (e.g. introspection, revocation) is called by a
+// public client that only supplied a client_id.
+var ErrConfidentialClientRequired = errors.New("client authentication required")
+
 // authenticateClient extracts client credentials from the request using either
 // client_secret_post (form values) or client_secret_basic (Authorization header),
 // looks up the client, and verifies the secret for confidential clients.
@@ -60,6 +65,38 @@ func (s *Server) authenticateClient(r *http.Request) (db.OauthClient, error) {
 	}
 
 	return client, nil
+}
+
+// requireConfidentialClient is the pure decision logic behind authenticateConfidentialClient:
+// given the result of authenticateClient, it additionally rejects clients that are not
+// confidential. It's split out from authenticateConfidentialClient so it can be unit tested
+// without a database.
+func requireConfidentialClient(client db.OauthClient, err error) (db.OauthClient, error) {
+	if err != nil {
+		return db.OauthClient{}, err
+	}
+	if !client.IsConfidential {
+		return db.OauthClient{}, ErrConfidentialClientRequired
+	}
+	return client, nil
+}
+
+// authenticateConfidentialClient behaves like authenticateClient, but additionally requires
+// that the caller be a confidential client that has presented a valid client_secret.
+//
+// authenticateClient intentionally lets public clients through with just a client_id (no
+// secret) so that the token endpoint can keep supporting the authorization_code + PKCE flow
+// (RFC 7636), where public clients (e.g. SPAs, mobile apps) have no client_secret to present.
+// That's correct for /oauth/token, but it's NOT sufficient for endpoints where RFC 7662 §2.1
+// (introspection) and RFC 7009 §2.1 (revocation) require the caller itself to authenticate:
+// allowing a bare client_id through would let anyone who knows (or guesses) a registered
+// client_id probe token validity or revoke arbitrary tokens.
+//
+// This helper adds that stricter requirement at the call site, without changing
+// authenticateClient's contract or behavior for the token/refresh endpoints.
+func (s *Server) authenticateConfidentialClient(r *http.Request) (db.OauthClient, error) {
+	client, err := s.authenticateClient(r)
+	return requireConfidentialClient(client, err)
 }
 
 // parseClientCredentials extracts client_id and client_secret from the request.

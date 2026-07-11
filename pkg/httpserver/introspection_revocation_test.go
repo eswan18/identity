@@ -258,26 +258,18 @@ func (s *OAuthFlowSuite) TestTokenIntrospectionMissingToken() {
 }
 
 func (s *OAuthFlowSuite) TestTokenRevocationAccessToken() {
-	// Create a confidential client for revocation
+	// Revocation now requires confidential-client authentication (RFC 7009 §2.1), and the
+	// server enforces that a client can only revoke tokens issued to itself. So the client
+	// that obtains the tokens and the client that revokes them must be the same confidential
+	// client (unlike introspection, which doesn't require token ownership).
 	clientSecret := s.mustGenerateRandomString(32)
-	revokeClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
 		ClientID:       s.mustGenerateRandomString(8),
 		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
 		Name:           s.mustGenerateRandomString(8),
 		RedirectUris:   []string{"http://localhost:8080/callback"},
 		AllowedScopes:  []string{"openid", "profile", "email"},
 		IsConfidential: true,
-		Audience:       "http://localhost:8000",
-	})
-
-	// Create a public client to obtain tokens
-	tokenClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
 		Audience:       "http://localhost:8000",
 	})
 
@@ -289,13 +281,14 @@ func (s *OAuthFlowSuite) TestTokenRevocationAccessToken() {
 	)
 	scv := s.mustCreateStateAndCodeVerifier()
 
-	authCode := s.mustLoginAndConsent(user, tokenClient.ClientID, tokenClient.RedirectUris[0], "openid profile email", scv)
+	authCode := s.mustLoginAndConsent(user, client.ClientID, client.RedirectUris[0], "openid profile email", scv)
 
 	tokenValues := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {authCode},
-		"redirect_uri":  {tokenClient.RedirectUris[0]},
-		"client_id":     {tokenClient.ClientID},
+		"redirect_uri":  {client.RedirectUris[0]},
+		"client_id":     {client.ClientID},
+		"client_secret": {clientSecret},
 		"code_verifier": {scv.CodeVerifier},
 	}
 	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/token", tokenValues)
@@ -313,7 +306,7 @@ func (s *OAuthFlowSuite) TestTokenRevocationAccessToken() {
 	introspectValues := url.Values{
 		"token":           {tokenResponse.AccessToken},
 		"token_type_hint": {"access_token"},
-		"client_id":       {revokeClient.ClientID},
+		"client_id":       {client.ClientID},
 		"client_secret":   {clientSecret},
 	}
 	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/introspect", introspectValues)
@@ -328,11 +321,11 @@ func (s *OAuthFlowSuite) TestTokenRevocationAccessToken() {
 	s.Require().NoError(err)
 	s.True(introspectResponse["active"].(bool), "token should be active before revocation")
 
-	// Revoke the access token
+	// Revoke the access token, using the same client that the token was issued to
 	revokeValues := url.Values{
 		"token":           {tokenResponse.AccessToken},
 		"token_type_hint": {"access_token"},
-		"client_id":       {revokeClient.ClientID},
+		"client_id":       {client.ClientID},
 		"client_secret":   {clientSecret},
 	}
 	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/revoke", revokeValues)
@@ -353,12 +346,16 @@ func (s *OAuthFlowSuite) TestTokenRevocationAccessToken() {
 	s.False(introspectResponse["active"].(bool), "token should be inactive after revocation")
 }
 
-func (s *OAuthFlowSuite) TestTokenRevocationRefreshToken() {
-	// Create a confidential client for revocation
-	clientSecret := s.mustGenerateRandomString(32)
-	revokeClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+// TestTokenRevocationRejectsOtherClient verifies the RFC 7009 §2.1 ownership check: a
+// confidential client cannot revoke a token that was issued to a *different* client, even
+// though it authenticates successfully. The revoke call must still return 200 OK (per RFC
+// 7009, to avoid leaking token validity), but the token must remain active afterward.
+func (s *OAuthFlowSuite) TestTokenRevocationRejectsOtherClient() {
+	// The client that will obtain (and own) the tokens.
+	ownerSecret := s.mustGenerateRandomString(32)
+	ownerClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
 		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
+		ClientSecret:   sql.NullString{String: ownerSecret, Valid: true},
 		Name:           s.mustGenerateRandomString(8),
 		RedirectUris:   []string{"http://localhost:8080/callback"},
 		AllowedScopes:  []string{"openid", "profile", "email"},
@@ -366,14 +363,93 @@ func (s *OAuthFlowSuite) TestTokenRevocationRefreshToken() {
 		Audience:       "http://localhost:8000",
 	})
 
-	// Create a public client to obtain tokens
-	tokenClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+	// A different, unrelated confidential client that will attempt the revocation.
+	attackerSecret := s.mustGenerateRandomString(32)
+	attackerClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
 		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
+		ClientSecret:   sql.NullString{String: attackerSecret, Valid: true},
 		Name:           s.mustGenerateRandomString(8),
 		RedirectUris:   []string{"http://localhost:8080/callback"},
 		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
+		IsConfidential: true,
+		Audience:       "http://localhost:8000",
+	})
+
+	user := s.mustRegisterUser(
+		s.mustGenerateRandomString(8),
+		s.mustGenerateRandomString(8),
+		fmt.Sprintf("%s@example.com", s.mustGenerateRandomString(8)),
+	)
+	scv := s.mustCreateStateAndCodeVerifier()
+
+	authCode := s.mustLoginAndConsent(user, ownerClient.ClientID, ownerClient.RedirectUris[0], "openid profile email", scv)
+
+	tokenValues := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {authCode},
+		"redirect_uri":  {ownerClient.RedirectUris[0]},
+		"client_id":     {ownerClient.ClientID},
+		"client_secret": {ownerSecret},
+		"code_verifier": {scv.CodeVerifier},
+	}
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/token", tokenValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	var tokenResponse TokenResponse
+	err = json.Unmarshal(body, &tokenResponse)
+	s.Require().NoError(err)
+
+	// The attacker client attempts to revoke a token it does not own.
+	revokeValues := url.Values{
+		"token":           {tokenResponse.AccessToken},
+		"token_type_hint": {"access_token"},
+		"client_id":       {attackerClient.ClientID},
+		"client_secret":   {attackerSecret},
+	}
+	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/revoke", revokeValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	// RFC 7009 says revocation always returns 200, even when nothing was actually revoked.
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	// The token must still be active — the attacker's client must not have been able to
+	// revoke a token that belongs to a different client.
+	introspectValues := url.Values{
+		"token":           {tokenResponse.AccessToken},
+		"token_type_hint": {"access_token"},
+		"client_id":       {ownerClient.ClientID},
+		"client_secret":   {ownerSecret},
+	}
+	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/introspect", introspectValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	body, err = io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	var introspectResponse map[string]interface{}
+	err = json.Unmarshal(body, &introspectResponse)
+	s.Require().NoError(err)
+	s.True(introspectResponse["active"].(bool), "token must remain active after a non-owning client's revoke attempt")
+}
+
+func (s *OAuthFlowSuite) TestTokenRevocationRefreshToken() {
+	// Revocation now requires confidential-client authentication (RFC 7009 §2.1), and the
+	// server enforces that a client can only revoke tokens issued to itself. So the client
+	// that obtains the tokens and the client that revokes them must be the same confidential
+	// client (unlike introspection, which doesn't require token ownership).
+	clientSecret := s.mustGenerateRandomString(32)
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: true,
 		Audience:       "http://localhost:8000",
 	})
 
@@ -385,13 +461,14 @@ func (s *OAuthFlowSuite) TestTokenRevocationRefreshToken() {
 	)
 	scv := s.mustCreateStateAndCodeVerifier()
 
-	authCode := s.mustLoginAndConsent(user, tokenClient.ClientID, tokenClient.RedirectUris[0], "openid profile email", scv)
+	authCode := s.mustLoginAndConsent(user, client.ClientID, client.RedirectUris[0], "openid profile email", scv)
 
 	tokenValues := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {authCode},
-		"redirect_uri":  {tokenClient.RedirectUris[0]},
-		"client_id":     {tokenClient.ClientID},
+		"redirect_uri":  {client.RedirectUris[0]},
+		"client_id":     {client.ClientID},
+		"client_secret": {clientSecret},
 		"code_verifier": {scv.CodeVerifier},
 	}
 	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/token", tokenValues)
@@ -409,7 +486,7 @@ func (s *OAuthFlowSuite) TestTokenRevocationRefreshToken() {
 	introspectValues := url.Values{
 		"token":           {tokenResponse.RefreshToken},
 		"token_type_hint": {"refresh_token"},
-		"client_id":       {revokeClient.ClientID},
+		"client_id":       {client.ClientID},
 		"client_secret":   {clientSecret},
 	}
 	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/introspect", introspectValues)
@@ -424,11 +501,11 @@ func (s *OAuthFlowSuite) TestTokenRevocationRefreshToken() {
 	s.Require().NoError(err)
 	s.True(introspectResponse["active"].(bool), "refresh token should be active before revocation")
 
-	// Revoke the refresh token
+	// Revoke the refresh token, using the same client that the token was issued to
 	revokeValues := url.Values{
 		"token":           {tokenResponse.RefreshToken},
 		"token_type_hint": {"refresh_token"},
-		"client_id":       {revokeClient.ClientID},
+		"client_id":       {client.ClientID},
 		"client_secret":   {clientSecret},
 	}
 	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/revoke", revokeValues)

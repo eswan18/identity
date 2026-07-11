@@ -356,6 +356,11 @@ func (s *OAuthFlowSuite) mustCompleteOAuthFlow(clientParams db.CreateOAuthClient
 		"client_id":     {client.ClientID},
 		"code_verifier": {scv.CodeVerifier},
 	}
+	// Confidential clients must also present their client_secret (authenticateClient
+	// verifies it); public clients rely on PKCE alone and have none to present.
+	if clientParams.ClientSecret.Valid {
+		tokenQuery.Set("client_secret", clientParams.ClientSecret.String)
+	}
 	postTokenUrl := fmt.Sprintf("http://%s/oauth/token", host)
 	resp, err = httpClient.PostForm(postTokenUrl, tokenQuery)
 	s.Require().NoError(err)
