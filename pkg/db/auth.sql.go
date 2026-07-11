@@ -336,21 +336,6 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
-const deleteUserConsent = `-- name: DeleteUserConsent :exec
-DELETE FROM oauth_user_consents
-WHERE user_id = $1 AND client_id = $2
-`
-
-type DeleteUserConsentParams struct {
-	UserID   uuid.UUID `json:"user_id"`
-	ClientID uuid.UUID `json:"client_id"`
-}
-
-func (q *Queries) DeleteUserConsent(ctx context.Context, arg DeleteUserConsentParams) error {
-	_, err := q.db.ExecContext(ctx, deleteUserConsent, arg.UserID, arg.ClientID)
-	return err
-}
-
 const deleteUserEmailTokens = `-- name: DeleteUserEmailTokens :exec
 DELETE FROM auth_email_tokens WHERE user_id = $1 AND token_type = $2
 `

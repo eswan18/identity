@@ -104,20 +104,6 @@ func (s *Service) Delete(ctx context.Context, currentURL string) error {
 	return s.storage.Delete(ctx, key)
 }
 
-// ValidateImage checks if the uploaded file is a valid image.
-// Deprecated: Use the detection in Upload instead. This is kept for backwards compatibility.
-func ValidateImage(contentType string, size int64) error {
-	if size > MaxAvatarSize {
-		return &ValidationError{"File size exceeds the maximum of 5MB"}
-	}
-
-	if !AllowedMimeTypes[contentType] {
-		return &ValidationError{"File type not allowed. Please upload a JPEG, PNG, GIF, or WebP image."}
-	}
-
-	return nil
-}
-
 // ResizeImage resizes an image to the standard avatar dimensions.
 // Returns the resized image data and content type (always JPEG for consistency).
 func ResizeImage(input io.Reader, contentType string) ([]byte, string, error) {
