@@ -32,6 +32,10 @@ type Config struct {
 	StorageSecretKey string
 	StoragePublicURL string // Public URL base for serving files
 	StorageRegion    string // AWS region (default: "auto" for R2)
+
+	// Debug enables verbose [DEBUG] logging of flow/user-ID details in pkg/httpserver
+	// (see Server.debugf). Off by default; set DEBUG=true to enable.
+	Debug bool
 }
 
 func NewFromEnv() *Config {
@@ -56,6 +60,7 @@ func NewFromEnv() *Config {
 			StorageSecretKey: os.Getenv("STORAGE_SECRET_KEY"),
 			StoragePublicURL: os.Getenv("STORAGE_PUBLIC_URL"),
 			StorageRegion:    os.Getenv("STORAGE_REGION"),
+			Debug:            os.Getenv("DEBUG") == "true",
 		}
 	} else {
 		// Local development: load from .env files
@@ -82,6 +87,7 @@ func NewFromEnv() *Config {
 			StorageSecretKey: os.Getenv("STORAGE_SECRET_KEY"),
 			StoragePublicURL: os.Getenv("STORAGE_PUBLIC_URL"),
 			StorageRegion:    os.Getenv("STORAGE_REGION"),
+			Debug:            os.Getenv("DEBUG") == "true",
 		}
 	}
 

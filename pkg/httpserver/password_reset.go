@@ -88,7 +88,7 @@ func (s *Server) HandleForgotPasswordPost(w http.ResponseWriter, r *http.Request
 	user, err := s.datastore.Q.GetUserByEmail(r.Context(), emailAddr)
 	if err != nil {
 		// User not found - still show success message (no email enumeration)
-		log.Printf("[DEBUG] HandleForgotPasswordPost: No user found for email %s", emailAddr)
+		s.debugf("HandleForgotPasswordPost: No user found for email %s", emailAddr)
 		s.renderForgotPassword(w, r, ForgotPasswordPageData{
 			Success: successMsg,
 		})
@@ -149,7 +149,7 @@ If you didn't request this, you can safely ignore this email.
 		// Still show success to prevent enumeration, but log the error
 	}
 
-	log.Printf("[DEBUG] HandleForgotPasswordPost: Password reset email sent to %s", emailAddr)
+	s.debugf("HandleForgotPasswordPost: Password reset email sent to %s", emailAddr)
 	s.renderForgotPassword(w, r, ForgotPasswordPageData{
 		Success: successMsg,
 	})
@@ -179,7 +179,7 @@ func (s *Server) HandleResetPasswordGet(w http.ResponseWriter, r *http.Request) 
 	tokenHash := hashToken(token)
 	_, err := s.datastore.Q.GetPasswordResetTokenByHash(r.Context(), tokenHash)
 	if err != nil {
-		log.Printf("[DEBUG] HandleResetPasswordGet: Invalid or expired token")
+		s.debugf("HandleResetPasswordGet: Invalid or expired token")
 		w.WriteHeader(http.StatusBadRequest)
 		s.renderResetPassword(w, r, ResetPasswordPageData{
 			Error: "This password reset link is invalid or has expired. Please request a new one.",
@@ -240,7 +240,7 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 	tokenHash := hashToken(token)
 	tokenRecord, err := s.datastore.Q.GetPasswordResetTokenByHash(r.Context(), tokenHash)
 	if err != nil {
-		log.Printf("[DEBUG] HandleResetPasswordPost: Invalid or expired token")
+		s.debugf("HandleResetPasswordPost: Invalid or expired token")
 		w.WriteHeader(http.StatusBadRequest)
 		s.renderResetPassword(w, r, ResetPasswordPageData{
 			Error: "This password reset link is invalid or has expired. Please request a new one.",
@@ -310,7 +310,7 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	log.Printf("[DEBUG] HandleResetPasswordPost: Password reset successfully for user %s", tokenRecord.Username)
+	s.debugf("HandleResetPasswordPost: Password reset successfully for user %s", tokenRecord.Username)
 
 	// A password reset is a credential change: log the user out everywhere.
 	// Revoke all OAuth tokens and delete all sessions for this user, same as
@@ -369,7 +369,7 @@ func (s *Server) HandleForgotUsernamePost(w http.ResponseWriter, r *http.Request
 	user, err := s.datastore.Q.GetUserByEmail(r.Context(), emailAddr)
 	if err != nil {
 		// User not found - still show success message (no email enumeration)
-		log.Printf("[DEBUG] HandleForgotUsernamePost: No user found for email %s", emailAddr)
+		s.debugf("HandleForgotUsernamePost: No user found for email %s", emailAddr)
 		s.renderForgotUsername(w, r, ForgotPasswordPageData{
 			Success: successMsg,
 		})
@@ -401,7 +401,7 @@ If you didn't request this, you can safely ignore this email.
 		// Still show success to prevent enumeration, but log the error
 	}
 
-	log.Printf("[DEBUG] HandleForgotUsernamePost: Username reminder email sent to %s", emailAddr)
+	s.debugf("HandleForgotUsernamePost: Username reminder email sent to %s", emailAddr)
 	s.renderForgotUsername(w, r, ForgotPasswordPageData{
 		Success: successMsg,
 	})

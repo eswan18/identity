@@ -78,7 +78,7 @@ func (s *Server) HandleMFAGet(w http.ResponseWriter, r *http.Request) {
 	// from it (server-side, authoritative) so the rendered form can carry it on submit.
 	pending, err := s.datastore.Q.GetMFAPending(r.Context(), pendingID)
 	if err != nil {
-		log.Printf("[DEBUG] HandleMFAGet: Invalid or expired pending MFA session: %v", err)
+		s.debugf("HandleMFAGet: Invalid or expired pending MFA session: %v", err)
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
@@ -118,7 +118,7 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 		// duplicate/replayed submit already consumed it. Do NOT discard the OAuth
 		// context — resume the flow so the user returns to the originating app instead
 		// of being stranded on a context-free login (and then the account page).
-		log.Printf("[DEBUG] HandleMFAPost: pending MFA session missing/expired (%v); resuming with carried OAuth context", err)
+		s.debugf("HandleMFAPost: pending MFA session missing/expired (%v); resuming with carried OAuth context", err)
 		s.resumeMFAFlow(w, r, formParams)
 		return
 	}
@@ -143,7 +143,7 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 	// Validate the TOTP code. A wrong code leaves the pending row intact so the user can
 	// retry within the validity window.
 	if !mfa.ValidateCode(mfaStatus.MfaSecret.String, code) {
-		log.Printf("[DEBUG] HandleMFAPost: Invalid MFA code for user: %v", pending.UserID)
+		s.debugf("HandleMFAPost: Invalid MFA code for user: %v", pending.UserID)
 		s.renderMFAError(w, r, http.StatusUnauthorized, "Invalid verification code", pendingID, pendingParams)
 		return
 	}
