@@ -1100,16 +1100,24 @@ func (q *Queries) RevokeTokenByAccessToken(ctx context.Context, accessToken sql.
 	return err
 }
 
-const revokeTokenByRefreshToken = `-- name: RevokeTokenByRefreshToken :exec
+const revokeTokenByRefreshToken = `-- name: RevokeTokenByRefreshToken :execrows
 UPDATE oauth_tokens
 SET revoked_at = now()
 WHERE refresh_token = $1
   AND revoked_at IS NULL
 `
 
-func (q *Queries) RevokeTokenByRefreshToken(ctx context.Context, refreshToken sql.NullString) error {
-	_, err := q.db.ExecContext(ctx, revokeTokenByRefreshToken, refreshToken)
-	return err
+// Atomically revoke a refresh token. Returns 1 if the token was revoked, 0 if
+// it was already revoked (or doesn't exist). Callers MUST check the row count
+// and refuse to issue new tokens on a 0 result — otherwise two concurrent
+// refreshes presenting the same refresh token could both pass validation and
+// both mint new token pairs (refresh-token replay).
+func (q *Queries) RevokeTokenByRefreshToken(ctx context.Context, refreshToken sql.NullString) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeTokenByRefreshToken, refreshToken)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setEmailVerified = `-- name: SetEmailVerified :exec

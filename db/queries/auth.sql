@@ -119,7 +119,12 @@ FROM oauth_tokens
 WHERE refresh_token = $1
   AND revoked_at IS NULL;
 
--- name: RevokeTokenByRefreshToken :exec
+-- name: RevokeTokenByRefreshToken :execrows
+-- Atomically revoke a refresh token. Returns 1 if the token was revoked, 0 if
+-- it was already revoked (or doesn't exist). Callers MUST check the row count
+-- and refuse to issue new tokens on a 0 result — otherwise two concurrent
+-- refreshes presenting the same refresh token could both pass validation and
+-- both mint new token pairs (refresh-token replay).
 UPDATE oauth_tokens
 SET revoked_at = now()
 WHERE refresh_token = $1

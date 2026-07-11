@@ -159,14 +159,15 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 // @Param        code_verifier       formData  string  false "PKCE code verifier (required for authorization_code grant)"
 // @Param        refresh_token       formData  string  false "Refresh token (required for refresh_token grant)"
 // @Success      200 {object} map[string]interface{} "Token response with access_token, token_type, expires_in, refresh_token, scope, and id_token (when openid scope requested)"
-// @Failure      400 {object} map[string]string "OAuth2 error response (invalid_request, invalid_grant, invalid_client, etc.)"
+// @Failure      400 {object} map[string]string "OAuth2 error response (invalid_request, invalid_grant, unsupported_grant_type, etc.)"
+// @Failure      401 {object} map[string]string "OAuth2 error response (invalid_client)"
 // @Router       /oauth/token [post]
 func (s *Server) HandleOauthToken(w http.ResponseWriter, r *http.Request) {
 	grantType := r.FormValue("grant_type")
 
 	client, err := s.authenticateClient(r)
 	if err != nil {
-		s.writeTokenError(w, "invalid_client", "Invalid client credentials")
+		s.writeInvalidClientError(w)
 		return
 	}
 
@@ -192,12 +193,13 @@ func (s *Server) HandleOauthToken(w http.ResponseWriter, r *http.Request) {
 // @Param        client_id     formData  string  true  "OAuth client ID"
 // @Param        client_secret formData  string  false "OAuth client secret (required for confidential clients)"
 // @Success      200 {object} TokenResponse "Token response with access_token, token_type, expires_in, refresh_token, and scope"
-// @Failure      400 {object} map[string]string "OAuth2 error response (invalid_request, invalid_grant, invalid_client, etc.)"
+// @Failure      400 {object} map[string]string "OAuth2 error response (invalid_request, invalid_grant, etc.)"
+// @Failure      401 {object} map[string]string "OAuth2 error response (invalid_client)"
 // @Router       /oauth/refresh [post]
 func (s *Server) HandleOauthRefresh(w http.ResponseWriter, r *http.Request) {
 	client, err := s.authenticateClient(r)
 	if err != nil {
-		s.writeTokenError(w, "invalid_client", "Invalid client credentials")
+		s.writeInvalidClientError(w)
 		return
 	}
 
@@ -329,10 +331,21 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 		}
 	}
 
-	// Revoke the old token
-	err = s.datastore.Q.RevokeTokenByRefreshToken(r.Context(), sql.NullString{String: refreshToken, Valid: true})
+	// Atomically revoke the old refresh token before minting new tokens. The
+	// WHERE clause (refresh_token = $1 AND revoked_at IS NULL) guards against
+	// TOCTOU: if two concurrent requests both pass the validation above using
+	// the same refresh token, only one of these UPDATEs can affect a row —
+	// whoever "wins" the atomic revoke is the only one allowed to proceed to
+	// token issuance. This mirrors ConsumeAuthorizationCode's handling of the
+	// same race for authorization codes (RFC 6749 §10.5 requires that tokens
+	// not be replayable).
+	rowsAffected, err := s.datastore.Q.RevokeTokenByRefreshToken(r.Context(), sql.NullString{String: refreshToken, Valid: true})
 	if err != nil {
 		s.writeTokenError(w, "server_error", "Failed to revoke old token")
+		return
+	}
+	if rowsAffected == 0 {
+		s.writeTokenError(w, "invalid_grant", "Refresh token has already been used")
 		return
 	}
 
@@ -420,9 +433,22 @@ func (s *Server) writeClientCredentialsTokenResponse(w http.ResponseWriter, r *h
 	json.NewEncoder(w).Encode(response)
 }
 
-// writeTokenError writes an OAuth2 error response with 400 status
+// writeTokenError writes an OAuth2 error response with 400 status. This is
+// correct for every token-endpoint error except invalid_client — see
+// writeInvalidClientError for that case.
 func (s *Server) writeTokenError(w http.ResponseWriter, errorCode, description string) {
 	writeJSONError(w, http.StatusBadRequest, errorCode, description)
+}
+
+// writeInvalidClientError writes the invalid_client error for the token endpoint.
+// Per RFC 6749 §5.2, a failed client authentication attempt at the token endpoint
+// must be reported as HTTP 401 (not the 400 used for other token errors), with a
+// WWW-Authenticate header. This matches the invalid_client handling already used
+// by the introspection and revocation endpoints (see writeIntrospectError and
+// writeRevokeError call sites for the same error code).
+func (s *Server) writeInvalidClientError(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", `Basic realm="oauth"`)
+	writeJSONError(w, http.StatusUnauthorized, "invalid_client", "Invalid client credentials")
 }
 
 // handleUserInfo godoc
@@ -784,7 +810,11 @@ func (s *Server) revokeRefreshTokenIfOwnedByClient(ctx context.Context, token st
 		// Token belongs to a different client — do not revoke it (RFC 7009 §2.1).
 		return
 	}
-	s.datastore.Q.RevokeTokenByRefreshToken(ctx, sql.NullString{String: token, Valid: true})
+	// RevokeTokenByRefreshToken now reports rows affected (see handleRefreshTokenGrant's
+	// use of the same method for the replay-prevention fix); the revocation endpoint
+	// doesn't need it — per RFC 7009 it returns 200 OK regardless of whether the token
+	// was found or already revoked, so the row count is intentionally ignored here.
+	_, _ = s.datastore.Q.RevokeTokenByRefreshToken(ctx, sql.NullString{String: token, Valid: true})
 }
 
 // extractJTIFromToken extracts the JTI claim from a JWT without validating it.
