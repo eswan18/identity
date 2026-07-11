@@ -69,13 +69,11 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 	// unconditionally trusts the client-supplied X-Forwarded-For/X-Real-IP
 	// headers and rewrites r.RemoteAddr from them, which lets any client
 	// spoof its apparent IP (e.g. to bypass rate limiting keyed on IP - see
-	// getClientIP in ratelimit.go). There is currently no trusted-proxy
-	// configuration in this service to safely scope RealIP's trust, so we
-	// leave r.RemoteAddr as the actual TCP peer address. If this service is
-	// deployed behind a reverse proxy that must be trusted to set these
-	// headers, reintroduce IP-restricted RealIP handling (e.g. chi's
-	// middleware.RealIP combined with TrustedProxies) rather than trusting
-	// them unconditionally.
+	// getClientIP in ratelimit.go). We leave r.RemoteAddr as the actual TCP
+	// peer address; the real client IP behind the Cloudflare Tunnel is
+	// derived from the CF-Connecting-IP header in getClientIP, which
+	// Cloudflare guarantees to overwrite (unlike XFF/X-Real-IP, which anyone
+	// can set).
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))

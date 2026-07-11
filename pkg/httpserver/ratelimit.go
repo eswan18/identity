@@ -88,22 +88,34 @@ func (r *rateLimitStore) getLimiter(ip string, requestsPerMinute int) *rate.Limi
 
 // getClientIP extracts the client IP address from the request.
 //
-// SECURITY: This intentionally ignores client-supplied headers such as
-// X-Forwarded-For and X-Real-IP. Those headers are fully controlled by the
-// client and, if trusted, let an attacker get a fresh rate-limit bucket on
-// every request simply by sending a different (fabricated) value each time
-// - defeating the rate limiter entirely. Instead we key on r.RemoteAddr,
-// which is the actual TCP peer address and cannot be spoofed by the client.
+// SECURITY: The only header this trusts is CF-Connecting-IP, and only
+// because of how this service is deployed: the k8s Service is ClusterIP
+// (not directly reachable from the internet) and production traffic arrives
+// exclusively via a Cloudflare Tunnel (see k8s/README.md). Cloudflare sets
+// CF-Connecting-IP to the real client IP and OVERWRITES any value the
+// client supplies, so an external attacker cannot forge it as long as the
+// origin is reachable only through Cloudflare. If that assumption ever
+// changes - e.g. the service is exposed via a LoadBalancer/NodePort, a
+// non-Cloudflare ingress, or any other path that bypasses the tunnel - this
+// header becomes client-controlled and MUST stop being trusted here.
 //
-// Tradeoff: if this service sits behind a reverse proxy/load balancer that
-// doesn't preserve the original client IP, RemoteAddr will be the proxy's
-// address and all proxied traffic will share a single rate-limit bucket.
-// That's an availability/precision tradeoff, not a security one - it's
-// strictly safer than trusting spoofable headers. If a trusted proxy is
-// introduced in front of this service, this function (and the removed
-// middleware.RealIP in server.go) should be revisited to derive the real
-// client IP from a header that the trusted proxy guarantees to set/sanitize.
+// X-Forwarded-For and X-Real-IP are deliberately NOT trusted: on any direct
+// connection they are fully client-controlled, and trusting them lets an
+// attacker mint a fresh rate-limit bucket per request by sending a
+// different fabricated value each time, defeating the limiter entirely.
+// (For the same reason, chi's middleware.RealIP is not installed in
+// server.go.)
+//
+// When CF-Connecting-IP is absent or not a valid IP (local dev, staging via
+// the Tailscale ingress, in-cluster requests), we fall back to the host
+// portion of r.RemoteAddr - the actual TCP peer address, which cannot be
+// spoofed.
 func getClientIP(r *http.Request) string {
+	if cfIP := r.Header.Get("CF-Connecting-IP"); cfIP != "" {
+		if parsed := net.ParseIP(cfIP); parsed != nil {
+			return parsed.String()
+		}
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
