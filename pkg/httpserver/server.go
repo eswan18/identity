@@ -24,6 +24,7 @@ type Server struct {
 	datastore               *store.Store
 	router                  chi.Router
 	httpServer              *http.Server
+	cleanupCancel           context.CancelFunc
 	rateLimitStore          *rateLimitStore
 	jwtGenerator            *jwt.Generator
 	emailSender             email.Sender
@@ -190,6 +191,19 @@ func (s *Server) Run() error {
 		Addr:    s.config.HTTPAddress,
 		Handler: s.router,
 	}
+
+	// Launch the periodic expiry-cleanup worker (see cleanup.go) here, not in
+	// New, so constructing a Server for tests never spawns background work.
+	// cleanupCancel lets Close (or the deferred cancel below, once
+	// ListenAndServe returns) stop the goroutine cleanly. In production, Run
+	// blocks on ListenAndServe for the life of the process, so the worker
+	// effectively runs until the process is killed and is cancelled as part
+	// of an orderly Close/shutdown.
+	cleanupCtx, cancel := context.WithCancel(context.Background())
+	s.cleanupCancel = cancel
+	defer cancel()
+	go s.startCleanupWorker(cleanupCtx)
+
 	return s.httpServer.ListenAndServe()
 }
 
@@ -201,6 +215,9 @@ func (s *Server) Close() error {
 		if shutdownErr := s.httpServer.Shutdown(ctx); shutdownErr != nil {
 			err = shutdownErr
 		}
+	}
+	if s.cleanupCancel != nil {
+		s.cleanupCancel()
 	}
 	if s.rateLimitStore != nil {
 		s.rateLimitStore.Stop()
