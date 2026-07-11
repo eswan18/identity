@@ -3,7 +3,6 @@ package httpserver
 import (
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
 	"errors"
@@ -53,7 +52,9 @@ func (s *Server) authenticateClient(r *http.Request) (db.OauthClient, error) {
 	}
 
 	if client.IsConfidential {
-		if !client.ClientSecret.Valid || subtle.ConstantTimeCompare([]byte(client.ClientSecret.String), []byte(clientSecret)) != 1 {
+		// The stored secret is a hex-encoded SHA-256 hash; hash the presented
+		// secret the same way and compare in constant time.
+		if !client.ClientSecret.Valid || !auth.ClientSecretMatches(client.ClientSecret.String, clientSecret) {
 			return db.OauthClient{}, errors.New("invalid client credentials")
 		}
 	}
