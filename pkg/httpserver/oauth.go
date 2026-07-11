@@ -555,10 +555,14 @@ func (s *Server) HandleIntrospect(w http.ResponseWriter, r *http.Request) {
 	token := r.FormValue("token")
 	tokenTypeHint := r.FormValue("token_type_hint")
 
-	// Authenticate the calling client
-	_, err := s.authenticateClient(r)
+	// Authenticate the calling client. Per RFC 7662 §2.1, the introspection endpoint MUST be
+	// protected against unauthorized callers, so we require a fully authenticated confidential
+	// client (client_id + client_secret) rather than the token endpoint's laxer public-client
+	// allowance.
+	_, err := s.authenticateConfidentialClient(r)
 	if err != nil {
-		s.writeIntrospectError(w, http.StatusUnauthorized, "invalid_client", "Invalid client credentials")
+		w.Header().Set("WWW-Authenticate", `Basic realm="oauth"`)
+		s.writeIntrospectError(w, http.StatusUnauthorized, "invalid_client", "Client authentication required")
 		return
 	}
 
@@ -701,10 +705,14 @@ func (s *Server) HandleOauthRevoke(w http.ResponseWriter, r *http.Request) {
 	token := r.FormValue("token")
 	tokenTypeHint := r.FormValue("token_type_hint")
 
-	// Authenticate the calling client
-	_, err := s.authenticateClient(r)
+	// Authenticate the calling client. Per RFC 7009 §2.1, the revocation endpoint MUST be
+	// protected against unauthorized callers, so we require a fully authenticated confidential
+	// client (client_id + client_secret) rather than the token endpoint's laxer public-client
+	// allowance.
+	client, err := s.authenticateConfidentialClient(r)
 	if err != nil {
-		s.writeRevokeError(w, http.StatusUnauthorized, "invalid_client", "Invalid client credentials")
+		w.Header().Set("WWW-Authenticate", `Basic realm="oauth"`)
+		s.writeRevokeError(w, http.StatusUnauthorized, "invalid_client", "Client authentication required")
 		return
 	}
 
@@ -714,34 +722,69 @@ func (s *Server) HandleOauthRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Per RFC 7009, the revocation endpoint should return 200 OK regardless of
-	// whether the token was found or already revoked. This prevents token enumeration.
-	// We attempt to revoke using both methods based on the hint.
+	// whether the token was found, already revoked, or belongs to another client.
+	// This prevents token enumeration. We attempt to revoke using both methods based on the
+	// hint, but per RFC 7009 §2.1 we only actually revoke a token that was issued to the
+	// authenticated client — this prevents one client from revoking another client's tokens.
 
 	if tokenTypeHint == "refresh_token" {
 		// Try refresh token first, then access token
-		s.datastore.Q.RevokeTokenByRefreshToken(r.Context(), sql.NullString{String: token, Valid: true})
-		s.revokeAccessToken(r.Context(), token)
+		s.revokeRefreshTokenIfOwnedByClient(r.Context(), token, client.ID)
+		s.revokeAccessTokenIfOwnedByClient(r.Context(), token, client.ID)
 	} else {
 		// Try access token first (default), then refresh token
-		s.revokeAccessToken(r.Context(), token)
-		s.datastore.Q.RevokeTokenByRefreshToken(r.Context(), sql.NullString{String: token, Valid: true})
+		s.revokeAccessTokenIfOwnedByClient(r.Context(), token, client.ID)
+		s.revokeRefreshTokenIfOwnedByClient(r.Context(), token, client.ID)
 	}
 
 	// Always return 200 OK per RFC 7009
 	w.WriteHeader(http.StatusOK)
 }
 
-// revokeAccessToken attempts to revoke an access token.
-// For JWTs, the token parameter should be the full JWT. We extract the JTI
-// (which is stored in the database) and revoke by that.
-func (s *Server) revokeAccessToken(ctx context.Context, token string) {
+// revokeAccessTokenIfOwnedByClient attempts to revoke an access token, but only if it was
+// issued to clientID. For JWTs, the token parameter should be the full JWT. We extract the
+// JTI (which is stored in the database) and look up/revoke by that; we also try the raw
+// token value in case it's stored differently. If the token isn't found, or belongs to a
+// different client, this is a silent no-op — the caller still returns 200 OK per RFC 7009.
+func (s *Server) revokeAccessTokenIfOwnedByClient(ctx context.Context, token string, clientID uuid.UUID) {
 	// Try to parse as JWT to extract JTI
-	jti := s.extractJTIFromToken(token)
-	if jti != "" {
-		s.datastore.Q.RevokeTokenByAccessToken(ctx, sql.NullString{String: jti, Valid: true})
+	if jti := s.extractJTIFromToken(token); jti != "" {
+		s.revokeAccessTokenByLookupIfOwned(ctx, jti, clientID)
 	}
 	// Also try revoking by the raw token value in case it's stored differently
-	s.datastore.Q.RevokeTokenByAccessToken(ctx, sql.NullString{String: token, Valid: true})
+	s.revokeAccessTokenByLookupIfOwned(ctx, token, clientID)
+}
+
+// revokeAccessTokenByLookupIfOwned looks up the token record by its stored access_token value
+// (which is the JTI for JWTs) and revokes it only if it belongs to clientID.
+func (s *Server) revokeAccessTokenByLookupIfOwned(ctx context.Context, accessToken string, clientID uuid.UUID) {
+	dbToken, err := s.datastore.Q.GetTokenByAccessToken(ctx, sql.NullString{String: accessToken, Valid: true})
+	if err != nil {
+		// Not found (or already revoked/expired) — nothing to do.
+		return
+	}
+	if dbToken.ClientID != clientID {
+		// Token belongs to a different client — do not reveal this to the caller, and do not
+		// revoke a token this client doesn't own (RFC 7009 §2.1).
+		return
+	}
+	s.datastore.Q.RevokeTokenByAccessToken(ctx, sql.NullString{String: accessToken, Valid: true})
+}
+
+// revokeRefreshTokenIfOwnedByClient looks up the refresh token and revokes it only if it
+// belongs to clientID. If the token isn't found, or belongs to a different client, this is a
+// silent no-op — the caller still returns 200 OK per RFC 7009.
+func (s *Server) revokeRefreshTokenIfOwnedByClient(ctx context.Context, token string, clientID uuid.UUID) {
+	dbToken, err := s.datastore.Q.GetTokenByRefreshToken(ctx, sql.NullString{String: token, Valid: true})
+	if err != nil {
+		// Not found (or already revoked) — nothing to do.
+		return
+	}
+	if dbToken.ClientID != clientID {
+		// Token belongs to a different client — do not revoke it (RFC 7009 §2.1).
+		return
+	}
+	s.datastore.Q.RevokeTokenByRefreshToken(ctx, sql.NullString{String: token, Valid: true})
 }
 
 // extractJTIFromToken extracts the JTI claim from a JWT without validating it.
