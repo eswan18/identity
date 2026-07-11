@@ -358,7 +358,6 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 			userID.String(),
 			client.ClientID,
 			accessToken,
-			scope,
 			idClaims,
 			accessTokenExpiresIn,
 		)
