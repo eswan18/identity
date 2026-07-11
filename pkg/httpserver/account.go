@@ -39,10 +39,10 @@ func (s *Server) HandleRoot(w http.ResponseWriter, r *http.Request) {
 // @Failure      401 {string} string "Unauthorized - no valid session"
 // @Router       /account-settings [get]
 func (s *Server) HandleAccountSettingsGet(w http.ResponseWriter, r *http.Request) {
-	// Get user from session - including inactive users so they can see their account settings
-	user, err := s.getUserFromSessionIncludingInactive(r)
-	if err != nil {
-		s.debugf("HandleAccountSettingsGet: Failed to get user from session: %v", err)
+	// The user (including deactivated users) is resolved by the requireUser
+	// middleware and stored in the request context.
+	user, ok := userFromContext(r.Context())
+	if !ok {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
@@ -99,11 +99,7 @@ func (s *Server) HandleAccountSettingsGet(w http.ResponseWriter, r *http.Request
 // @Failure      401 {string} string "Unauthorized - no valid session"
 // @Router       /change-password [get]
 func (s *Server) HandleChangePasswordGet(w http.ResponseWriter, r *http.Request) {
-	_, err := s.getUserFromSession(r)
-	if err != nil {
-		http.Redirect(w, r, "/oauth/login", http.StatusFound)
-		return
-	}
+	// Authentication is enforced by the requireActiveUser middleware.
 	s.changePasswordTemplate.Execute(w, ChangePasswordPageData{CSRFToken: s.ensureCSRFToken(w, r)})
 }
 
@@ -121,8 +117,8 @@ func (s *Server) HandleChangePasswordGet(w http.ResponseWriter, r *http.Request)
 // @Failure      401 {string} string "Unauthorized - invalid current password"
 // @Router       /change-password [post]
 func (s *Server) HandleChangePasswordPost(w http.ResponseWriter, r *http.Request) {
-	user, err := s.getUserFromSession(r)
-	if err != nil {
+	user, ok := userFromContext(r.Context())
+	if !ok {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
@@ -221,8 +217,8 @@ func (s *Server) HandleChangePasswordPost(w http.ResponseWriter, r *http.Request
 // @Failure      401 {string} string "Unauthorized - no valid session"
 // @Router       /change-username [get]
 func (s *Server) HandleChangeUsernameGet(w http.ResponseWriter, r *http.Request) {
-	user, err := s.getUserFromSession(r)
-	if err != nil {
+	user, ok := userFromContext(r.Context())
+	if !ok {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
@@ -242,8 +238,8 @@ func (s *Server) HandleChangeUsernameGet(w http.ResponseWriter, r *http.Request)
 // @Failure      401 {string} string "Unauthorized - invalid password"
 // @Router       /change-username [post]
 func (s *Server) HandleChangeUsernamePost(w http.ResponseWriter, r *http.Request) {
-	user, err := s.getUserFromSession(r)
-	if err != nil {
+	user, ok := userFromContext(r.Context())
+	if !ok {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
@@ -316,8 +312,8 @@ func (s *Server) HandleChangeUsernamePost(w http.ResponseWriter, r *http.Request
 // @Failure      401 {string} string "Unauthorized - no valid session"
 // @Router       /change-email [get]
 func (s *Server) HandleChangeEmailGet(w http.ResponseWriter, r *http.Request) {
-	user, err := s.getUserFromSession(r)
-	if err != nil {
+	user, ok := userFromContext(r.Context())
+	if !ok {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
@@ -337,8 +333,8 @@ func (s *Server) HandleChangeEmailGet(w http.ResponseWriter, r *http.Request) {
 // @Failure      401 {string} string "Unauthorized - invalid password"
 // @Router       /change-email [post]
 func (s *Server) HandleChangeEmailPost(w http.ResponseWriter, r *http.Request) {
-	user, err := s.getUserFromSession(r)
-	if err != nil {
+	user, ok := userFromContext(r.Context())
+	if !ok {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
@@ -420,8 +416,8 @@ func (s *Server) HandleChangeEmailPost(w http.ResponseWriter, r *http.Request) {
 // @Failure      401 {string} string "Unauthorized - no valid session"
 // @Router       /edit-profile [get]
 func (s *Server) HandleEditProfileGet(w http.ResponseWriter, r *http.Request) {
-	user, err := s.getUserFromSession(r)
-	if err != nil {
+	user, ok := userFromContext(r.Context())
+	if !ok {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
@@ -444,8 +440,8 @@ func (s *Server) HandleEditProfileGet(w http.ResponseWriter, r *http.Request) {
 // @Failure      401 {string} string "Unauthorized - no valid session"
 // @Router       /edit-profile [post]
 func (s *Server) HandleEditProfilePost(w http.ResponseWriter, r *http.Request) {
-	user, err := s.getUserFromSession(r)
-	if err != nil {
+	user, ok := userFromContext(r.Context())
+	if !ok {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
@@ -454,7 +450,7 @@ func (s *Server) HandleEditProfilePost(w http.ResponseWriter, r *http.Request) {
 	familyName := r.FormValue("family_name")
 
 	// Update profile in database
-	err = s.datastore.Q.UpdateUserProfile(r.Context(), db.UpdateUserProfileParams{
+	err := s.datastore.Q.UpdateUserProfile(r.Context(), db.UpdateUserProfileParams{
 		GivenName:  toNullString(givenName),
 		FamilyName: toNullString(familyName),
 		ID:         user.ID,
@@ -555,8 +551,10 @@ func (s *Server) doGetUserFromSession(r *http.Request, getUserByID func(context.
 // @Failure      401 {string} string "Unauthorized - invalid password"
 // @Router       /deactivate-account [post]
 func (s *Server) HandleDeactivateAccountPost(w http.ResponseWriter, r *http.Request) {
-	user, err := s.getUserFromSessionIncludingInactive(r)
-	if err != nil {
+	// The user (including deactivated users) is resolved by the requireUser
+	// middleware and stored in the request context.
+	user, ok := userFromContext(r.Context())
+	if !ok {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
@@ -647,8 +645,10 @@ func (s *Server) HandleDeactivateAccountPost(w http.ResponseWriter, r *http.Requ
 // @Failure      401 {string} string "Unauthorized - invalid password"
 // @Router       /reactivate-account [post]
 func (s *Server) HandleReactivateAccountPost(w http.ResponseWriter, r *http.Request) {
-	user, err := s.getUserFromSessionIncludingInactive(r)
-	if err != nil {
+	// The user (including deactivated users) is resolved by the requireUser
+	// middleware and stored in the request context.
+	user, ok := userFromContext(r.Context())
+	if !ok {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
@@ -717,8 +717,8 @@ func (s *Server) HandleReactivateAccountPost(w http.ResponseWriter, r *http.Requ
 // @Failure      401 {string} string "Unauthorized - no valid session"
 // @Router       /change-avatar [get]
 func (s *Server) HandleChangeAvatarGet(w http.ResponseWriter, r *http.Request) {
-	user, err := s.getUserFromSession(r)
-	if err != nil {
+	user, ok := userFromContext(r.Context())
+	if !ok {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
@@ -746,8 +746,8 @@ func (s *Server) HandleChangeAvatarGet(w http.ResponseWriter, r *http.Request) {
 // @Failure      401 {string} string "Unauthorized - no valid session"
 // @Router       /change-avatar [post]
 func (s *Server) HandleChangeAvatarPost(w http.ResponseWriter, r *http.Request) {
-	user, err := s.getUserFromSession(r)
-	if err != nil {
+	user, ok := userFromContext(r.Context())
+	if !ok {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
@@ -833,8 +833,8 @@ func (s *Server) HandleChangeAvatarPost(w http.ResponseWriter, r *http.Request) 
 // @Failure      401 {string} string "Unauthorized - no valid session"
 // @Router       /delete-avatar [post]
 func (s *Server) HandleDeleteAvatarPost(w http.ResponseWriter, r *http.Request) {
-	user, err := s.getUserFromSession(r)
-	if err != nil {
+	user, ok := userFromContext(r.Context())
+	if !ok {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}

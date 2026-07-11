@@ -169,9 +169,10 @@ func (s *Server) HandleVerifyEmail(w http.ResponseWriter, r *http.Request) {
 
 // HandleResendVerification handles requests to resend the verification email.
 func (s *Server) HandleResendVerification(w http.ResponseWriter, r *http.Request) {
-	// Get the current user from session
-	user, err := s.getUserFromSession(r)
-	if err != nil {
+	// The active user is resolved by the requireActiveUser middleware and stored
+	// in the request context.
+	user, ok := userFromContext(r.Context())
+	if !ok {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}

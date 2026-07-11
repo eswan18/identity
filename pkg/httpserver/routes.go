@@ -96,37 +96,11 @@ func (s *Server) registerRoutes() {
 			r.Post("/register", s.HandleRegisterPost)
 			// Logout (POST form variant)
 			r.Post("/logout", s.HandleLogout)
-			// Account settings
-			r.Get("/account-settings", s.HandleAccountSettingsGet)
-			// Change password
-			r.Get("/change-password", s.HandleChangePasswordGet)
-			r.Post("/change-password", s.HandleChangePasswordPost)
-			// Change username
-			r.Get("/change-username", s.HandleChangeUsernameGet)
-			r.Post("/change-username", s.HandleChangeUsernamePost)
-			// Change email
-			r.Get("/change-email", s.HandleChangeEmailGet)
-			r.Post("/change-email", s.HandleChangeEmailPost)
-			// Edit profile
-			r.Get("/edit-profile", s.HandleEditProfileGet)
-			r.Post("/edit-profile", s.HandleEditProfilePost)
-			// Change avatar
-			r.Get("/change-avatar", s.HandleChangeAvatarGet)
-			r.Post("/change-avatar", s.HandleChangeAvatarPost)
-			r.Post("/delete-avatar", s.HandleDeleteAvatarPost)
-			// Deactivate account
-			r.Post("/deactivate-account", s.HandleDeactivateAccountPost)
-			// Reactivate account
-			r.Post("/reactivate-account", s.HandleReactivateAccountPost)
-			// MFA verification (during login)
+			// MFA verification (during login). This is the login-time challenge
+			// that runs BEFORE the user is fully authenticated; it does not use
+			// getUserFromSession and so stays out of the requireUser groups below.
 			r.Get("/mfa", s.HandleMFAGet)
 			r.Post("/mfa", s.HandleMFAPost)
-			// MFA setup (from account settings)
-			r.Get("/mfa-setup", s.HandleMFASetupGet)
-			r.Post("/mfa-setup", s.HandleMFASetupPost)
-			r.Post("/mfa-disable", s.HandleMFADisablePost)
-			// Email verification (resend from account settings)
-			r.Post("/resend-verification", s.HandleResendVerification)
 			// Password reset
 			r.Get("/forgot-password", s.HandleForgotPasswordGet)
 			r.Post("/forgot-password", s.HandleForgotPasswordPost)
@@ -135,6 +109,54 @@ func (s *Server) registerRoutes() {
 			// Username reminder
 			r.Get("/forgot-username", s.HandleForgotUsernameGet)
 			r.Post("/forgot-username", s.HandleForgotUsernamePost)
+
+			// --- Authenticated account routes ---
+			// These handlers all resolve the current user from the session
+			// cookie. The requireUser middlewares perform that lookup once (and
+			// redirect to /oauth/login on failure), so the handlers pull the user
+			// from the request context instead of repeating the boilerplate.
+
+			// requireActiveUser: account operations that require an ACTIVE user.
+			r.Group(func(r chi.Router) {
+				r.Use(s.requireActiveUser)
+
+				// Change password
+				r.Get("/change-password", s.HandleChangePasswordGet)
+				r.Post("/change-password", s.HandleChangePasswordPost)
+				// Change username
+				r.Get("/change-username", s.HandleChangeUsernameGet)
+				r.Post("/change-username", s.HandleChangeUsernamePost)
+				// Change email
+				r.Get("/change-email", s.HandleChangeEmailGet)
+				r.Post("/change-email", s.HandleChangeEmailPost)
+				// Edit profile
+				r.Get("/edit-profile", s.HandleEditProfileGet)
+				r.Post("/edit-profile", s.HandleEditProfilePost)
+				// Change avatar
+				r.Get("/change-avatar", s.HandleChangeAvatarGet)
+				r.Post("/change-avatar", s.HandleChangeAvatarPost)
+				r.Post("/delete-avatar", s.HandleDeleteAvatarPost)
+				// MFA setup / disable (post-auth account operations)
+				r.Get("/mfa-setup", s.HandleMFASetupGet)
+				r.Post("/mfa-setup", s.HandleMFASetupPost)
+				r.Post("/mfa-disable", s.HandleMFADisablePost)
+				// Email verification (resend from account settings)
+				r.Post("/resend-verification", s.HandleResendVerification)
+			})
+
+			// requireUser: account operations that must remain reachable for a
+			// DEACTIVATED user (these previously used
+			// getUserFromSessionIncludingInactive).
+			r.Group(func(r chi.Router) {
+				r.Use(s.requireUser)
+
+				// Account settings
+				r.Get("/account-settings", s.HandleAccountSettingsGet)
+				// Deactivate account
+				r.Post("/deactivate-account", s.HandleDeactivateAccountPost)
+				// Reactivate account
+				r.Post("/reactivate-account", s.HandleReactivateAccountPost)
+			})
 		})
 	})
 
