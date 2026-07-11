@@ -86,24 +86,36 @@ func (r *rateLimitStore) getLimiter(ip string, requestsPerMinute int) *rate.Limi
 	return entry.limiter
 }
 
-// getClientIP extracts the client IP address from the request
+// getClientIP extracts the client IP address from the request.
+//
+// SECURITY: The only header this trusts is CF-Connecting-IP, and only
+// because of how this service is deployed: the k8s Service is ClusterIP
+// (not directly reachable from the internet) and production traffic arrives
+// exclusively via a Cloudflare Tunnel (see k8s/README.md). Cloudflare sets
+// CF-Connecting-IP to the real client IP and OVERWRITES any value the
+// client supplies, so an external attacker cannot forge it as long as the
+// origin is reachable only through Cloudflare. If that assumption ever
+// changes - e.g. the service is exposed via a LoadBalancer/NodePort, a
+// non-Cloudflare ingress, or any other path that bypasses the tunnel - this
+// header becomes client-controlled and MUST stop being trusted here.
+//
+// X-Forwarded-For and X-Real-IP are deliberately NOT trusted: on any direct
+// connection they are fully client-controlled, and trusting them lets an
+// attacker mint a fresh rate-limit bucket per request by sending a
+// different fabricated value each time, defeating the limiter entirely.
+// (For the same reason, chi's middleware.RealIP is not installed in
+// server.go.)
+//
+// When CF-Connecting-IP is absent or not a valid IP (local dev, staging via
+// the Tailscale ingress, in-cluster requests), we fall back to the host
+// portion of r.RemoteAddr - the actual TCP peer address, which cannot be
+// spoofed.
 func getClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header (set by proxies/load balancers)
-	// Take the first IP if there are multiple (comma-separated)
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// X-Forwarded-For can contain multiple IPs, take the first one
-		for i, char := range xff {
-			if char == ',' {
-				return xff[:i]
-			}
+	if cfIP := r.Header.Get("CF-Connecting-IP"); cfIP != "" {
+		if parsed := net.ParseIP(cfIP); parsed != nil {
+			return parsed.String()
 		}
-		return xff
 	}
-	// Check X-Real-IP header
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-	// Fall back to RemoteAddr
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

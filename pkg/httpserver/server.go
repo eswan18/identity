@@ -65,7 +65,15 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 	consentTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/consent.html"))
 
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	// NOTE: chi's middleware.RealIP is intentionally NOT used here. It
+	// unconditionally trusts the client-supplied X-Forwarded-For/X-Real-IP
+	// headers and rewrites r.RemoteAddr from them, which lets any client
+	// spoof its apparent IP (e.g. to bypass rate limiting keyed on IP - see
+	// getClientIP in ratelimit.go). We leave r.RemoteAddr as the actual TCP
+	// peer address; the real client IP behind the Cloudflare Tunnel is
+	// derived from the CF-Connecting-IP header in getClientIP, which
+	// Cloudflare guarantees to overwrite (unlike XFF/X-Real-IP, which anyone
+	// can set).
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
