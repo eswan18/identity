@@ -181,7 +181,31 @@ func (s *Server) HandleChangePasswordPost(w http.ResponseWriter, r *http.Request
 	}
 
 	log.Printf("[DEBUG] HandleChangePasswordPost: Password updated successfully for user: %s", user.Username)
-	s.changePasswordTemplate.Execute(w, ChangePasswordPageData{Success: "Password updated successfully"})
+
+	// A password change is a credential change: log the user out everywhere.
+	// Revoke all OAuth tokens and delete all sessions (including the current
+	// one) for this user, same as account deactivation does.
+	userIDNullable := uuid.NullUUID{UUID: user.ID, Valid: true}
+	if err := s.datastore.Q.RevokeAllUserTokens(r.Context(), userIDNullable); err != nil {
+		log.Printf("[ERROR] HandleChangePasswordPost: Failed to revoke tokens: %v", err)
+		// Continue anyway - the password was already changed successfully.
+	}
+	if err := s.datastore.Q.DeleteAllUserSessions(r.Context(), user.ID); err != nil {
+		log.Printf("[ERROR] HandleChangePasswordPost: Failed to delete sessions: %v", err)
+		// Continue anyway - the password was already changed successfully.
+	}
+
+	// Clear the now-invalid session cookie and send the user back to login,
+	// mirroring HandleDeactivateAccountPost's redirect-to-login pattern.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session_id",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	http.Redirect(w, r, "/oauth/login?password_changed=true", http.StatusFound)
 }
 
 // HandleChangeUsernameGet godoc
@@ -366,8 +390,17 @@ func (s *Server) HandleChangeEmailPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[DEBUG] HandleChangeEmailPost: Email updated successfully from %s to %s", user.Email, newEmail)
+
+	// The new address hasn't been verified yet (UpdateUserEmail resets
+	// email_verified to false), so send a fresh verification email to it.
+	// Mirror HandleForgotPasswordPost's pattern: a failure to send shouldn't
+	// block the (already-successful) email change, just get logged.
+	if err := s.sendVerificationEmail(r.Context(), user.ID, newEmail, user.Username); err != nil {
+		log.Printf("[ERROR] HandleChangeEmailPost: Failed to send verification email: %v", err)
+	}
+
 	s.changeEmailTemplate.Execute(w, ChangeEmailPageData{
-		Success:      "Email updated successfully",
+		Success:      "Email updated successfully. Please check your new email address for a verification link.",
 		CurrentEmail: newEmail,
 	})
 }

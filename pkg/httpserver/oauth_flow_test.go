@@ -329,11 +329,24 @@ func (s *OAuthFlowSuite) TestPasswordChangeUpdatesPasswordChangedAt() {
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
-	s.Require().Equal(http.StatusOK, resp.StatusCode, "password change should succeed")
+	// A successful password change logs the user out everywhere: it redirects
+	// to the login page rather than rendering the change-password page inline.
+	s.Require().Equal(http.StatusFound, resp.StatusCode, "password change should redirect to login")
+	s.Require().Equal("/oauth/login?password_changed=true", resp.Header.Get("Location"))
 
 	// Verify password_changed_at is now set
 	userAfter, err := s.datastore.Q.GetUserByID(s.T().Context(), user.ID)
 	s.Require().NoError(err)
 	s.True(userAfter.PasswordChangedAt.Valid, "password_changed_at should be set after password change")
 	s.WithinDuration(time.Now(), userAfter.PasswordChangedAt.Time, 5*time.Second, "password_changed_at should be recent")
+
+	// The session used to change the password should have been invalidated,
+	// since a password change revokes all sessions for the user.
+	var sessionCookieValue string
+	for _, c := range jar.Cookies(&url.URL{Scheme: "http", Host: "localhost:8080"}) {
+		if c.Name == "session_id" {
+			sessionCookieValue = c.Value
+		}
+	}
+	s.Empty(sessionCookieValue, "session cookie should be cleared after password change")
 }
