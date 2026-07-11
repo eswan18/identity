@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"image/png"
+	"net/url"
 
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
@@ -29,6 +30,27 @@ func GenerateSecret(username string) (*otp.Key, error) {
 		return nil, err
 	}
 	return key, nil
+}
+
+// KeyFromSecret reconstructs a TOTP *otp.Key from a previously generated base32
+// secret, using the same parameters as GenerateSecret (issuer, SHA1, 6 digits, 30s
+// period). This lets callers regenerate the QR code / provisioning URI for an
+// existing secret — for example when re-rendering the enrollment page after a wrong
+// code — without generating a new secret.
+func KeyFromSecret(username, secret string) (*otp.Key, error) {
+	v := url.Values{}
+	v.Set("secret", secret)
+	v.Set("issuer", Issuer)
+	v.Set("algorithm", "SHA1")
+	v.Set("digits", "6")
+	v.Set("period", "30")
+	u := url.URL{
+		Scheme:   "otpauth",
+		Host:     "totp",
+		Path:     "/" + url.PathEscape(Issuer+":"+username),
+		RawQuery: v.Encode(),
+	}
+	return otp.NewKeyFromURL(u.String())
 }
 
 // GenerateQRCode generates a QR code image as a base64-encoded PNG string.

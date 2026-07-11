@@ -246,6 +246,26 @@ DELETE FROM auth_mfa_pending WHERE id = $1;
 -- name: DeleteExpiredMFAPending :exec
 DELETE FROM auth_mfa_pending WHERE expires_at <= now();
 
+-- MFA enrollment pending secrets (server-side, keyed by user)
+
+-- name: CreateMFAEnrollmentPending :exec
+INSERT INTO auth_mfa_enrollment_pending (user_id, secret, expires_at)
+VALUES ($1, $2, $3)
+ON CONFLICT (user_id) DO UPDATE
+SET secret = EXCLUDED.secret,
+    created_at = now(),
+    expires_at = EXCLUDED.expires_at;
+
+-- name: GetMFAEnrollmentPending :one
+SELECT * FROM auth_mfa_enrollment_pending
+WHERE user_id = $1 AND expires_at > now();
+
+-- name: DeleteMFAEnrollmentPending :exec
+DELETE FROM auth_mfa_enrollment_pending WHERE user_id = $1;
+
+-- name: DeleteExpiredMFAEnrollmentPending :exec
+DELETE FROM auth_mfa_enrollment_pending WHERE expires_at <= now();
+
 -- Email verification queries
 
 -- name: SetEmailVerified :exec
