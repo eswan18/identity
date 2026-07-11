@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/eswan18/identity/pkg/avatar"
@@ -74,7 +75,17 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 	// derived from the CF-Connecting-IP header in getClientIP, which
 	// Cloudflare guarantees to overwrite (unlike XFF/X-Real-IP, which anyone
 	// can set).
-	r.Use(middleware.Logger)
+	// Security headers apply to every response; HSTS within them is gated on
+	// isSecureContext so it is only ever sent when the service is actually reached
+	// over HTTPS (see isSecureContext for why config.HTTPAddress can't be used here).
+	r.Use(securityHeadersMiddleware(isSecureContext(config)))
+	// requestLoggingMiddleware replaces chi's middleware.Logger, which logs the raw
+	// RequestURI (including query string) verbatim. Password-reset and
+	// email-verification links carry single-use secret tokens in a "token" query
+	// parameter (see password_reset.go, email_verification.go); logging them verbatim
+	// would put those secrets in access logs. requestLoggingMiddleware logs the same
+	// method/path/status/duration fields but redacts sensitive query parameter values.
+	r.Use(requestLoggingMiddleware)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
 
@@ -122,6 +133,25 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 	return s
 }
 
+// isSecureContext reports whether the service is actually reached by clients over
+// HTTPS (e.g. behind a TLS-terminating reverse proxy in production). It is used to
+// gate anything that must never be sent/applied over plain HTTP: the session cookie's
+// Secure attribute and the Strict-Transport-Security header.
+//
+// config.HTTPAddress cannot be used for this: it is just the local listen address
+// passed to http.Server.Addr (e.g. ":8000"), so a prefix check like
+// strings.HasPrefix(cfg.HTTPAddress, "https://") is always false, even in production
+// behind TLS -- which is exactly the bug this fixes.
+//
+// config.JWTIssuer is the service's public base URL and is validated at startup to be
+// a well-formed http(s) URL (see config.validateIssuerURL), so its scheme reliably
+// reflects how the service is actually reached: "https://identity.example.com" in
+// production, "http://localhost:8000" in local dev. That makes it a reliable,
+// zero-new-config signal for "am I being served over HTTPS".
+func isSecureContext(cfg *config.Config) bool {
+	return strings.HasPrefix(cfg.JWTIssuer, "https://")
+}
+
 // IsListening checks if the server is listening on the configured address.
 func (s *Server) IsListening() bool {
 	if s.httpServer == nil {
@@ -156,6 +186,12 @@ func (s *Server) Close() error {
 		s.rateLimitStore.Stop()
 	}
 	return err
+}
+
+// isSecureContext reports whether this server instance is being served over HTTPS.
+// See the package-level isSecureContext function for the reasoning behind the signal.
+func (s *Server) isSecureContext() bool {
+	return isSecureContext(s.config)
 }
 
 // ResetRateLimits clears all rate limiters (useful for testing)

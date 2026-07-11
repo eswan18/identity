@@ -597,6 +597,7 @@ func (s *Server) HandleDeactivateAccountPost(w http.ResponseWriter, r *http.Requ
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   s.isSecureContext(),
 		SameSite: http.SameSiteLaxMode,
 	})
 

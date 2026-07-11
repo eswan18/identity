@@ -126,8 +126,6 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 	codeChallengeMethod := r.FormValue("code_challenge_method")
 	nonce := r.FormValue("nonce")
 
-	log.Printf("[DEBUG] HandleLoginPost: username=%s, clientID=%s, redirectURI=%s", username, clientID, redirectURI)
-
 	// Extract OAuth parameters into a struct for reuse.
 	oauthParams := LoginPageData{
 		ClientID:            clientID,
@@ -140,7 +138,6 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 	}
 	// Validate credentials - use the function that includes inactive users
 	// so we can handle deactivated users appropriately based on the login type
-	log.Printf("[DEBUG] HandleLoginPost: Validating credentials for user: %s", username)
 	user, err := s.validateCredentialsIncludingInactive(r.Context(), username, password)
 	if err != nil {
 		log.Printf("[DEBUG] HandleLoginPost: Credential validation failed: %v", err)
@@ -158,14 +155,14 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 	// Check if user is deactivated and trying to use OAuth login
 	// Deactivated users can only log in directly (no client_id) to access account settings
 	if !user.IsActive && clientID != "" {
-		log.Printf("[DEBUG] HandleLoginPost: Deactivated user %s attempted OAuth login", username)
+		log.Printf("[DEBUG] HandleLoginPost: Deactivated user (ID: %v) attempted OAuth login", user.ID)
 		s.renderLoginError(w, http.StatusForbidden, ErrAccountDeactivated.Error(), oauthParams)
 		return
 	}
 
 	// Check if MFA is enabled for this user
 	if user.MfaEnabled {
-		log.Printf("[DEBUG] HandleLoginPost: MFA enabled for user %s, creating pending session", username)
+		log.Printf("[DEBUG] HandleLoginPost: MFA enabled for user (ID: %v), creating pending session", user.ID)
 		pendingID, err := s.createMFAPendingSession(r, user.ID, oauthParams)
 		if err != nil {
 			log.Printf("[ERROR] HandleLoginPost: Failed to create MFA pending session: %v", err)
@@ -185,7 +182,11 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
 		return
 	}
-	log.Printf("[DEBUG] HandleLoginPost: Session created successfully: %s", session.ID)
+	// Log only the user ID, never the session token itself: session.ID is the bearer
+	// value sent as the session_id cookie, so writing it to logs would let anyone with
+	// log access hijack the session (same class of issue as the reset/verification
+	// tokens -- see the request-logging middleware in logging.go).
+	log.Printf("[DEBUG] HandleLoginPost: Session created successfully for user ID: %v", user.ID)
 
 	// Update last login timestamp
 	if err := s.datastore.Q.UpdateUserLastLogin(r.Context(), user.ID); err != nil {
@@ -233,17 +234,16 @@ func (s *Server) renderLoginError(w http.ResponseWriter, statusCode int, errorMs
 }
 
 // setSessionCookie writes the authenticated session cookie. The Secure attribute is
-// enabled when the configured public address is HTTPS (production) and left off for
-// plain-HTTP local development.
+// enabled when the service is actually reached over HTTPS (production) and left off
+// for plain-HTTP local development; see Server.isSecureContext for how that's decided.
 func (s *Server) setSessionCookie(w http.ResponseWriter, session Session) {
-	isSecure := strings.HasPrefix(s.config.HTTPAddress, "https://") || strings.Contains(s.config.HTTPAddress, ":443")
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session_id",
 		Value:    session.ID,
 		Path:     "/",
 		Expires:  session.ExpiresAt,
 		HttpOnly: true,
-		Secure:   isSecure,
+		Secure:   s.isSecureContext(),
 		SameSite: http.SameSiteLaxMode,
 	})
 }
