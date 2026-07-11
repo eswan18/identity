@@ -677,6 +677,77 @@ func (s *OAuthFlowSuite) TestUserInfoScopeGating() {
 	s.NotContains(userInfo, "picture", "picture should not be present without profile scope")
 }
 
+// TestUserInfoRejectsRevokedToken verifies that a revoked access token is
+// rejected at the UserInfo endpoint with 401 invalid_token, consistent with
+// the introspection endpoint's handling of revoked tokens. This guards
+// against a regression of the vulnerability where UserInfo treated a
+// missing/revoked JTI row as "revocation tracking not enabled" and let the
+// request through.
+func (s *OAuthFlowSuite) TestUserInfoRejectsRevokedToken() {
+	// Confidential client used to call the revoke endpoint (RFC 7009 requires
+	// client authentication for revocation).
+	clientSecret := s.mustGenerateRandomString(32)
+	revokeClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: true,
+		Audience:       "http://localhost:8000",
+	})
+
+	// Complete OAuth flow to get an access token.
+	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "http://localhost:8000",
+	})
+	accessToken := result.TokenResponse.AccessToken
+	s.Require().NotEmpty(accessToken)
+
+	// Sanity check: userinfo works before revocation.
+	req, err := http.NewRequest("GET", "http://localhost:8080/oauth/userinfo", nil)
+	s.Require().NoError(err)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	resp, err := s.httpClient.Do(req)
+	s.Require().NoError(err)
+	resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode, "userinfo should succeed before revocation")
+
+	// Revoke the access token.
+	revokeValues := url.Values{
+		"token":           {accessToken},
+		"token_type_hint": {"access_token"},
+		"client_id":       {revokeClient.ClientID},
+		"client_secret":   {clientSecret},
+	}
+	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/revoke", revokeValues)
+	s.Require().NoError(err)
+	resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	// UserInfo must now reject the revoked token.
+	req, err = http.NewRequest("GET", "http://localhost:8080/oauth/userinfo", nil)
+	s.Require().NoError(err)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	resp, err = s.httpClient.Do(req)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusUnauthorized, resp.StatusCode, "userinfo should reject a revoked access token")
+
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	var errResponse map[string]string
+	err = json.Unmarshal(body, &errResponse)
+	s.Require().NoError(err)
+	s.Equal("invalid_token", errResponse["error"])
+}
+
 // TestUserInfoEmailScopeOnly verifies that requesting "openid email" returns
 // email claims but not profile claims.
 func (s *OAuthFlowSuite) TestUserInfoEmailScopeOnly() {
