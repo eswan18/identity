@@ -1,0 +1,30 @@
+{{/* Shared icon glyphs used by the alert partials below (and by login.html's
+     custom success/error branching, which can't use the alert-* partials
+     directly because it doesn't use a .Success field). */}}
+{{define "icon-error"}}<svg class="shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                    <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm-.75 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 12a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
+                </svg>{{end}}
+{{define "icon-success"}}<svg class="shrink-0" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                    <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.78 5.28-4.5 6a.75.75 0 0 1-1.18.02l-2.25-2.5a.75.75 0 1 1 1.12-1l1.63 1.81 3.92-5.23a.75.75 0 1 1 1.26.9z"/>
+                </svg>{{end}}
+
+{{/* alert-error / alert-success render the markup for a dismissable-looking
+     inline alert box. The caller is responsible for the surrounding
+     {{if .Error}} / {{if .Success}} guard, since some pages need an
+     {{if .Success}}...{{else}}...{{end}} structure around the success case
+     (e.g. forgot-password.html hides its form when a success message is
+     shown). */}}
+{{define "alert-error"}}<div class="alert alert-error mb-6">
+                {{template "icon-error" .}}
+                <span>{{.Error}}</span>
+            </div>{{end}}
+{{define "alert-success"}}<div class="alert alert-success mb-6">
+                {{template "icon-success" .}}
+                <span>{{.Success}}</span>
+            </div>{{end}}
+
+{{/* footer is the "Identity Service" byline shared by every page. */}}
+{{define "footer"}}<div class="divider"></div>
+            <div class="text-center text-xs text-base-content/50">
+                Identity Service
+            </div>{{end}}

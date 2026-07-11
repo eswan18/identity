@@ -46,24 +46,44 @@ type Server struct {
 	consentTemplate         *template.Template
 }
 
+// mustParsePageTemplate parses a page template together with the shared
+// base.html layout and partials.html partials (alert boxes, icons, footer)
+// into a single template set, and panics if parsing fails (mirroring the
+// prior template.Must(template.ParseFiles(...)) behavior at startup).
+//
+// base.html is parsed first, so the returned *template.Template is named
+// "base.html" and its top-level body is the full page skeleton (doctype,
+// head, card wrapper). That skeleton references {{block "title" .}},
+// {{block "content" .}}, etc., which page (the last file parsed) then
+// overrides with its own {{define "title"}}/{{define "content"}} blocks -
+// later definitions in the same parse win, so callers can keep calling
+// Execute(w, data) exactly as before and get the fully rendered page.
+func mustParsePageTemplate(templatesDir, page string) *template.Template {
+	return template.Must(template.ParseFiles(
+		templatesDir+"/base.html",
+		templatesDir+"/partials.html",
+		templatesDir+"/"+page,
+	))
+}
+
 func New(config *config.Config, datastore *store.Store, emailSender email.Sender, storageProvider storage.Storage) *Server {
 	r := chi.NewRouter()
-	loginTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/login.html"))
-	registerTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/register.html"))
-	errorTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/error.html"))
-	successTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/success.html"))
-	accountSettingsTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/account-settings.html"))
-	changePasswordTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/change-password.html"))
-	changeUsernameTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/change-username.html"))
-	changeEmailTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/change-email.html"))
-	mfaTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/mfa.html"))
-	mfaSetupTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/mfa-setup.html"))
-	forgotPasswordTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/forgot-password.html"))
-	resetPasswordTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/reset-password.html"))
-	forgotUsernameTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/forgot-username.html"))
-	editProfileTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/edit-profile.html"))
-	changeAvatarTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/change-avatar.html"))
-	consentTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/consent.html"))
+	loginTemplate := mustParsePageTemplate(config.TemplatesDir, "login.html")
+	registerTemplate := mustParsePageTemplate(config.TemplatesDir, "register.html")
+	errorTemplate := mustParsePageTemplate(config.TemplatesDir, "error.html")
+	successTemplate := mustParsePageTemplate(config.TemplatesDir, "success.html")
+	accountSettingsTemplate := mustParsePageTemplate(config.TemplatesDir, "account-settings.html")
+	changePasswordTemplate := mustParsePageTemplate(config.TemplatesDir, "change-password.html")
+	changeUsernameTemplate := mustParsePageTemplate(config.TemplatesDir, "change-username.html")
+	changeEmailTemplate := mustParsePageTemplate(config.TemplatesDir, "change-email.html")
+	mfaTemplate := mustParsePageTemplate(config.TemplatesDir, "mfa.html")
+	mfaSetupTemplate := mustParsePageTemplate(config.TemplatesDir, "mfa-setup.html")
+	forgotPasswordTemplate := mustParsePageTemplate(config.TemplatesDir, "forgot-password.html")
+	resetPasswordTemplate := mustParsePageTemplate(config.TemplatesDir, "reset-password.html")
+	forgotUsernameTemplate := mustParsePageTemplate(config.TemplatesDir, "forgot-username.html")
+	editProfileTemplate := mustParsePageTemplate(config.TemplatesDir, "edit-profile.html")
+	changeAvatarTemplate := mustParsePageTemplate(config.TemplatesDir, "change-avatar.html")
+	consentTemplate := mustParsePageTemplate(config.TemplatesDir, "consent.html")
 
 	r.Use(middleware.RequestID)
 	// NOTE: chi's middleware.RealIP is intentionally NOT used here. It
