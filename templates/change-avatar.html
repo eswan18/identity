@@ -54,6 +54,7 @@
 
             <!-- Upload Form -->
             <form method="POST" action="/oauth/change-avatar" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <fieldset class="fieldset mb-4">
                     <label class="fieldset-label" for="avatar">Select Image</label>
                     <input
@@ -84,6 +85,7 @@
 
             {{if .AvatarURL}}
             <form method="POST" action="/oauth/delete-avatar" class="mt-3">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <button type="submit" class="btn btn-outline btn-error w-full">Remove Avatar</button>
             </form>
             {{end}}

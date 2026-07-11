@@ -975,6 +975,7 @@ func (s *Server) HandleConsentGet(w http.ResponseWriter, r *http.Request) {
 		CodeChallengeMethod: r.URL.Query().Get("code_challenge_method"),
 		Nonce:               r.URL.Query().Get("nonce"),
 		ResponseType:        r.URL.Query().Get("response_type"),
+		CSRFToken:           s.ensureCSRFToken(w, r),
 	}
 
 	if err := s.consentTemplate.Execute(w, data); err != nil {

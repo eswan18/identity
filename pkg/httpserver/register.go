@@ -33,6 +33,7 @@ func (s *Server) HandleRegisterGet(w http.ResponseWriter, r *http.Request) {
 		Scope:               strings.Split(r.URL.Query().Get("scope"), " "),
 		CodeChallenge:       r.URL.Query().Get("code_challenge"),
 		CodeChallengeMethod: r.URL.Query().Get("code_challenge_method"),
+		CSRFToken:           s.ensureCSRFToken(w, r),
 	}
 	if err := s.registerTemplate.Execute(w, oauthParams); err != nil {
 		http.Error(w, "An error occurred while rendering the registration page", http.StatusInternalServerError)
@@ -61,7 +62,7 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 
 	// Validate required fields
 	if username == "" || email == "" || password == "" {
-		s.renderRegisterError(w, http.StatusBadRequest, "All fields are required", RegisterPageData{
+		s.renderRegisterError(w, r, http.StatusBadRequest, "All fields are required", RegisterPageData{
 			Username: username,
 			Email:    email,
 		})
@@ -70,7 +71,7 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 
 	// Validate password match
 	if password != confirmPassword {
-		s.renderRegisterError(w, http.StatusBadRequest, "Passwords do not match", RegisterPageData{
+		s.renderRegisterError(w, r, http.StatusBadRequest, "Passwords do not match", RegisterPageData{
 			Username: username,
 			Email:    email,
 		})
@@ -79,7 +80,7 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 
 	// Validate password requirements
 	if err := auth.ValidatePassword(password, username); err != nil {
-		s.renderRegisterError(w, http.StatusBadRequest, err.Error(), RegisterPageData{
+		s.renderRegisterError(w, r, http.StatusBadRequest, err.Error(), RegisterPageData{
 			Username: username,
 			Email:    email,
 		})
@@ -89,7 +90,7 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 	// Hash password
 	hash, err := auth.HashPassword(password)
 	if err != nil {
-		s.renderRegisterError(w, http.StatusInternalServerError, "An error occurred while creating your account", RegisterPageData{
+		s.renderRegisterError(w, r, http.StatusInternalServerError, "An error occurred while creating your account", RegisterPageData{
 			Username: username,
 			Email:    email,
 		})
@@ -112,7 +113,7 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Println("Error creating user:", err)
-		s.renderRegisterError(w, http.StatusInternalServerError, "An error occurred while creating your account", RegisterPageData{
+		s.renderRegisterError(w, r, http.StatusInternalServerError, "An error occurred while creating your account", RegisterPageData{
 			Username:            username,
 			Email:               email,
 			ClientID:            clientID,
@@ -152,7 +153,8 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 
 // renderRegisterError renders the registration page with an error message, preserving user input and OAuth parameters.
 // It handles template execution errors gracefully by falling back to the error template.
-func (s *Server) renderRegisterError(w http.ResponseWriter, statusCode int, errorMsg string, data RegisterPageData) {
+func (s *Server) renderRegisterError(w http.ResponseWriter, r *http.Request, statusCode int, errorMsg string, data RegisterPageData) {
+	csrfToken := s.ensureCSRFToken(w, r)
 	w.WriteHeader(statusCode)
 	err := s.registerTemplate.Execute(w, RegisterPageData{
 		Error:               errorMsg,
@@ -164,6 +166,7 @@ func (s *Server) renderRegisterError(w http.ResponseWriter, statusCode int, erro
 		Scope:               data.Scope,
 		CodeChallenge:       data.CodeChallenge,
 		CodeChallengeMethod: data.CodeChallengeMethod,
+		CSRFToken:           csrfToken,
 	})
 	if err != nil {
 		// Fallback to error template if register template fails

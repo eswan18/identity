@@ -58,66 +58,85 @@ func (s *Server) registerRoutes() {
 		// Apply CORS middleware to all OAuth routes
 		r.Use(oauthCorsMiddleware)
 
-		// Core auth stuff
+		// --- Machine-to-machine / non-browser endpoints (NO CSRF) ---
+		// These authenticate with Authorization headers, client credentials, or
+		// single-use tokens in the request body and have no browser form or
+		// session_id cookie. Requiring a CSRF token here would break every
+		// programmatic OAuth2/OIDC client, so they are deliberately kept out of the
+		// CSRF-protected group below.
 		r.Get("/authorize", s.HandleOauthAuthorize)
-		r.Get("/login", s.HandleLoginGet)
-		r.Post("/login", s.HandleLoginPost)
-		r.Get("/consent", s.HandleConsentGet)
-		r.Post("/consent", s.HandleConsentPost)
 		r.Post("/token", s.HandleOauthToken)
 		r.Post("/refresh", s.HandleOauthRefresh)
-		// Registration stuff
-		r.Get("/register", s.HandleRegisterGet)
-		r.Post("/register", s.HandleRegisterPost)
-		// Other stuff
-		r.Get("/success", s.HandleSuccess)
-		// Both GET and POST per OIDC RP-Initiated Logout 1.0 — browsers navigating to
-		// end_session_endpoint via redirect use GET; form posts use POST.
-		r.Get("/logout", s.HandleLogout)
-		r.Post("/logout", s.HandleLogout)
-		r.Get("/userinfo", s.HandleOauthUserInfo)
 		r.Post("/introspect", s.HandleIntrospect)
 		r.Post("/revoke", s.HandleOauthRevoke)
-		// Account settings
-		r.Get("/account-settings", s.HandleAccountSettingsGet)
-		// Change password
-		r.Get("/change-password", s.HandleChangePasswordGet)
-		r.Post("/change-password", s.HandleChangePasswordPost)
-		// Change username
-		r.Get("/change-username", s.HandleChangeUsernameGet)
-		r.Post("/change-username", s.HandleChangeUsernamePost)
-		// Change email
-		r.Get("/change-email", s.HandleChangeEmailGet)
-		r.Post("/change-email", s.HandleChangeEmailPost)
-		// Edit profile
-		r.Get("/edit-profile", s.HandleEditProfileGet)
-		r.Post("/edit-profile", s.HandleEditProfilePost)
-		// Change avatar
-		r.Get("/change-avatar", s.HandleChangeAvatarGet)
-		r.Post("/change-avatar", s.HandleChangeAvatarPost)
-		r.Post("/delete-avatar", s.HandleDeleteAvatarPost)
-		// Deactivate account
-		r.Post("/deactivate-account", s.HandleDeactivateAccountPost)
-		// Reactivate account
-		r.Post("/reactivate-account", s.HandleReactivateAccountPost)
-		// MFA verification (during login)
-		r.Get("/mfa", s.HandleMFAGet)
-		r.Post("/mfa", s.HandleMFAPost)
-		// MFA setup (from account settings)
-		r.Get("/mfa-setup", s.HandleMFASetupGet)
-		r.Post("/mfa-setup", s.HandleMFASetupPost)
-		r.Post("/mfa-disable", s.HandleMFADisablePost)
-		// Email verification
+		r.Get("/userinfo", s.HandleOauthUserInfo)
+		r.Get("/success", s.HandleSuccess)
+		// Email verification link (GET, single-use token in the query string).
 		r.Get("/verify-email", s.HandleVerifyEmail)
-		r.Post("/resend-verification", s.HandleResendVerification)
-		// Password reset
-		r.Get("/forgot-password", s.HandleForgotPasswordGet)
-		r.Post("/forgot-password", s.HandleForgotPasswordPost)
-		r.Get("/reset-password", s.HandleResetPasswordGet)
-		r.Post("/reset-password", s.HandleResetPasswordPost)
-		// Username reminder
-		r.Get("/forgot-username", s.HandleForgotUsernameGet)
-		r.Post("/forgot-username", s.HandleForgotUsernamePost)
+		// Logout via GET is the OIDC RP-Initiated Logout redirect target: browsers
+		// navigate to end_session_endpoint, so there is no form to carry a token and
+		// GET is a safe method anyway. The POST form variant lives in the CSRF group.
+		r.Get("/logout", s.HandleLogout)
+
+		// --- Browser, session-cookie form endpoints (CSRF protected) ---
+		// Every state-changing POST here is driven by a server-rendered HTML form
+		// authenticated by the session_id cookie, so it is vulnerable to CSRF and is
+		// guarded by the double-submit-cookie check in csrfMiddleware. Safe GET
+		// handlers are included so the group is cohesive; csrfMiddleware never checks
+		// GET/HEAD/OPTIONS and each GET seeds the csrf_token cookie via ensureCSRFToken.
+		r.Group(func(r chi.Router) {
+			r.Use(s.csrfMiddleware)
+
+			// Core auth
+			r.Get("/login", s.HandleLoginGet)
+			r.Post("/login", s.HandleLoginPost)
+			r.Get("/consent", s.HandleConsentGet)
+			r.Post("/consent", s.HandleConsentPost)
+			// Registration
+			r.Get("/register", s.HandleRegisterGet)
+			r.Post("/register", s.HandleRegisterPost)
+			// Logout (POST form variant)
+			r.Post("/logout", s.HandleLogout)
+			// Account settings
+			r.Get("/account-settings", s.HandleAccountSettingsGet)
+			// Change password
+			r.Get("/change-password", s.HandleChangePasswordGet)
+			r.Post("/change-password", s.HandleChangePasswordPost)
+			// Change username
+			r.Get("/change-username", s.HandleChangeUsernameGet)
+			r.Post("/change-username", s.HandleChangeUsernamePost)
+			// Change email
+			r.Get("/change-email", s.HandleChangeEmailGet)
+			r.Post("/change-email", s.HandleChangeEmailPost)
+			// Edit profile
+			r.Get("/edit-profile", s.HandleEditProfileGet)
+			r.Post("/edit-profile", s.HandleEditProfilePost)
+			// Change avatar
+			r.Get("/change-avatar", s.HandleChangeAvatarGet)
+			r.Post("/change-avatar", s.HandleChangeAvatarPost)
+			r.Post("/delete-avatar", s.HandleDeleteAvatarPost)
+			// Deactivate account
+			r.Post("/deactivate-account", s.HandleDeactivateAccountPost)
+			// Reactivate account
+			r.Post("/reactivate-account", s.HandleReactivateAccountPost)
+			// MFA verification (during login)
+			r.Get("/mfa", s.HandleMFAGet)
+			r.Post("/mfa", s.HandleMFAPost)
+			// MFA setup (from account settings)
+			r.Get("/mfa-setup", s.HandleMFASetupGet)
+			r.Post("/mfa-setup", s.HandleMFASetupPost)
+			r.Post("/mfa-disable", s.HandleMFADisablePost)
+			// Email verification (resend from account settings)
+			r.Post("/resend-verification", s.HandleResendVerification)
+			// Password reset
+			r.Get("/forgot-password", s.HandleForgotPasswordGet)
+			r.Post("/forgot-password", s.HandleForgotPasswordPost)
+			r.Get("/reset-password", s.HandleResetPasswordGet)
+			r.Post("/reset-password", s.HandleResetPasswordPost)
+			// Username reminder
+			r.Get("/forgot-username", s.HandleForgotUsernameGet)
+			r.Post("/forgot-username", s.HandleForgotUsernamePost)
+		})
 	})
 
 	// Admin API endpoints (require Bearer token with admin scopes)
@@ -172,7 +191,9 @@ func (s *Server) HandleSuccess(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
-	if err := s.successTemplate.Execute(w, nil); err != nil {
+	// The success page contains a POST logout form (a CSRF-protected route), so it
+	// must carry a CSRF token even though the success GET itself is not checked.
+	if err := s.successTemplate.Execute(w, struct{ CSRFToken string }{CSRFToken: s.ensureCSRFToken(w, r)}); err != nil {
 		http.Error(w, "An error occurred while rendering the success page", http.StatusInternalServerError)
 	}
 }

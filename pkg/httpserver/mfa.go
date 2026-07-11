@@ -32,6 +32,7 @@ type MFAPageData struct {
 	CodeChallenge       string
 	CodeChallengeMethod string
 	Nonce               string
+	CSRFToken           string
 }
 
 // oauthParamsFromPending lifts the OAuth authorization parameters stored on a pending
@@ -50,7 +51,7 @@ func oauthParamsFromPending(p db.AuthMfaPending) LoginPageData {
 
 // mfaPageData assembles the MFA template data from the pending ID, the OAuth context,
 // and an optional error message.
-func mfaPageData(pendingID string, p LoginPageData, errMsg string) MFAPageData {
+func mfaPageData(pendingID string, p LoginPageData, errMsg, csrfToken string) MFAPageData {
 	return MFAPageData{
 		Error:               errMsg,
 		PendingID:           pendingID,
@@ -61,6 +62,7 @@ func mfaPageData(pendingID string, p LoginPageData, errMsg string) MFAPageData {
 		CodeChallenge:       p.CodeChallenge,
 		CodeChallengeMethod: p.CodeChallengeMethod,
 		Nonce:               p.Nonce,
+		CSRFToken:           csrfToken,
 	}
 }
 
@@ -81,7 +83,7 @@ func (s *Server) HandleMFAGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mfaTemplate.Execute(w, mfaPageData(pendingID, oauthParamsFromPending(pending), ""))
+	s.mfaTemplate.Execute(w, mfaPageData(pendingID, oauthParamsFromPending(pending), "", s.ensureCSRFToken(w, r)))
 }
 
 // HandleMFAPost validates the MFA code and completes the login flow.
@@ -128,7 +130,7 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 	mfaStatus, err := s.datastore.Q.GetUserMFAStatus(r.Context(), pending.UserID)
 	if err != nil {
 		log.Printf("[ERROR] HandleMFAPost: Failed to get MFA status: %v", err)
-		s.renderMFAError(w, http.StatusInternalServerError, "An error occurred", pendingID, pendingParams)
+		s.renderMFAError(w, r, http.StatusInternalServerError, "An error occurred", pendingID, pendingParams)
 		return
 	}
 
@@ -142,7 +144,7 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 	// retry within the validity window.
 	if !mfa.ValidateCode(mfaStatus.MfaSecret.String, code) {
 		log.Printf("[DEBUG] HandleMFAPost: Invalid MFA code for user: %v", pending.UserID)
-		s.renderMFAError(w, http.StatusUnauthorized, "Invalid verification code", pendingID, pendingParams)
+		s.renderMFAError(w, r, http.StatusUnauthorized, "Invalid verification code", pendingID, pendingParams)
 		return
 	}
 
@@ -155,7 +157,7 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 	session, err := s.createSession(r.Context(), pending.UserID)
 	if err != nil {
 		log.Printf("[ERROR] HandleMFAPost: Failed to create session: %v", err)
-		s.renderMFAError(w, http.StatusInternalServerError, "An error occurred", pendingID, pendingParams)
+		s.renderMFAError(w, r, http.StatusInternalServerError, "An error occurred", pendingID, pendingParams)
 		return
 	}
 
@@ -222,7 +224,8 @@ func (s *Server) createMFAPendingSession(r *http.Request, userID uuid.UUID, oaut
 
 // renderMFAError renders the MFA page with an error message, preserving the OAuth
 // context so a retry keeps the originating authorization request intact.
-func (s *Server) renderMFAError(w http.ResponseWriter, statusCode int, errorMsg string, pendingID string, p LoginPageData) {
+func (s *Server) renderMFAError(w http.ResponseWriter, r *http.Request, statusCode int, errorMsg string, pendingID string, p LoginPageData) {
+	csrfToken := s.ensureCSRFToken(w, r)
 	w.WriteHeader(statusCode)
-	s.mfaTemplate.Execute(w, mfaPageData(pendingID, p, errorMsg))
+	s.mfaTemplate.Execute(w, mfaPageData(pendingID, p, errorMsg, csrfToken))
 }

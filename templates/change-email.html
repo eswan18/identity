@@ -38,6 +38,7 @@
             </div>
 
             <form method="POST" action="/oauth/change-email">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <fieldset class="fieldset mb-4">
                     <label class="fieldset-label" for="new_email">New Email</label>
                     <input

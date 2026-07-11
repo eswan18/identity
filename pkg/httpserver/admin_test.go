@@ -94,7 +94,7 @@ func (s *OAuthFlowSuite) TestAdminCreateUser_WithClientCredentials() {
 		"code_challenge":        {scv.CodeChallenge},
 		"code_challenge_method": {scv.CodeChallengeMethod},
 	}
-	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/login", loginValues)
+	resp, err = csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/login", loginValues)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 	s.Equal(http.StatusFound, resp.StatusCode, "user should be able to login with created credentials")

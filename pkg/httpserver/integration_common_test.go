@@ -26,6 +26,7 @@ import (
 	"github.com/eswan18/identity/pkg/store"
 	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
@@ -156,6 +157,10 @@ func (s *OAuthFlowSuite) mustLoginAndConsent(user UserWithPassword, clientID, re
 		},
 	}
 
+	// Obtain a CSRF token/cookie (double-submit) by fetching the login form first;
+	// the same token is valid for the later consent POST since the cookie is Path=/.
+	csrfToken, _ := fetchCSRFToken(s.T(), httpClient, "http://localhost:8080/oauth/login")
+
 	// Step 1: Login
 	formValues := url.Values{
 		"username":              {user.Username},
@@ -166,6 +171,7 @@ func (s *OAuthFlowSuite) mustLoginAndConsent(user UserWithPassword, clientID, re
 		"scope":                 {scope},
 		"code_challenge":        {scv.CodeChallenge},
 		"code_challenge_method": {scv.CodeChallengeMethod},
+		"csrf_token":            {csrfToken},
 	}
 	resp, err := httpClient.PostForm("http://localhost:8080/oauth/login", formValues)
 	s.Require().NoError(err)
@@ -196,6 +202,7 @@ func (s *OAuthFlowSuite) mustLoginAndConsent(user UserWithPassword, clientID, re
 		"code_challenge":        {consentURL.Query().Get("code_challenge")},
 		"code_challenge_method": {consentURL.Query().Get("code_challenge_method")},
 		"nonce":                 {consentURL.Query().Get("nonce")},
+		"csrf_token":            {csrfToken},
 	}
 	resp, err = httpClient.PostForm("http://localhost:8080/oauth/consent", consentForm)
 	s.Require().NoError(err)
@@ -294,6 +301,9 @@ func (s *OAuthFlowSuite) mustCompleteOAuthFlow(clientParams db.CreateOAuthClient
 		},
 	}
 
+	// Obtain a CSRF token/cookie for the browser-form POSTs (login + consent).
+	csrfToken, _ := fetchCSRFToken(s.T(), httpClient, fmt.Sprintf("http://%s/oauth/login", host))
+
 	// Step 1: Login (establishes session, redirects to /oauth/authorize)
 	formValues := url.Values{
 		"username":              {user.Username},
@@ -304,6 +314,7 @@ func (s *OAuthFlowSuite) mustCompleteOAuthFlow(clientParams db.CreateOAuthClient
 		"scope":                 {scope},
 		"code_challenge":        {scv.CodeChallenge},
 		"code_challenge_method": {scv.CodeChallengeMethod},
+		"csrf_token":            {csrfToken},
 	}
 	postLoginUrl := fmt.Sprintf("http://%s/oauth/login", host)
 	resp, err := httpClient.PostForm(postLoginUrl, formValues)
@@ -335,6 +346,7 @@ func (s *OAuthFlowSuite) mustCompleteOAuthFlow(clientParams db.CreateOAuthClient
 		"code_challenge":        {consentURL.Query().Get("code_challenge")},
 		"code_challenge_method": {consentURL.Query().Get("code_challenge_method")},
 		"nonce":                 {consentURL.Query().Get("nonce")},
+		"csrf_token":            {csrfToken},
 	}
 	postConsentUrl := fmt.Sprintf("http://%s/oauth/consent", host)
 	resp, err = httpClient.PostForm(postConsentUrl, consentFormValues)
@@ -451,10 +463,12 @@ func (s *OAuthFlowSuite) mustLoginAndGetAuthorizeClient(clientParams db.CreateOA
 		},
 	}
 
-	// Login to establish a session
+	// Login to establish a session (CSRF-aware: seed the token from the login page).
+	csrfToken, _ := fetchCSRFToken(s.T(), httpClient, "http://localhost:8080/oauth/login")
 	resp, err := httpClient.PostForm("http://localhost:8080/oauth/login", url.Values{
-		"username": {username},
-		"password": {password},
+		"username":   {username},
+		"password":   {password},
+		"csrf_token": {csrfToken},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -522,4 +536,63 @@ func TestOAuthFlowSuite(t *testing.T) {
 func generateCodeChallenge(codeVerifier string) string {
 	hash := sha256.Sum256([]byte(codeVerifier))
 	return base64.RawURLEncoding.EncodeToString(hash[:])
+}
+
+// fetchCSRFToken issues a GET to getURL to obtain a csrf_token cookie and returns the
+// token value plus the cookie itself. Browser-form routes set the csrf_token cookie
+// (Path=/) when their GET handler renders, so this performs the "GET the form page
+// first" half of the double-submit handshake. When the client already holds the
+// cookie in its jar, the server does not resend it, so we fall back to the jar.
+func fetchCSRFToken(t *testing.T, client *http.Client, getURL string) (string, *http.Cookie) {
+	t.Helper()
+	resp, err := client.Get(getURL)
+	require.NoError(t, err)
+	resp.Body.Close()
+	for _, c := range resp.Cookies() {
+		if c.Name == csrfCookieName {
+			return c.Value, c
+		}
+	}
+	if client.Jar != nil {
+		if u, err := url.Parse(getURL); err == nil {
+			for _, c := range client.Jar.Cookies(u) {
+				if c.Name == csrfCookieName {
+					return c.Value, c
+				}
+			}
+		}
+	}
+	require.FailNowf(t, "csrf token missing", "no %s cookie returned from %s", csrfCookieName, getURL)
+	return "", nil
+}
+
+// csrfPostForm performs a CSRF-aware urlencoded form POST to a browser-form route. It
+// GETs getURL to obtain a csrf_token, injects the token into both the form field and
+// the request cookies (so it works for jarless clients too), then POSTs to postURL.
+func csrfPostForm(t *testing.T, client *http.Client, getURL, postURL string, form url.Values) (*http.Response, error) {
+	t.Helper()
+	token, cookie := fetchCSRFToken(t, client, getURL)
+	if form == nil {
+		form = url.Values{}
+	}
+	form.Set("csrf_token", token)
+	req, err := http.NewRequest(http.MethodPost, postURL, strings.NewReader(form.Encode()))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	return client.Do(req)
+}
+
+// csrfPostFormLogin is a convenience wrapper over csrfPostForm that sources the
+// csrf_token from the login page on the same host as postURL. The login page is a
+// reliable, always-available GET that seeds the csrf_token cookie, and because the
+// double-submit check only compares the cookie and form value on the POST itself,
+// the token's origin page is irrelevant. This lets every browser-form POST become a
+// one-line, CSRF-aware call regardless of whether the client carries a cookie jar.
+func csrfPostFormLogin(t *testing.T, client *http.Client, postURL string, form url.Values) (*http.Response, error) {
+	t.Helper()
+	u, err := url.Parse(postURL)
+	require.NoError(t, err)
+	getURL := fmt.Sprintf("%s://%s/oauth/login", u.Scheme, u.Host)
+	return csrfPostForm(t, client, getURL, postURL, form)
 }

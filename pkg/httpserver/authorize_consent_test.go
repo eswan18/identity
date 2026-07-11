@@ -49,7 +49,7 @@ func (s *OAuthFlowSuite) TestSuccessPageRendersWhenAuthenticated() {
 	}
 
 	// Login to establish a session
-	resp, err := httpClient.PostForm("http://localhost:8080/oauth/login", url.Values{
+	resp, err := csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/login", url.Values{
 		"username": {username},
 		"password": {password},
 	})
@@ -270,7 +270,7 @@ func (s *OAuthFlowSuite) TestConsentApproveGeneratesCode() {
 	scv := s.mustCreateStateAndCodeVerifier()
 
 	// POST consent approval
-	resp, err := httpClient.PostForm("http://localhost:8080/oauth/consent", url.Values{
+	resp, err := csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/consent", url.Values{
 		"decision":              {"allow"},
 		"client_id":             {client.ClientID},
 		"redirect_uri":          {"http://localhost:8080/callback"},
@@ -304,7 +304,7 @@ func (s *OAuthFlowSuite) TestConsentDenyRedirectsWithError() {
 	scv := s.mustCreateStateAndCodeVerifier()
 
 	// POST consent denial
-	resp, err := httpClient.PostForm("http://localhost:8080/oauth/consent", url.Values{
+	resp, err := csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/consent", url.Values{
 		"decision":              {"deny"},
 		"client_id":             {client.ClientID},
 		"redirect_uri":          {"http://localhost:8080/callback"},
@@ -338,7 +338,7 @@ func (s *OAuthFlowSuite) TestConsentRemembered() {
 	scv := s.mustCreateStateAndCodeVerifier()
 
 	// First: approve consent
-	resp, err := httpClient.PostForm("http://localhost:8080/oauth/consent", url.Values{
+	resp, err := csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/consent", url.Values{
 		"decision":              {"allow"},
 		"client_id":             {client.ClientID},
 		"redirect_uri":          {"http://localhost:8080/callback"},
@@ -387,7 +387,7 @@ func (s *OAuthFlowSuite) TestConsentRePromptedForNewScopes() {
 	scv := s.mustCreateStateAndCodeVerifier()
 
 	// First: approve consent for openid only
-	resp, err := httpClient.PostForm("http://localhost:8080/oauth/consent", url.Values{
+	resp, err := csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/consent", url.Values{
 		"decision":              {"allow"},
 		"client_id":             {client.ClientID},
 		"redirect_uri":          {"http://localhost:8080/callback"},
@@ -424,7 +424,7 @@ func (s *OAuthFlowSuite) TestConsentRePromptedForNewScopes() {
 }
 
 func (s *OAuthFlowSuite) TestLogoutRedirectsToLoginByDefault() {
-	resp, err := s.httpClient.Post("http://localhost:8080/oauth/logout", "", nil)
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/logout", nil)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 
@@ -444,9 +444,9 @@ func (s *OAuthFlowSuite) TestLogoutWithValidPostLogoutRedirectURI() {
 	})
 
 	// Logout with a valid post_logout_redirect_uri and client_id
-	resp, err := s.httpClient.Post(
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, 
 		"http://localhost:8080/oauth/logout?post_logout_redirect_uri=http://example.com/callback&client_id="+client.ClientID,
-		"", nil,
+		nil,
 	)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -467,9 +467,9 @@ func (s *OAuthFlowSuite) TestLogoutRejectsUnregisteredPostLogoutRedirectURI() {
 	})
 
 	// Logout with a redirect URI that is NOT in the client's registered URIs
-	resp, err := s.httpClient.Post(
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, 
 		"http://localhost:8080/oauth/logout?post_logout_redirect_uri=https://evil.com/phishing&client_id=logout-reject-client",
-		"", nil,
+		nil,
 	)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -481,9 +481,9 @@ func (s *OAuthFlowSuite) TestLogoutRejectsUnregisteredPostLogoutRedirectURI() {
 
 func (s *OAuthFlowSuite) TestLogoutRejectsPostLogoutRedirectURIWithUnknownClientID() {
 	// Providing a client_id that doesn't exist should fall back to login
-	resp, err := s.httpClient.Post(
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, 
 		"http://localhost:8080/oauth/logout?post_logout_redirect_uri=http://example.com/callback&client_id=nonexistent-client",
-		"", nil,
+		nil,
 	)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -494,9 +494,9 @@ func (s *OAuthFlowSuite) TestLogoutRejectsPostLogoutRedirectURIWithUnknownClient
 
 func (s *OAuthFlowSuite) TestLogoutRejectsPostLogoutRedirectURIWithoutClientID() {
 	// Providing post_logout_redirect_uri without client_id should fall back to login
-	resp, err := s.httpClient.Post(
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, 
 		"http://localhost:8080/oauth/logout?post_logout_redirect_uri=http://example.com/callback",
-		"", nil,
+		nil,
 	)
 	s.Require().NoError(err)
 	defer resp.Body.Close()

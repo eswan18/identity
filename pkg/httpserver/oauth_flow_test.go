@@ -86,6 +86,7 @@ func (s *OAuthFlowSuite) TestFullOAuthFlow() {
 			"code_verifier": {scv.CodeVerifier},
 		}
 		postTokenUrl := fmt.Sprintf("http://%s%s", host, route)
+		// /oauth/token is a machine endpoint, exempt from CSRF.
 		resp, err := s.httpClient.PostForm(postTokenUrl, tokenQuery)
 		s.Require().NoError(err)
 		defer resp.Body.Close()
@@ -118,6 +119,7 @@ func (s *OAuthFlowSuite) TestFullOAuthFlow() {
 			"client_id":     {client.ClientID},
 		}
 		postRefreshUrl := fmt.Sprintf("http://%s%s", host, route)
+		// /oauth/refresh is a machine endpoint, exempt from CSRF.
 		resp, err := s.httpClient.PostForm(postRefreshUrl, refreshQuery)
 		s.Require().NoError(err)
 		defer resp.Body.Close()
@@ -208,7 +210,7 @@ func (s *OAuthFlowSuite) TestLoginFailedPreservesAllScopes() {
 	scv := s.mustCreateStateAndCodeVerifier()
 
 	// POST to login with WRONG password and multiple scopes
-	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/login", url.Values{
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/login", url.Values{
 		"username":              {username},
 		"password":              {"wrong-password"},
 		"client_id":             {client.ClientID},
@@ -267,7 +269,7 @@ func (s *OAuthFlowSuite) TestLoginSetsLastLoginAt() {
 	scv := s.mustCreateStateAndCodeVerifier()
 
 	// Login
-	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/login", url.Values{
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/login", url.Values{
 		"username":              {username},
 		"password":              {password},
 		"client_id":             {client.ClientID},
@@ -312,7 +314,7 @@ func (s *OAuthFlowSuite) TestPasswordChangeUpdatesPasswordChangedAt() {
 	}
 
 	// Do a direct login (no client_id) to get a session
-	resp, err := httpClientWithCookies.PostForm("http://localhost:8080/oauth/login", url.Values{
+	resp, err := csrfPostFormLogin(s.T(), httpClientWithCookies, "http://localhost:8080/oauth/login", url.Values{
 		"username": {username},
 		"password": {password},
 	})
@@ -322,7 +324,7 @@ func (s *OAuthFlowSuite) TestPasswordChangeUpdatesPasswordChangedAt() {
 
 	// Change password
 	newPassword := s.mustGenerateRandomString(16)
-	resp, err = httpClientWithCookies.PostForm("http://localhost:8080/oauth/change-password", url.Values{
+	resp, err = csrfPostFormLogin(s.T(), httpClientWithCookies, "http://localhost:8080/oauth/change-password", url.Values{
 		"current_password": {password},
 		"new_password":     {newPassword},
 		"confirm_password": {newPassword},

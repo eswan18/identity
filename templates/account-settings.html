@@ -102,6 +102,7 @@
                     <div class="flex flex-col gap-3 w-full">
                         <p class="text-sm">Your email address is not verified. Some features may be limited until you verify your email.</p>
                         <form method="POST" action="/oauth/resend-verification">
+                            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                             <button type="submit" class="btn btn-sm w-full">Resend Verification Email</button>
                         </form>
                     </div>
@@ -111,6 +112,7 @@
 
             <div class="mb-6 pb-6">
                 <form method="POST" action="/oauth/logout">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                     <button type="submit" class="btn btn-outline btn-error w-full">Log Out</button>
                 </form>
             </div>
@@ -129,6 +131,7 @@
                     <details>
                         <summary class="text-sm text-error cursor-pointer hover:underline">Disable Two-Factor Authentication</summary>
                         <form method="POST" action="/oauth/mfa-disable" class="mt-4 p-4 bg-base-200 rounded-lg">
+                            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                             <fieldset class="fieldset mb-4">
                                 <label class="fieldset-label" for="mfa-password">Password</label>
                                 <input type="password" id="mfa-password" name="password" placeholder="Enter your password" required autocomplete="current-password" class="input input-bordered w-full">
@@ -151,6 +154,7 @@
                 <h2 class="text-base font-semibold text-warning mb-4 pb-2 border-b border-warning">Account Deactivated</h2>
                 <p class="text-sm text-base-content/60 mb-4">Your account is deactivated. You cannot log in to applications until you reactivate your account.</p>
                 <form method="POST" action="/oauth/reactivate-account" class="mt-4">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                     <fieldset class="fieldset mb-4">
                         <label class="fieldset-label" for="password">Confirm your password to reactivate</label>
                         <input type="password" id="password" name="password" placeholder="Enter your password" required autocomplete="off" class="input input-bordered w-full">
@@ -163,6 +167,7 @@
                 <h2 class="text-base font-semibold text-error mb-4 pb-2 border-b border-error">Danger Zone</h2>
                 <p class="text-sm text-base-content/60 mb-4">Deactivating your account will prevent you from logging in to any applications. You will only be able to access this settings page.</p>
                 <form method="POST" action="/oauth/deactivate-account" class="mt-4">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                     <fieldset class="fieldset mb-4">
                         <label class="fieldset-label" for="password">Confirm your password to deactivate</label>
                         <input type="password" id="password" name="password" placeholder="Enter your password" required autocomplete="off" class="input input-bordered w-full">

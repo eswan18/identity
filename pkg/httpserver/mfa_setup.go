@@ -13,19 +13,20 @@ import (
 
 // MFASetupPageData holds the data needed to render the MFA setup page template.
 type MFASetupPageData struct {
-	Error          string
-	Success        string
-	QRCode         string // Base64-encoded PNG
-	Secret         string // For manual entry
+	Error           string
+	Success         string
+	QRCode          string // Base64-encoded PNG
+	Secret          string // For manual entry
 	ProvisioningURI string
+	CSRFToken       string
 }
 
 // mfaEnrollmentExpiresIn is how long a pending enrollment secret remains valid.
 const mfaEnrollmentExpiresIn = 10 * time.Minute
 
 // renderMFASetupError renders the setup page with only an error message (no QR).
-func (s *Server) renderMFASetupError(w http.ResponseWriter, msg string) {
-	if err := s.mfaSetupTemplate.Execute(w, MFASetupPageData{Error: msg}); err != nil {
+func (s *Server) renderMFASetupError(w http.ResponseWriter, r *http.Request, msg string) {
+	if err := s.mfaSetupTemplate.Execute(w, MFASetupPageData{Error: msg, CSRFToken: s.ensureCSRFToken(w, r)}); err != nil {
 		log.Printf("[ERROR] renderMFASetupError: Failed to render MFA setup page: %v", err)
 	}
 }
@@ -33,18 +34,18 @@ func (s *Server) renderMFASetupError(w http.ResponseWriter, msg string) {
 // renderMFASetupPage renders the setup page for a given server-stored secret,
 // reconstructing the QR code and provisioning URI from that exact secret so the
 // displayed QR always matches the secret that will be validated.
-func (s *Server) renderMFASetupPage(w http.ResponseWriter, username, secret, errMsg string) {
+func (s *Server) renderMFASetupPage(w http.ResponseWriter, r *http.Request, username, secret, errMsg string) {
 	key, err := mfa.KeyFromSecret(username, secret)
 	if err != nil {
 		log.Printf("[ERROR] renderMFASetupPage: Failed to rebuild TOTP key: %v", err)
-		s.renderMFASetupError(w, "Failed to generate MFA setup. Please try again.")
+		s.renderMFASetupError(w, r, "Failed to generate MFA setup. Please try again.")
 		return
 	}
 
 	qrCode, err := mfa.GenerateQRCode(key)
 	if err != nil {
 		log.Printf("[ERROR] renderMFASetupPage: Failed to generate QR code: %v", err)
-		s.renderMFASetupError(w, "Failed to generate QR code. Please try again.")
+		s.renderMFASetupError(w, r, "Failed to generate QR code. Please try again.")
 		return
 	}
 
@@ -53,6 +54,7 @@ func (s *Server) renderMFASetupPage(w http.ResponseWriter, username, secret, err
 		QRCode:          qrCode,
 		Secret:          secret,
 		ProvisioningURI: mfa.GetProvisioningURI(key),
+		CSRFToken:       s.ensureCSRFToken(w, r),
 	}); err != nil {
 		log.Printf("[ERROR] renderMFASetupPage: Failed to render MFA setup page: %v", err)
 	}
@@ -76,7 +78,7 @@ func (s *Server) HandleMFASetupGet(w http.ResponseWriter, r *http.Request) {
 	key, err := mfa.GenerateSecret(user.Username)
 	if err != nil {
 		log.Printf("[ERROR] HandleMFASetupGet: Failed to generate TOTP secret: %v", err)
-		s.renderMFASetupError(w, "Failed to generate MFA secret. Please try again.")
+		s.renderMFASetupError(w, r, "Failed to generate MFA secret. Please try again.")
 		return
 	}
 	secret := mfa.GetSecret(key)
@@ -90,11 +92,11 @@ func (s *Server) HandleMFASetupGet(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt: time.Now().Add(mfaEnrollmentExpiresIn),
 	}); err != nil {
 		log.Printf("[ERROR] HandleMFASetupGet: Failed to store pending MFA secret: %v", err)
-		s.renderMFASetupError(w, "Failed to start MFA setup. Please try again.")
+		s.renderMFASetupError(w, r, "Failed to start MFA setup. Please try again.")
 		return
 	}
 
-	s.renderMFASetupPage(w, user.Username, secret, "")
+	s.renderMFASetupPage(w, r, user.Username, secret, "")
 }
 
 // HandleMFASetupPost verifies the TOTP code and enables MFA.
@@ -126,7 +128,7 @@ func (s *Server) HandleMFASetupPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if code == "" {
-		s.renderMFASetupPage(w, user.Username, pending.Secret, "Please enter the verification code from your authenticator app.")
+		s.renderMFASetupPage(w, r, user.Username, pending.Secret, "Please enter the verification code from your authenticator app.")
 		return
 	}
 
@@ -134,7 +136,7 @@ func (s *Server) HandleMFASetupPost(w http.ResponseWriter, r *http.Request) {
 	if !mfa.ValidateCode(pending.Secret, code) {
 		// Re-render using the SAME server-stored secret so the displayed QR and the
 		// secret being validated stay consistent across retries.
-		s.renderMFASetupPage(w, user.Username, pending.Secret, "Invalid verification code. Please try again.")
+		s.renderMFASetupPage(w, r, user.Username, pending.Secret, "Invalid verification code. Please try again.")
 		return
 	}
 
@@ -144,7 +146,7 @@ func (s *Server) HandleMFASetupPost(w http.ResponseWriter, r *http.Request) {
 		MfaSecret: sql.NullString{String: pending.Secret, Valid: true},
 	}); err != nil {
 		log.Printf("[ERROR] HandleMFASetupPost: Failed to enable MFA: %v", err)
-		s.renderMFASetupPage(w, user.Username, pending.Secret, "Failed to enable MFA. Please try again.")
+		s.renderMFASetupPage(w, r, user.Username, pending.Secret, "Failed to enable MFA. Please try again.")
 		return
 	}
 
@@ -178,7 +180,7 @@ func (s *Server) HandleMFADisablePost(w http.ResponseWriter, r *http.Request) {
 
 	// Validate password
 	if password == "" {
-		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, AccountSettingsPageData{
 			Username:   user.Username,
 			Email:      user.Email,
 			MfaEnabled: user.MfaEnabled,
@@ -190,7 +192,7 @@ func (s *Server) HandleMFADisablePost(w http.ResponseWriter, r *http.Request) {
 	valid, err := auth.VerifyPassword(password, user.PasswordHash)
 	if err != nil {
 		log.Printf("[ERROR] HandleMFADisablePost: Failed to verify password: %v", err)
-		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, AccountSettingsPageData{
 			Username:   user.Username,
 			Email:      user.Email,
 			MfaEnabled: user.MfaEnabled,
@@ -200,7 +202,7 @@ func (s *Server) HandleMFADisablePost(w http.ResponseWriter, r *http.Request) {
 	}
 	if !valid {
 		w.WriteHeader(http.StatusUnauthorized)
-		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, AccountSettingsPageData{
 			Username:   user.Username,
 			Email:      user.Email,
 			MfaEnabled: user.MfaEnabled,
@@ -211,7 +213,7 @@ func (s *Server) HandleMFADisablePost(w http.ResponseWriter, r *http.Request) {
 
 	// Validate MFA code
 	if code == "" || !user.MfaSecret.Valid {
-		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, AccountSettingsPageData{
 			Username:   user.Username,
 			Email:      user.Email,
 			MfaEnabled: user.MfaEnabled,
@@ -222,7 +224,7 @@ func (s *Server) HandleMFADisablePost(w http.ResponseWriter, r *http.Request) {
 
 	if !mfa.ValidateCode(user.MfaSecret.String, code) {
 		w.WriteHeader(http.StatusUnauthorized)
-		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, AccountSettingsPageData{
 			Username:   user.Username,
 			Email:      user.Email,
 			MfaEnabled: user.MfaEnabled,
@@ -235,7 +237,7 @@ func (s *Server) HandleMFADisablePost(w http.ResponseWriter, r *http.Request) {
 	err = s.datastore.Q.DisableMFA(r.Context(), user.ID)
 	if err != nil {
 		log.Printf("[ERROR] HandleMFADisablePost: Failed to disable MFA: %v", err)
-		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, AccountSettingsPageData{
 			Username:   user.Username,
 			Email:      user.Email,
 			MfaEnabled: user.MfaEnabled,
