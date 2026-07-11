@@ -64,6 +64,26 @@ func (q *Queries) CreateEmailToken(ctx context.Context, arg CreateEmailTokenPara
 	return err
 }
 
+const createMFAEnrollmentPending = `-- name: CreateMFAEnrollmentPending :exec
+INSERT INTO auth_mfa_enrollment_pending (user_id, secret, expires_at)
+VALUES ($1, $2, $3)
+ON CONFLICT (user_id) DO UPDATE
+SET secret = EXCLUDED.secret,
+    created_at = now(),
+    expires_at = EXCLUDED.expires_at
+`
+
+type CreateMFAEnrollmentPendingParams struct {
+	UserID    uuid.UUID `json:"user_id"`
+	Secret    string    `json:"secret"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+func (q *Queries) CreateMFAEnrollmentPending(ctx context.Context, arg CreateMFAEnrollmentPendingParams) error {
+	_, err := q.db.ExecContext(ctx, createMFAEnrollmentPending, arg.UserID, arg.Secret, arg.ExpiresAt)
+	return err
+}
+
 const createMFAPending = `-- name: CreateMFAPending :exec
 INSERT INTO auth_mfa_pending (id, user_id, client_id, redirect_uri, state, scope, code_challenge, code_challenge_method, expires_at, nonce)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -249,6 +269,15 @@ func (q *Queries) DeleteExpiredEmailTokens(ctx context.Context) error {
 	return err
 }
 
+const deleteExpiredMFAEnrollmentPending = `-- name: DeleteExpiredMFAEnrollmentPending :exec
+DELETE FROM auth_mfa_enrollment_pending WHERE expires_at <= now()
+`
+
+func (q *Queries) DeleteExpiredMFAEnrollmentPending(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteExpiredMFAEnrollmentPending)
+	return err
+}
+
 const deleteExpiredMFAPending = `-- name: DeleteExpiredMFAPending :exec
 DELETE FROM auth_mfa_pending WHERE expires_at <= now()
 `
@@ -266,6 +295,15 @@ WHERE token_type = 'password_reset'
 
 func (q *Queries) DeleteExpiredPasswordResetTokens(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteExpiredPasswordResetTokens)
+	return err
+}
+
+const deleteMFAEnrollmentPending = `-- name: DeleteMFAEnrollmentPending :exec
+DELETE FROM auth_mfa_enrollment_pending WHERE user_id = $1
+`
+
+func (q *Queries) DeleteMFAEnrollmentPending(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, deleteMFAEnrollmentPending, userID)
 	return err
 }
 
@@ -400,6 +438,23 @@ func (q *Queries) GetEmailToken(ctx context.Context, arg GetEmailTokenParams) (A
 		&i.ExpiresAt,
 		&i.UsedAt,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getMFAEnrollmentPending = `-- name: GetMFAEnrollmentPending :one
+SELECT user_id, secret, created_at, expires_at FROM auth_mfa_enrollment_pending
+WHERE user_id = $1 AND expires_at > now()
+`
+
+func (q *Queries) GetMFAEnrollmentPending(ctx context.Context, userID uuid.UUID) (AuthMfaEnrollmentPending, error) {
+	row := q.db.QueryRowContext(ctx, getMFAEnrollmentPending, userID)
+	var i AuthMfaEnrollmentPending
+	err := row.Scan(
+		&i.UserID,
+		&i.Secret,
+		&i.CreatedAt,
+		&i.ExpiresAt,
 	)
 	return i, err
 }

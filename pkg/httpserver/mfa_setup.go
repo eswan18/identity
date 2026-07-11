@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/eswan18/identity/pkg/auth"
 	"github.com/eswan18/identity/pkg/db"
@@ -17,6 +18,44 @@ type MFASetupPageData struct {
 	QRCode         string // Base64-encoded PNG
 	Secret         string // For manual entry
 	ProvisioningURI string
+}
+
+// mfaEnrollmentExpiresIn is how long a pending enrollment secret remains valid.
+const mfaEnrollmentExpiresIn = 10 * time.Minute
+
+// renderMFASetupError renders the setup page with only an error message (no QR).
+func (s *Server) renderMFASetupError(w http.ResponseWriter, msg string) {
+	if err := s.mfaSetupTemplate.Execute(w, MFASetupPageData{Error: msg}); err != nil {
+		log.Printf("[ERROR] renderMFASetupError: Failed to render MFA setup page: %v", err)
+	}
+}
+
+// renderMFASetupPage renders the setup page for a given server-stored secret,
+// reconstructing the QR code and provisioning URI from that exact secret so the
+// displayed QR always matches the secret that will be validated.
+func (s *Server) renderMFASetupPage(w http.ResponseWriter, username, secret, errMsg string) {
+	key, err := mfa.KeyFromSecret(username, secret)
+	if err != nil {
+		log.Printf("[ERROR] renderMFASetupPage: Failed to rebuild TOTP key: %v", err)
+		s.renderMFASetupError(w, "Failed to generate MFA setup. Please try again.")
+		return
+	}
+
+	qrCode, err := mfa.GenerateQRCode(key)
+	if err != nil {
+		log.Printf("[ERROR] renderMFASetupPage: Failed to generate QR code: %v", err)
+		s.renderMFASetupError(w, "Failed to generate QR code. Please try again.")
+		return
+	}
+
+	if err := s.mfaSetupTemplate.Execute(w, MFASetupPageData{
+		Error:           errMsg,
+		QRCode:          qrCode,
+		Secret:          secret,
+		ProvisioningURI: mfa.GetProvisioningURI(key),
+	}); err != nil {
+		log.Printf("[ERROR] renderMFASetupPage: Failed to render MFA setup page: %v", err)
+	}
 }
 
 // HandleMFASetupGet displays the MFA setup page with QR code.
@@ -37,29 +76,25 @@ func (s *Server) HandleMFASetupGet(w http.ResponseWriter, r *http.Request) {
 	key, err := mfa.GenerateSecret(user.Username)
 	if err != nil {
 		log.Printf("[ERROR] HandleMFASetupGet: Failed to generate TOTP secret: %v", err)
-		s.mfaSetupTemplate.Execute(w, MFASetupPageData{
-			Error: "Failed to generate MFA secret. Please try again.",
-		})
+		s.renderMFASetupError(w, "Failed to generate MFA secret. Please try again.")
+		return
+	}
+	secret := mfa.GetSecret(key)
+
+	// Persist the pending secret server-side, keyed to the user, so that the POST
+	// validates the submitted code against a secret the client can neither choose
+	// nor observe. The secret is never sent to the browser as a form value.
+	if err := s.datastore.Q.CreateMFAEnrollmentPending(r.Context(), db.CreateMFAEnrollmentPendingParams{
+		UserID:    user.ID,
+		Secret:    secret,
+		ExpiresAt: time.Now().Add(mfaEnrollmentExpiresIn),
+	}); err != nil {
+		log.Printf("[ERROR] HandleMFASetupGet: Failed to store pending MFA secret: %v", err)
+		s.renderMFASetupError(w, "Failed to start MFA setup. Please try again.")
 		return
 	}
 
-	// Generate QR code
-	qrCode, err := mfa.GenerateQRCode(key)
-	if err != nil {
-		log.Printf("[ERROR] HandleMFASetupGet: Failed to generate QR code: %v", err)
-		s.mfaSetupTemplate.Execute(w, MFASetupPageData{
-			Error: "Failed to generate QR code. Please try again.",
-		})
-		return
-	}
-
-	// Store the secret temporarily in session storage
-	// For simplicity, we'll include it as a hidden field (encrypted would be better)
-	s.mfaSetupTemplate.Execute(w, MFASetupPageData{
-		QRCode:          qrCode,
-		Secret:          mfa.GetSecret(key),
-		ProvisioningURI: mfa.GetProvisioningURI(key),
-	})
+	s.renderMFASetupPage(w, user.Username, secret, "")
 }
 
 // HandleMFASetupPost verifies the TOTP code and enables MFA.
@@ -76,44 +111,46 @@ func (s *Server) HandleMFASetupPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secret := r.FormValue("secret")
 	code := r.FormValue("code")
 
-	if secret == "" || code == "" {
-		s.mfaSetupTemplate.Execute(w, MFASetupPageData{
-			Error:  "Please enter the verification code from your authenticator app.",
-			Secret: secret,
-		})
-		return
-	}
-
-	// Validate the TOTP code
-	if !mfa.ValidateCode(secret, code) {
-		// Regenerate QR code for the same secret
-		key, _ := mfa.GenerateSecret(user.Username)
-		qrCode, _ := mfa.GenerateQRCode(key)
-
-		s.mfaSetupTemplate.Execute(w, MFASetupPageData{
-			Error:           "Invalid verification code. Please try again.",
-			QRCode:          qrCode,
-			Secret:          secret,
-			ProvisioningURI: mfa.GetProvisioningURI(key),
-		})
-		return
-	}
-
-	// Enable MFA for the user
-	err = s.datastore.Q.EnableMFA(r.Context(), db.EnableMFAParams{
-		ID:        user.ID,
-		MfaSecret: sql.NullString{String: secret, Valid: true},
-	})
+	// Load the pending secret from server-side storage (NOT the form). This is the
+	// only secret we will validate against or enable.
+	pending, err := s.datastore.Q.GetMFAEnrollmentPending(r.Context(), user.ID)
 	if err != nil {
-		log.Printf("[ERROR] HandleMFASetupPost: Failed to enable MFA: %v", err)
-		s.mfaSetupTemplate.Execute(w, MFASetupPageData{
-			Error:  "Failed to enable MFA. Please try again.",
-			Secret: secret,
-		})
+		// No valid pending secret: enrollment was never started, or it expired while
+		// the user entered their code. Send them back to GET to start fresh so a new
+		// secret and QR are generated together.
+		log.Printf("[DEBUG] HandleMFASetupPost: No valid pending MFA secret for user %s: %v", user.Username, err)
+		http.Redirect(w, r, "/oauth/mfa-setup", http.StatusFound)
 		return
+	}
+
+	if code == "" {
+		s.renderMFASetupPage(w, user.Username, pending.Secret, "Please enter the verification code from your authenticator app.")
+		return
+	}
+
+	// Validate the TOTP code against the server-stored secret.
+	if !mfa.ValidateCode(pending.Secret, code) {
+		// Re-render using the SAME server-stored secret so the displayed QR and the
+		// secret being validated stay consistent across retries.
+		s.renderMFASetupPage(w, user.Username, pending.Secret, "Invalid verification code. Please try again.")
+		return
+	}
+
+	// Enable MFA for the user using the server-stored secret.
+	if err := s.datastore.Q.EnableMFA(r.Context(), db.EnableMFAParams{
+		ID:        user.ID,
+		MfaSecret: sql.NullString{String: pending.Secret, Valid: true},
+	}); err != nil {
+		log.Printf("[ERROR] HandleMFASetupPost: Failed to enable MFA: %v", err)
+		s.renderMFASetupPage(w, user.Username, pending.Secret, "Failed to enable MFA. Please try again.")
+		return
+	}
+
+	// Consume the pending enrollment secret (single use).
+	if err := s.datastore.Q.DeleteMFAEnrollmentPending(r.Context(), user.ID); err != nil {
+		log.Printf("[ERROR] HandleMFASetupPost: Failed to delete pending MFA secret: %v", err)
 	}
 
 	log.Printf("[DEBUG] HandleMFASetupPost: MFA enabled for user: %s", user.Username)
