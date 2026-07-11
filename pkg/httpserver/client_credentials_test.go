@@ -136,7 +136,10 @@ func (s *OAuthFlowSuite) TestClientCredentialsGrant_BasicAuth_WrongSecret() {
 	resp, err := s.httpClient.Do(req)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
-	s.Equal(http.StatusBadRequest, resp.StatusCode)
+	// Per RFC 6749 §5.2, a failed client authentication at the token endpoint
+	// must be reported as 401 (with a WWW-Authenticate challenge), not 400.
+	s.Equal(http.StatusUnauthorized, resp.StatusCode)
+	s.Equal(`Basic realm="oauth"`, resp.Header.Get("WWW-Authenticate"))
 
 	body, err := io.ReadAll(resp.Body)
 	s.Require().NoError(err)
