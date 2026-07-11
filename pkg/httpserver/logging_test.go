@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/eswan18/identity/pkg/config"
 )
 
 // TestRedactedRequestPath_RedactsToken is a regression test for secrets leaking into
@@ -106,4 +108,45 @@ func TestRequestLoggingMiddleware_DoesNotLogToken(t *testing.T) {
 	if !strings.Contains(logged, "200") {
 		t.Errorf("request log is missing the status code: %q", logged)
 	}
+}
+
+// TestServer_Debugf verifies that debugf is gated on config.Debug: it must be silent
+// by default (Debug: false) and only emit its [DEBUG]-prefixed line when Debug is
+// explicitly enabled. This is a regression test for the [DEBUG] logs in pkg/httpserver
+// firing unconditionally on every request in production.
+func TestServer_Debugf(t *testing.T) {
+	captureLog := func(t *testing.T, fn func()) string {
+		t.Helper()
+		var buf bytes.Buffer
+		oldOutput := log.Writer()
+		oldFlags := log.Flags()
+		log.SetOutput(&buf)
+		log.SetFlags(0)
+		t.Cleanup(func() {
+			log.SetOutput(oldOutput)
+			log.SetFlags(oldFlags)
+		})
+		fn()
+		return buf.String()
+	}
+
+	t.Run("does not log when Debug is false", func(t *testing.T) {
+		s := &Server{config: &config.Config{Debug: false}}
+		logged := captureLog(t, func() {
+			s.debugf("user %s did something", "alice")
+		})
+		if logged != "" {
+			t.Errorf("debugf logged output while config.Debug was false: %q", logged)
+		}
+	})
+
+	t.Run("logs with [DEBUG] prefix when Debug is true", func(t *testing.T) {
+		s := &Server{config: &config.Config{Debug: true}}
+		logged := captureLog(t, func() {
+			s.debugf("user %s did something", "alice")
+		})
+		if !strings.Contains(logged, "[DEBUG] user alice did something") {
+			t.Errorf("debugf output = %q, want it to contain %q", logged, "[DEBUG] user alice did something")
+		}
+	})
 }

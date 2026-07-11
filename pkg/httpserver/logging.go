@@ -40,6 +40,18 @@ func requestLoggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// debugf logs a [DEBUG]-prefixed message when config.Debug is enabled (DEBUG=true), and
+// is a no-op otherwise. Handlers use it for verbose flow/user-ID logging that is useful
+// while debugging auth flows locally but too noisy to leave on unconditionally in
+// production. Callers should not include the "[DEBUG] " prefix or a trailing newline in
+// format; debugf adds the prefix itself (log.Printf already appends the newline).
+func (s *Server) debugf(format string, args ...any) {
+	if !s.config.Debug {
+		return
+	}
+	log.Printf("[DEBUG] "+format, args...)
+}
+
 // redactedRequestPath returns the request path and query string with the value of any
 // sensitive query parameter (see sensitiveQueryParams) replaced by "REDACTED". Requests
 // with no sensitive parameters are returned unmodified (aside from re-serialization via

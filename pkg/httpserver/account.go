@@ -42,7 +42,7 @@ func (s *Server) HandleAccountSettingsGet(w http.ResponseWriter, r *http.Request
 	// Get user from session - including inactive users so they can see their account settings
 	user, err := s.getUserFromSessionIncludingInactive(r)
 	if err != nil {
-		log.Printf("[DEBUG] HandleAccountSettingsGet: Failed to get user from session: %v", err)
+		s.debugf("HandleAccountSettingsGet: Failed to get user from session: %v", err)
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
@@ -180,7 +180,7 @@ func (s *Server) HandleChangePasswordPost(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	log.Printf("[DEBUG] HandleChangePasswordPost: Password updated successfully for user: %s", user.Username)
+	s.debugf("HandleChangePasswordPost: Password updated successfully for user: %s", user.Username)
 
 	// A password change is a credential change: log the user out everywhere.
 	// Revoke all OAuth tokens and delete all sessions (including the current
@@ -299,7 +299,7 @@ func (s *Server) HandleChangeUsernamePost(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	log.Printf("[DEBUG] HandleChangeUsernamePost: Username updated successfully from %s to %s", user.Username, newUsername)
+	s.debugf("HandleChangeUsernamePost: Username updated successfully from %s to %s", user.Username, newUsername)
 	s.changeUsernameTemplate.Execute(w, ChangeUsernamePageData{
 		Success:         "Username updated successfully",
 		CurrentUsername: newUsername,
@@ -394,7 +394,7 @@ func (s *Server) HandleChangeEmailPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[DEBUG] HandleChangeEmailPost: Email updated successfully from %s to %s", user.Email, newEmail)
+	s.debugf("HandleChangeEmailPost: Email updated successfully from %s to %s", user.Email, newEmail)
 
 	// The new address hasn't been verified yet (UpdateUserEmail resets
 	// email_verified to false), so send a fresh verification email to it.
@@ -470,7 +470,7 @@ func (s *Server) HandleEditProfilePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[DEBUG] HandleEditProfilePost: Profile updated successfully for user: %s", user.Username)
+	s.debugf("HandleEditProfilePost: Profile updated successfully for user: %s", user.Username)
 	s.editProfileTemplate.Execute(w, EditProfilePageData{
 		Success:    "Profile updated successfully",
 		GivenName:  givenName,
@@ -613,7 +613,7 @@ func (s *Server) HandleDeactivateAccountPost(w http.ResponseWriter, r *http.Requ
 		// Continue anyway - account is deactivated, tokens will be rejected on use
 	}
 
-	log.Printf("[DEBUG] HandleDeactivateAccountPost: User %s deactivated successfully", user.Username)
+	s.debugf("HandleDeactivateAccountPost: User %s deactivated successfully", user.Username)
 
 	// Delete the session and clear the cookie
 	cookie, _ := r.Cookie("session_id")
@@ -702,7 +702,7 @@ func (s *Server) HandleReactivateAccountPost(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	log.Printf("[DEBUG] HandleReactivateAccountPost: User %s reactivated successfully", user.Username)
+	s.debugf("HandleReactivateAccountPost: User %s reactivated successfully", user.Username)
 
 	// Redirect to account settings with success message
 	http.Redirect(w, r, "/oauth/account-settings?reactivated=true", http.StatusFound)
@@ -816,7 +816,7 @@ func (s *Server) HandleChangeAvatarPost(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	log.Printf("[DEBUG] HandleChangeAvatarPost: Avatar updated for user %s", user.Username)
+	s.debugf("HandleChangeAvatarPost: Avatar updated for user %s", user.Username)
 	s.renderChangeAvatar(w, r, ChangeAvatarPageData{
 		Success:   "Avatar updated successfully.",
 		AvatarURL: avatarURL,
@@ -860,6 +860,6 @@ func (s *Server) HandleDeleteAvatarPost(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	log.Printf("[DEBUG] HandleDeleteAvatarPost: Avatar deleted for user %s", user.Username)
+	s.debugf("HandleDeleteAvatarPost: Avatar deleted for user %s", user.Username)
 	http.Redirect(w, r, "/oauth/change-avatar?success=avatar_deleted", http.StatusFound)
 }

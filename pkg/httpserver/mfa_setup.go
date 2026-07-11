@@ -122,7 +122,7 @@ func (s *Server) HandleMFASetupPost(w http.ResponseWriter, r *http.Request) {
 		// No valid pending secret: enrollment was never started, or it expired while
 		// the user entered their code. Send them back to GET to start fresh so a new
 		// secret and QR are generated together.
-		log.Printf("[DEBUG] HandleMFASetupPost: No valid pending MFA secret for user %s: %v", user.Username, err)
+		s.debugf("HandleMFASetupPost: No valid pending MFA secret for user %s: %v", user.Username, err)
 		http.Redirect(w, r, "/oauth/mfa-setup", http.StatusFound)
 		return
 	}
@@ -155,7 +155,7 @@ func (s *Server) HandleMFASetupPost(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[ERROR] HandleMFASetupPost: Failed to delete pending MFA secret: %v", err)
 	}
 
-	log.Printf("[DEBUG] HandleMFASetupPost: MFA enabled for user: %s", user.Username)
+	s.debugf("HandleMFASetupPost: MFA enabled for user: %s", user.Username)
 
 	// Redirect to account settings with success message
 	http.Redirect(w, r, "/oauth/account-settings?mfa_enabled=true", http.StatusFound)
@@ -246,7 +246,7 @@ func (s *Server) HandleMFADisablePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[DEBUG] HandleMFADisablePost: MFA disabled for user: %s", user.Username)
+	s.debugf("HandleMFADisablePost: MFA disabled for user: %s", user.Username)
 
 	// Redirect to account settings with success message
 	http.Redirect(w, r, "/oauth/account-settings?mfa_disabled=true", http.StatusFound)
