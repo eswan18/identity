@@ -62,8 +62,8 @@ func (s *Server) renderMFASetupPage(w http.ResponseWriter, r *http.Request, user
 
 // HandleMFASetupGet displays the MFA setup page with QR code.
 func (s *Server) HandleMFASetupGet(w http.ResponseWriter, r *http.Request) {
-	user, err := s.getUserFromSession(r)
-	if err != nil {
+	user, ok := userFromContext(r.Context())
+	if !ok {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
@@ -101,8 +101,8 @@ func (s *Server) HandleMFASetupGet(w http.ResponseWriter, r *http.Request) {
 
 // HandleMFASetupPost verifies the TOTP code and enables MFA.
 func (s *Server) HandleMFASetupPost(w http.ResponseWriter, r *http.Request) {
-	user, err := s.getUserFromSession(r)
-	if err != nil {
+	user, ok := userFromContext(r.Context())
+	if !ok {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
@@ -163,8 +163,8 @@ func (s *Server) HandleMFASetupPost(w http.ResponseWriter, r *http.Request) {
 
 // HandleMFADisablePost disables MFA for the user.
 func (s *Server) HandleMFADisablePost(w http.ResponseWriter, r *http.Request) {
-	user, err := s.getUserFromSession(r)
-	if err != nil {
+	user, ok := userFromContext(r.Context())
+	if !ok {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
