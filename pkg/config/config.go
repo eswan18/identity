@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -36,6 +37,34 @@ type Config struct {
 	// Debug enables verbose [DEBUG] logging of flow/user-ID details in pkg/httpserver
 	// (see Server.debugf). Off by default; set DEBUG=true to enable.
 	Debug bool
+
+	// CleanupInterval controls how often the background expiry-cleanup worker
+	// (see pkg/httpserver/cleanup.go) sweeps expired MFA pending/enrollment
+	// rows, email verification tokens, and password reset tokens. Read from
+	// CLEANUP_INTERVAL as a Go duration string (e.g. "1h", "30m"); defaults to
+	// 1 hour when unset or unparseable (see parseCleanupInterval).
+	CleanupInterval time.Duration
+}
+
+// defaultCleanupInterval is the fallback for CleanupInterval when CLEANUP_INTERVAL
+// is unset or fails to parse as a Go duration.
+const defaultCleanupInterval = 1 * time.Hour
+
+// parseCleanupInterval reads CLEANUP_INTERVAL and parses it as a Go duration
+// string (e.g. "1h", "30m"). It falls back to defaultCleanupInterval when the
+// variable is unset or its value can't be parsed by time.ParseDuration, logging
+// a warning in the latter case so a typo doesn't silently produce the default.
+func parseCleanupInterval() time.Duration {
+	raw := os.Getenv("CLEANUP_INTERVAL")
+	if raw == "" {
+		return defaultCleanupInterval
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		log.Printf("CLEANUP_INTERVAL=%q is not a valid duration (%v); using default of %s", raw, err, defaultCleanupInterval)
+		return defaultCleanupInterval
+	}
+	return d
 }
 
 func NewFromEnv() *Config {
@@ -61,6 +90,7 @@ func NewFromEnv() *Config {
 			StoragePublicURL: os.Getenv("STORAGE_PUBLIC_URL"),
 			StorageRegion:    os.Getenv("STORAGE_REGION"),
 			Debug:            os.Getenv("DEBUG") == "true",
+			CleanupInterval:  parseCleanupInterval(),
 		}
 	} else {
 		// Local development: load from .env files
@@ -88,6 +118,7 @@ func NewFromEnv() *Config {
 			StoragePublicURL: os.Getenv("STORAGE_PUBLIC_URL"),
 			StorageRegion:    os.Getenv("STORAGE_REGION"),
 			Debug:            os.Getenv("DEBUG") == "true",
+			CleanupInterval:  parseCleanupInterval(),
 		}
 	}
 
