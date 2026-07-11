@@ -86,24 +86,24 @@ func (r *rateLimitStore) getLimiter(ip string, requestsPerMinute int) *rate.Limi
 	return entry.limiter
 }
 
-// getClientIP extracts the client IP address from the request
+// getClientIP extracts the client IP address from the request.
+//
+// SECURITY: This intentionally ignores client-supplied headers such as
+// X-Forwarded-For and X-Real-IP. Those headers are fully controlled by the
+// client and, if trusted, let an attacker get a fresh rate-limit bucket on
+// every request simply by sending a different (fabricated) value each time
+// - defeating the rate limiter entirely. Instead we key on r.RemoteAddr,
+// which is the actual TCP peer address and cannot be spoofed by the client.
+//
+// Tradeoff: if this service sits behind a reverse proxy/load balancer that
+// doesn't preserve the original client IP, RemoteAddr will be the proxy's
+// address and all proxied traffic will share a single rate-limit bucket.
+// That's an availability/precision tradeoff, not a security one - it's
+// strictly safer than trusting spoofable headers. If a trusted proxy is
+// introduced in front of this service, this function (and the removed
+// middleware.RealIP in server.go) should be revisited to derive the real
+// client IP from a header that the trusted proxy guarantees to set/sanitize.
 func getClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header (set by proxies/load balancers)
-	// Take the first IP if there are multiple (comma-separated)
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// X-Forwarded-For can contain multiple IPs, take the first one
-		for i, char := range xff {
-			if char == ',' {
-				return xff[:i]
-			}
-		}
-		return xff
-	}
-	// Check X-Real-IP header
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-	// Fall back to RemoteAddr
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

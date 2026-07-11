@@ -65,7 +65,17 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 	consentTemplate := template.Must(template.ParseFiles(config.TemplatesDir + "/consent.html"))
 
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	// NOTE: chi's middleware.RealIP is intentionally NOT used here. It
+	// unconditionally trusts the client-supplied X-Forwarded-For/X-Real-IP
+	// headers and rewrites r.RemoteAddr from them, which lets any client
+	// spoof its apparent IP (e.g. to bypass rate limiting keyed on IP - see
+	// getClientIP in ratelimit.go). There is currently no trusted-proxy
+	// configuration in this service to safely scope RealIP's trust, so we
+	// leave r.RemoteAddr as the actual TCP peer address. If this service is
+	// deployed behind a reverse proxy that must be trusted to set these
+	// headers, reintroduce IP-restricted RealIP handling (e.g. chi's
+	// middleware.RealIP combined with TrustedProxies) rather than trusting
+	// them unconditionally.
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
