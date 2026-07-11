@@ -1,0 +1,7 @@
+-- This migration is intentionally irreversible.
+--
+-- The up migration replaced plaintext client secrets with a one-way SHA-256
+-- hash. A hash cannot be reversed to recover the original plaintext secret, so
+-- there is no correct way to restore the previous state. This down migration is
+-- a deliberate no-op; rolling back leaves the hashed secrets in place. Clients
+-- whose plaintext secret is unknown must be rotated (issued a new secret).

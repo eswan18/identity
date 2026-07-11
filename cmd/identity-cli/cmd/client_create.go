@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/eswan18/identity/cmd/identity-cli/internal"
+	"github.com/eswan18/identity/pkg/auth"
 	"github.com/eswan18/identity/pkg/db"
 	"github.com/spf13/cobra"
 )
@@ -62,14 +63,18 @@ func runClientCreate(cmd *cobra.Command, args []string) error {
 		log.Fatalf("Failed to generate client_id: %v", err)
 	}
 
-	// Generate client_secret if confidential
+	// Generate client_secret if confidential. The plaintext is shown to the
+	// operator once below, but only a SHA-256 hash of it is persisted so that a
+	// database dump does not disclose usable client credentials.
 	var clientSecret sql.NullString
+	var plaintextSecret string
 	if createIsConfidential {
 		secret, err := internal.GenerateRandomString(32)
 		if err != nil {
 			log.Fatalf("Failed to generate client_secret: %v", err)
 		}
-		clientSecret = sql.NullString{String: secret, Valid: true}
+		plaintextSecret = secret
+		clientSecret = sql.NullString{String: auth.HashClientSecret(secret), Valid: true}
 	}
 
 	// Create the client
@@ -92,8 +97,9 @@ func runClientCreate(cmd *cobra.Command, args []string) error {
 	fmt.Println("\nClient Details:")
 	fmt.Printf("  Name:           %s\n", client.Name)
 	fmt.Printf("  Client ID:      %s\n", client.ClientID)
-	if client.ClientSecret.Valid {
-		fmt.Printf("  Client Secret:  %s\n", client.ClientSecret.String)
+	if plaintextSecret != "" {
+		// Print the plaintext secret (only the hash is stored in the database).
+		fmt.Printf("  Client Secret:  %s\n", plaintextSecret)
 		fmt.Println("\n⚠️  IMPORTANT: Save the client_secret now - it cannot be retrieved later!")
 	} else {
 		fmt.Println("  Client Secret:  (none - public client)")

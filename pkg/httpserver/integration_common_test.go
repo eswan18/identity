@@ -211,8 +211,16 @@ func (s *OAuthFlowSuite) mustLoginAndConsent(user UserWithPassword, clientID, re
 }
 
 func (s *OAuthFlowSuite) mustRegisterOAuthClient(params db.CreateOAuthClientParams) db.OauthClient {
+	// The server stores only a hash of the client secret, so hash it before
+	// insert. Preserve the plaintext on the returned struct so callers can
+	// still present it when authenticating.
+	plaintextSecret := params.ClientSecret
+	if params.ClientSecret.Valid {
+		params.ClientSecret = sql.NullString{String: auth.HashClientSecret(params.ClientSecret.String), Valid: true}
+	}
 	client, err := s.datastore.Q.CreateOAuthClient(s.T().Context(), params)
 	s.Require().NoError(err)
+	client.ClientSecret = plaintextSecret
 	s.T().Logf("oauth client created: %s", client.ClientID)
 	return client
 }
