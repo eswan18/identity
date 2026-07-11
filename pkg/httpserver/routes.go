@@ -206,6 +206,7 @@ func (s *Server) HandleLogout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   s.isSecureContext(),
 		SameSite: http.SameSiteLaxMode,
 	})
 

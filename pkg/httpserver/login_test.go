@@ -107,3 +107,55 @@ func TestHandleLoginGet_NoRedirectURIStillRendersLocalError(t *testing.T) {
 		t.Fatalf("expected no Location header, got %q", loc)
 	}
 }
+
+// TestSetSessionCookie_SecureFlagFollowsIssuerScheme is a regression test: the
+// session cookie's Secure attribute used to be derived from
+// strings.HasPrefix(config.HTTPAddress, "https://"), but HTTPAddress is the local
+// listen address passed to http.Server.Addr (e.g. ":8000") -- never "https://..." --
+// so Secure could never be true even in production behind a TLS-terminating proxy.
+// It's now derived from the scheme of JWTIssuer, the service's public base URL.
+func TestSetSessionCookie_SecureFlagFollowsIssuerScheme(t *testing.T) {
+	tests := []struct {
+		name       string
+		httpAddr   string
+		jwtIssuer  string
+		wantSecure bool
+	}{
+		{
+			name:       "production: TLS-terminated behind proxy, listen addr is plain :port",
+			httpAddr:   ":8000",
+			jwtIssuer:  "https://identity.example.com",
+			wantSecure: true,
+		},
+		{
+			name:       "local dev over plain HTTP",
+			httpAddr:   ":8000",
+			jwtIssuer:  "http://localhost:8000",
+			wantSecure: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Server{config: &config.Config{
+				HTTPAddress: tt.httpAddr,
+				JWTIssuer:   tt.jwtIssuer,
+			}}
+
+			rec := httptest.NewRecorder()
+			s.setSessionCookie(rec, Session{ID: "some-session-id"})
+
+			cookies := rec.Result().Cookies()
+			if len(cookies) != 1 {
+				t.Fatalf("expected exactly one cookie, got %d", len(cookies))
+			}
+			if got := cookies[0].Secure; got != tt.wantSecure {
+				t.Errorf("session_id cookie Secure = %v, want %v (HTTPAddress=%q JWTIssuer=%q)",
+					got, tt.wantSecure, tt.httpAddr, tt.jwtIssuer)
+			}
+			if !cookies[0].HttpOnly {
+				t.Error("session_id cookie must remain HttpOnly")
+			}
+		})
+	}
+}
