@@ -1,14 +1,8 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Error</title>
-    <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-    <div class="card bg-base-100 shadow-xl w-full max-w-md">
-        <div class="card-body text-center">
+{{define "title"}}Error{{end}}
+
+{{define "card-body-class"}}card-body text-center{{end}}
+
+{{define "content"}}
             <div class="w-14 h-14 mx-auto mb-6 bg-error/10 rounded-full flex items-center justify-center">
                 <svg class="text-error" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="10"/>
@@ -42,11 +36,5 @@
             <a href="/oauth/login" class="btn btn-primary">Return to Login</a>
             {{end}}
 
-            <div class="divider"></div>
-            <div class="text-xs text-base-content/50">
-                Identity Service
-            </div>
-        </div>
-    </div>
-</body>
-</html>
+            {{template "footer" .}}
+{{end}}
