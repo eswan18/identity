@@ -88,22 +88,10 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Phase 2: Validate remaining parameters. These errors are redirected to the client.
-	if responseType != "code" {
-		redirectError("unsupported_response_type", "Only 'code' response type is supported")
-		return
-	}
-	if codeChallenge == "" || codeChallengeMethod == "" {
-		redirectError("invalid_request", "Code challenge and code challenge method are required")
-		return
-	}
-	if codeChallengeMethod != "S256" {
-		redirectError("invalid_request", "Code challenge method must be S256")
-		return
-	}
-
-	// Validate scopes against client's allowed scopes
-	if scopesAllowed, invalidScopes := containsAll(client.AllowedScopes, scope); !scopesAllowed {
-		redirectError("invalid_scope", fmt.Sprintf("Scopes %v not allowed for this client", invalidScopes))
+	// The consent endpoint (HandleConsentPost) applies the exact same checks via
+	// validateAuthorizeParams so the two code-minting paths cannot drift.
+	if authErr := validateAuthorizeParams(client, responseType, codeChallenge, codeChallengeMethod, scope); authErr != nil {
+		redirectError(authErr.Code, authErr.Description)
 		return
 	}
 
@@ -843,6 +831,37 @@ func (s *Server) HandleOIDCDiscovery(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(discovery)
 }
 
+// oauthAuthorizeError describes an OAuth error that should be redirected back to
+// the client's redirect_uri per RFC 6749 4.1.2.1.
+type oauthAuthorizeError struct {
+	Code        string
+	Description string
+}
+
+// validateAuthorizeParams performs the parameter validation shared by the
+// authorize (HandleOauthAuthorize) and consent (HandleConsentPost) endpoints.
+// Both endpoints can mint an authorization code, so they must enforce the same
+// rules to prevent a validation bypass: response_type must be "code", PKCE
+// (code_challenge + S256) is mandatory, and requested scopes must be a subset of
+// the client's allowed scopes. Callers must have already validated client_id and
+// redirect_uri (so that returned errors can be safely redirected to the client).
+// Returns nil when the parameters are valid, otherwise the first failure.
+func validateAuthorizeParams(client db.OauthClient, responseType, codeChallenge, codeChallengeMethod string, scope []string) *oauthAuthorizeError {
+	if responseType != "code" {
+		return &oauthAuthorizeError{"unsupported_response_type", "Only 'code' response type is supported"}
+	}
+	if codeChallenge == "" || codeChallengeMethod == "" {
+		return &oauthAuthorizeError{"invalid_request", "Code challenge and code challenge method are required"}
+	}
+	if codeChallengeMethod != "S256" {
+		return &oauthAuthorizeError{"invalid_request", "Code challenge method must be S256"}
+	}
+	if scopesAllowed, invalidScopes := containsAll(client.AllowedScopes, scope); !scopesAllowed {
+		return &oauthAuthorizeError{"invalid_scope", fmt.Sprintf("Scopes %v not allowed for this client", invalidScopes)}
+	}
+	return nil
+}
+
 // scopesCovered returns true if all requested scopes are present in the stored scopes.
 func scopesCovered(storedScopes, requestedScopes []string) bool {
 	for _, s := range requestedScopes {
@@ -954,6 +973,16 @@ func (s *Server) HandleConsentPost(w http.ResponseWriter, r *http.Request) {
 		q.Set("state", state)
 		redirectURL.RawQuery = q.Encode()
 		http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+	}
+
+	// Enforce the same parameter validation as the authorize endpoint before we
+	// store consent or mint an authorization code. Without this, a user could POST
+	// directly to /oauth/consent to obtain a PKCE-less code with arbitrary scopes,
+	// bypassing the checks in HandleOauthAuthorize (validation-bypass vulnerability).
+	responseType := r.FormValue("response_type")
+	if authErr := validateAuthorizeParams(client, responseType, codeChallenge, codeChallengeMethod, scope); authErr != nil {
+		redirectError(authErr.Code, authErr.Description)
+		return
 	}
 
 	if decision == "deny" {
