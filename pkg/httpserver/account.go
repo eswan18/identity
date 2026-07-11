@@ -77,7 +77,7 @@ func (s *Server) HandleAccountSettingsGet(w http.ResponseWriter, r *http.Request
 	}
 	displayName := strings.Join(nameParts, " ")
 
-	s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+	s.renderAccountSettings(w, r, AccountSettingsPageData{
 		Username:      user.Username,
 		Email:         user.Email,
 		Name:          displayName,
@@ -104,7 +104,7 @@ func (s *Server) HandleChangePasswordGet(w http.ResponseWriter, r *http.Request)
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
-	s.changePasswordTemplate.Execute(w, ChangePasswordPageData{})
+	s.changePasswordTemplate.Execute(w, ChangePasswordPageData{CSRFToken: s.ensureCSRFToken(w, r)})
 }
 
 // HandleChangePasswordPost godoc
@@ -133,19 +133,19 @@ func (s *Server) HandleChangePasswordPost(w http.ResponseWriter, r *http.Request
 
 	// Validate that all fields are provided
 	if currentPassword == "" || newPassword == "" || confirmPassword == "" {
-		s.renderChangePasswordError(w, http.StatusBadRequest, "All password fields are required")
+		s.renderChangePasswordError(w, r, http.StatusBadRequest, "All password fields are required")
 		return
 	}
 
 	// Validate that new password and confirm password match
 	if newPassword != confirmPassword {
-		s.renderChangePasswordError(w, http.StatusBadRequest, "New passwords do not match")
+		s.renderChangePasswordError(w, r, http.StatusBadRequest, "New passwords do not match")
 		return
 	}
 
 	// Validate new password requirements
 	if err := auth.ValidatePassword(newPassword, user.Username); err != nil {
-		s.renderChangePasswordError(w, http.StatusBadRequest, err.Error())
+		s.renderChangePasswordError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -153,11 +153,11 @@ func (s *Server) HandleChangePasswordPost(w http.ResponseWriter, r *http.Request
 	valid, err := auth.VerifyPassword(currentPassword, user.PasswordHash)
 	if err != nil {
 		log.Printf("[ERROR] HandleChangePasswordPost: Failed to verify password: %v", err)
-		s.renderChangePasswordError(w, http.StatusInternalServerError, "An error occurred")
+		s.renderChangePasswordError(w, r, http.StatusInternalServerError, "An error occurred")
 		return
 	}
 	if !valid {
-		s.renderChangePasswordError(w, http.StatusUnauthorized, "Current password is incorrect")
+		s.renderChangePasswordError(w, r, http.StatusUnauthorized, "Current password is incorrect")
 		return
 	}
 
@@ -165,7 +165,7 @@ func (s *Server) HandleChangePasswordPost(w http.ResponseWriter, r *http.Request
 	newPasswordHash, err := auth.HashPassword(newPassword)
 	if err != nil {
 		log.Printf("[ERROR] HandleChangePasswordPost: Failed to hash new password: %v", err)
-		s.renderChangePasswordError(w, http.StatusInternalServerError, "An error occurred")
+		s.renderChangePasswordError(w, r, http.StatusInternalServerError, "An error occurred")
 		return
 	}
 
@@ -176,7 +176,7 @@ func (s *Server) HandleChangePasswordPost(w http.ResponseWriter, r *http.Request
 	})
 	if err != nil {
 		log.Printf("[ERROR] HandleChangePasswordPost: Failed to update password: %v", err)
-		s.renderChangePasswordError(w, http.StatusInternalServerError, "An error occurred")
+		s.renderChangePasswordError(w, r, http.StatusInternalServerError, "An error occurred")
 		return
 	}
 
@@ -197,12 +197,16 @@ func (s *Server) HandleChangePasswordPost(w http.ResponseWriter, r *http.Request
 
 	// Clear the now-invalid session cookie and send the user back to login,
 	// mirroring HandleDeactivateAccountPost's redirect-to-login pattern.
+	// Secure mirrors isSecureContext, consistent with setSessionCookie and the
+	// other session-clearing cookies (logout, deactivate) so the flag is never
+	// dropped when the service is served over HTTPS.
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session_id",
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   s.isSecureContext(),
 		SameSite: http.SameSiteLaxMode,
 	})
 	http.Redirect(w, r, "/oauth/login?password_changed=true", http.StatusFound)
@@ -222,7 +226,7 @@ func (s *Server) HandleChangeUsernameGet(w http.ResponseWriter, r *http.Request)
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
-	s.changeUsernameTemplate.Execute(w, ChangeUsernamePageData{CurrentUsername: user.Username})
+	s.changeUsernameTemplate.Execute(w, ChangeUsernamePageData{CurrentUsername: user.Username, CSRFToken: s.ensureCSRFToken(w, r)})
 }
 
 // HandleChangeUsernamePost godoc
@@ -247,7 +251,7 @@ func (s *Server) HandleChangeUsernamePost(w http.ResponseWriter, r *http.Request
 	newUsername := r.FormValue("new_username")
 	password := r.FormValue("password")
 
-	pageData := ChangeUsernamePageData{CurrentUsername: user.Username}
+	pageData := ChangeUsernamePageData{CurrentUsername: user.Username, CSRFToken: s.ensureCSRFToken(w, r)}
 
 	// Validate that all fields are provided
 	if newUsername == "" || password == "" {
@@ -299,6 +303,7 @@ func (s *Server) HandleChangeUsernamePost(w http.ResponseWriter, r *http.Request
 	s.changeUsernameTemplate.Execute(w, ChangeUsernamePageData{
 		Success:         "Username updated successfully",
 		CurrentUsername: newUsername,
+		CSRFToken:       s.ensureCSRFToken(w, r),
 	})
 }
 
@@ -316,7 +321,7 @@ func (s *Server) HandleChangeEmailGet(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
-	s.changeEmailTemplate.Execute(w, ChangeEmailPageData{CurrentEmail: user.Email})
+	s.changeEmailTemplate.Execute(w, ChangeEmailPageData{CurrentEmail: user.Email, CSRFToken: s.ensureCSRFToken(w, r)})
 }
 
 // HandleChangeEmailPost godoc
@@ -341,7 +346,7 @@ func (s *Server) HandleChangeEmailPost(w http.ResponseWriter, r *http.Request) {
 	newEmail := r.FormValue("new_email")
 	password := r.FormValue("password")
 
-	pageData := ChangeEmailPageData{CurrentEmail: user.Email}
+	pageData := ChangeEmailPageData{CurrentEmail: user.Email, CSRFToken: s.ensureCSRFToken(w, r)}
 
 	// Validate that all fields are provided
 	if newEmail == "" || password == "" {
@@ -402,6 +407,7 @@ func (s *Server) HandleChangeEmailPost(w http.ResponseWriter, r *http.Request) {
 	s.changeEmailTemplate.Execute(w, ChangeEmailPageData{
 		Success:      "Email updated successfully. Please check your new email address for a verification link.",
 		CurrentEmail: newEmail,
+		CSRFToken:    s.ensureCSRFToken(w, r),
 	})
 }
 
@@ -422,6 +428,7 @@ func (s *Server) HandleEditProfileGet(w http.ResponseWriter, r *http.Request) {
 	s.editProfileTemplate.Execute(w, EditProfilePageData{
 		GivenName:  user.GivenName.String,
 		FamilyName: user.FamilyName.String,
+		CSRFToken:  s.ensureCSRFToken(w, r),
 	})
 }
 
@@ -458,6 +465,7 @@ func (s *Server) HandleEditProfilePost(w http.ResponseWriter, r *http.Request) {
 			Error:      "An error occurred",
 			GivenName:  givenName,
 			FamilyName: familyName,
+			CSRFToken:  s.ensureCSRFToken(w, r),
 		})
 		return
 	}
@@ -467,6 +475,7 @@ func (s *Server) HandleEditProfilePost(w http.ResponseWriter, r *http.Request) {
 		Success:    "Profile updated successfully",
 		GivenName:  givenName,
 		FamilyName: familyName,
+		CSRFToken:  s.ensureCSRFToken(w, r),
 	})
 }
 
@@ -479,9 +488,30 @@ func toNullString(s string) sql.NullString {
 }
 
 // renderChangePasswordError renders the change password page with an error message
-func (s *Server) renderChangePasswordError(w http.ResponseWriter, statusCode int, errorMsg string) {
+func (s *Server) renderChangePasswordError(w http.ResponseWriter, r *http.Request, statusCode int, errorMsg string) {
+	csrfToken := s.ensureCSRFToken(w, r)
 	w.WriteHeader(statusCode)
-	s.changePasswordTemplate.Execute(w, ChangePasswordPageData{Error: errorMsg})
+	s.changePasswordTemplate.Execute(w, ChangePasswordPageData{Error: errorMsg, CSRFToken: csrfToken})
+}
+
+// renderAccountSettings renders the account settings page, injecting the CSRF token
+// into the page data so every form on it (deactivate/reactivate/logout/mfa-disable/
+// resend-verification) submits a valid token. Centralizing this keeps the token
+// consistent across the many render sites in the account handlers.
+func (s *Server) renderAccountSettings(w http.ResponseWriter, r *http.Request, data AccountSettingsPageData) {
+	data.CSRFToken = s.ensureCSRFToken(w, r)
+	if err := s.accountSettingsTemplate.Execute(w, data); err != nil {
+		log.Printf("[ERROR] renderAccountSettings: Failed to render account settings page: %v", err)
+	}
+}
+
+// renderChangeAvatar renders the change avatar page, injecting the CSRF token so the
+// upload and delete-avatar forms both submit a valid token.
+func (s *Server) renderChangeAvatar(w http.ResponseWriter, r *http.Request, data ChangeAvatarPageData) {
+	data.CSRFToken = s.ensureCSRFToken(w, r)
+	if err := s.changeAvatarTemplate.Execute(w, data); err != nil {
+		log.Printf("[ERROR] renderChangeAvatar: Failed to render change avatar page: %v", err)
+	}
 }
 
 // getUserFromSession retrieves the authenticated user from the session cookie.
@@ -535,7 +565,7 @@ func (s *Server) HandleDeactivateAccountPost(w http.ResponseWriter, r *http.Requ
 
 	// Validate that password is provided
 	if password == "" {
-		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, AccountSettingsPageData{
 			Username: user.Username,
 			Email:    user.Email,
 			Error:    "Password is required to deactivate your account",
@@ -547,7 +577,7 @@ func (s *Server) HandleDeactivateAccountPost(w http.ResponseWriter, r *http.Requ
 	valid, err := auth.VerifyPassword(password, user.PasswordHash)
 	if err != nil {
 		log.Printf("[ERROR] HandleDeactivateAccountPost: Failed to verify password: %v", err)
-		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, AccountSettingsPageData{
 			Username: user.Username,
 			Email:    user.Email,
 			Error:    "An error occurred",
@@ -556,7 +586,7 @@ func (s *Server) HandleDeactivateAccountPost(w http.ResponseWriter, r *http.Requ
 	}
 	if !valid {
 		w.WriteHeader(http.StatusUnauthorized)
-		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, AccountSettingsPageData{
 			Username: user.Username,
 			Email:    user.Email,
 			Error:    "Password is incorrect",
@@ -568,7 +598,7 @@ func (s *Server) HandleDeactivateAccountPost(w http.ResponseWriter, r *http.Requ
 	err = s.datastore.Q.DeactivateUser(r.Context(), user.ID)
 	if err != nil {
 		log.Printf("[ERROR] HandleDeactivateAccountPost: Failed to deactivate user: %v", err)
-		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, AccountSettingsPageData{
 			Username: user.Username,
 			Email:    user.Email,
 			Error:    "An error occurred while deactivating your account",
@@ -627,7 +657,7 @@ func (s *Server) HandleReactivateAccountPost(w http.ResponseWriter, r *http.Requ
 
 	// Validate that password is provided
 	if password == "" {
-		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, AccountSettingsPageData{
 			Username:   user.Username,
 			Email:      user.Email,
 			IsInactive: !user.IsActive,
@@ -640,7 +670,7 @@ func (s *Server) HandleReactivateAccountPost(w http.ResponseWriter, r *http.Requ
 	valid, err := auth.VerifyPassword(password, user.PasswordHash)
 	if err != nil {
 		log.Printf("[ERROR] HandleReactivateAccountPost: Failed to verify password: %v", err)
-		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, AccountSettingsPageData{
 			Username:   user.Username,
 			Email:      user.Email,
 			IsInactive: !user.IsActive,
@@ -650,7 +680,7 @@ func (s *Server) HandleReactivateAccountPost(w http.ResponseWriter, r *http.Requ
 	}
 	if !valid {
 		w.WriteHeader(http.StatusUnauthorized)
-		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, AccountSettingsPageData{
 			Username:   user.Username,
 			Email:      user.Email,
 			IsInactive: !user.IsActive,
@@ -663,7 +693,7 @@ func (s *Server) HandleReactivateAccountPost(w http.ResponseWriter, r *http.Requ
 	err = s.datastore.Q.ReactivateUser(r.Context(), user.ID)
 	if err != nil {
 		log.Printf("[ERROR] HandleReactivateAccountPost: Failed to reactivate user: %v", err)
-		s.accountSettingsTemplate.Execute(w, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, AccountSettingsPageData{
 			Username:   user.Username,
 			Email:      user.Email,
 			IsInactive: !user.IsActive,
@@ -698,7 +728,7 @@ func (s *Server) HandleChangeAvatarGet(w http.ResponseWriter, r *http.Request) {
 		success = "Avatar removed successfully."
 	}
 
-	s.changeAvatarTemplate.Execute(w, ChangeAvatarPageData{
+	s.renderChangeAvatar(w, r, ChangeAvatarPageData{
 		Success:   success,
 		AvatarURL: user.Picture.String,
 	})
@@ -724,7 +754,7 @@ func (s *Server) HandleChangeAvatarPost(w http.ResponseWriter, r *http.Request) 
 
 	// Parse multipart form with max file size
 	if err := r.ParseMultipartForm(avatar.MaxAvatarSize); err != nil {
-		s.changeAvatarTemplate.Execute(w, ChangeAvatarPageData{
+		s.renderChangeAvatar(w, r, ChangeAvatarPageData{
 			Error:     "File too large. Maximum size is 5MB.",
 			AvatarURL: user.Picture.String,
 		})
@@ -733,7 +763,7 @@ func (s *Server) HandleChangeAvatarPost(w http.ResponseWriter, r *http.Request) 
 
 	file, header, err := r.FormFile("avatar")
 	if err != nil {
-		s.changeAvatarTemplate.Execute(w, ChangeAvatarPageData{
+		s.renderChangeAvatar(w, r, ChangeAvatarPageData{
 			Error:     "Please select a file to upload.",
 			AvatarURL: user.Picture.String,
 		})
@@ -752,14 +782,14 @@ func (s *Server) HandleChangeAvatarPost(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		// Check if it's a validation error
 		if validationErr, ok := err.(*avatar.ValidationError); ok {
-			s.changeAvatarTemplate.Execute(w, ChangeAvatarPageData{
+			s.renderChangeAvatar(w, r, ChangeAvatarPageData{
 				Error:     validationErr.Message,
 				AvatarURL: user.Picture.String,
 			})
 			return
 		}
 		log.Printf("[ERROR] HandleChangeAvatarPost: Failed to upload avatar: %v", err)
-		s.changeAvatarTemplate.Execute(w, ChangeAvatarPageData{
+		s.renderChangeAvatar(w, r, ChangeAvatarPageData{
 			Error:     "Failed to upload avatar. Please try again.",
 			AvatarURL: user.Picture.String,
 		})
@@ -779,7 +809,7 @@ func (s *Server) HandleChangeAvatarPost(w http.ResponseWriter, r *http.Request) 
 		if deleteErr := s.avatarService.Delete(r.Context(), avatarURL); deleteErr != nil {
 			log.Printf("[WARN] HandleChangeAvatarPost: Failed to rollback uploaded avatar: %v", deleteErr)
 		}
-		s.changeAvatarTemplate.Execute(w, ChangeAvatarPageData{
+		s.renderChangeAvatar(w, r, ChangeAvatarPageData{
 			Error:     "Failed to save avatar. Please try again.",
 			AvatarURL: user.Picture.String,
 		})
@@ -787,7 +817,7 @@ func (s *Server) HandleChangeAvatarPost(w http.ResponseWriter, r *http.Request) 
 	}
 
 	log.Printf("[DEBUG] HandleChangeAvatarPost: Avatar updated for user %s", user.Username)
-	s.changeAvatarTemplate.Execute(w, ChangeAvatarPageData{
+	s.renderChangeAvatar(w, r, ChangeAvatarPageData{
 		Success:   "Avatar updated successfully.",
 		AvatarURL: avatarURL,
 	})
@@ -823,7 +853,7 @@ func (s *Server) HandleDeleteAvatarPost(w http.ResponseWriter, r *http.Request) 
 		ID:      user.ID,
 	}); err != nil {
 		log.Printf("[ERROR] HandleDeleteAvatarPost: Failed to clear user picture: %v", err)
-		s.changeAvatarTemplate.Execute(w, ChangeAvatarPageData{
+		s.renderChangeAvatar(w, r, ChangeAvatarPageData{
 			Error:     "Failed to remove avatar. Please try again.",
 			AvatarURL: user.Picture.String,
 		})

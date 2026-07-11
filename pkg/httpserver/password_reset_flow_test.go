@@ -36,7 +36,7 @@ func (s *OAuthFlowSuite) TestPasswordResetTokenCannotBeReused() {
 	newPassword := "NewS3cure-" + s.mustGenerateRandomString(16)
 
 	// First reset: succeeds and redirects to login.
-	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/reset-password", url.Values{
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/reset-password", url.Values{
 		"token":            {rawToken},
 		"new_password":     {newPassword},
 		"confirm_password": {newPassword},
@@ -47,7 +47,7 @@ func (s *OAuthFlowSuite) TestPasswordResetTokenCannotBeReused() {
 
 	// Second reset with same token: must be rejected.
 	secondPassword := "Another-" + s.mustGenerateRandomString(16)
-	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/reset-password", url.Values{
+	resp, err = csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/reset-password", url.Values{
 		"token":            {rawToken},
 		"new_password":     {secondPassword},
 		"confirm_password": {secondPassword},
@@ -86,7 +86,7 @@ func (s *OAuthFlowSuite) TestPasswordResetFlow() {
 	s.Require().NoError(err)
 
 	// Request password reset
-	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/forgot-password", url.Values{
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/forgot-password", url.Values{
 		"email": {emailAddr},
 	})
 	s.Require().NoError(err)
@@ -123,7 +123,7 @@ func (s *OAuthFlowSuite) TestPasswordResetFlow() {
 	s.Equal(http.StatusOK, resp.StatusCode)
 
 	// Submit new password
-	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/reset-password", url.Values{
+	resp, err = csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/reset-password", url.Values{
 		"token":            {rawToken},
 		"new_password":     {newPassword},
 		"confirm_password": {newPassword},
@@ -147,7 +147,7 @@ func (s *OAuthFlowSuite) TestPasswordResetFlow() {
 	scv := s.mustCreateStateAndCodeVerifier()
 
 	// Try login with old password (should fail)
-	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/login", url.Values{
+	resp, err = csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/login", url.Values{
 		"username":              {username},
 		"password":              {originalPassword},
 		"client_id":             {client.ClientID},
@@ -162,7 +162,7 @@ func (s *OAuthFlowSuite) TestPasswordResetFlow() {
 	s.Equal(http.StatusUnauthorized, resp.StatusCode)
 
 	// Try login with new password (should succeed — redirects to authorize)
-	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/login", url.Values{
+	resp, err = csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/login", url.Values{
 		"username":              {username},
 		"password":              {newPassword},
 		"client_id":             {client.ClientID},
@@ -216,7 +216,7 @@ func (s *OAuthFlowSuite) TestPasswordResetPasswordMismatch() {
 	s.Require().NoError(err)
 
 	// Submit with mismatched passwords
-	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/reset-password", url.Values{
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/reset-password", url.Values{
 		"token":            {rawToken},
 		"new_password":     {"newpassword123"},
 		"confirm_password": {"differentpassword"},
@@ -250,7 +250,7 @@ func (s *OAuthFlowSuite) TestPasswordResetTooShort() {
 	s.Require().NoError(err)
 
 	// Submit with too short password
-	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/reset-password", url.Values{
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/reset-password", url.Values{
 		"token":            {rawToken},
 		"new_password":     {"short"},
 		"confirm_password": {"short"},
@@ -262,7 +262,7 @@ func (s *OAuthFlowSuite) TestPasswordResetTooShort() {
 
 func (s *OAuthFlowSuite) TestForgotPasswordNoEmailEnumeration() {
 	// Request reset for non-existent email - should return same response as valid email
-	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/forgot-password", url.Values{
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/forgot-password", url.Values{
 		"email": {"nonexistent@example.com"},
 	})
 	s.Require().NoError(err)
@@ -293,7 +293,7 @@ func (s *OAuthFlowSuite) TestForgotUsernameFlow() {
 	s.Require().NoError(err)
 
 	// Request username reminder
-	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/forgot-username", url.Values{
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/forgot-username", url.Values{
 		"email": {emailAddr},
 	})
 	s.Require().NoError(err)
@@ -308,7 +308,7 @@ func (s *OAuthFlowSuite) TestForgotUsernameFlow() {
 
 func (s *OAuthFlowSuite) TestForgotUsernameNoEmailEnumeration() {
 	// Request reminder for non-existent email - should return same response as valid email
-	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/forgot-username", url.Values{
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/forgot-username", url.Values{
 		"email": {"nonexistent@example.com"},
 	})
 	s.Require().NoError(err)
@@ -329,7 +329,7 @@ func (s *OAuthFlowSuite) TestForgotUsernameGetPage() {
 }
 
 func (s *OAuthFlowSuite) TestForgotUsernameMissingEmail() {
-	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/forgot-username", url.Values{})
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/forgot-username", url.Values{})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 	s.Equal(http.StatusBadRequest, resp.StatusCode)
@@ -361,7 +361,7 @@ func (s *OAuthFlowSuite) TestPasswordResetUpdatesPasswordChangedAt() {
 
 	// Reset password using the token
 	newPassword := s.mustGenerateRandomString(16)
-	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/reset-password", url.Values{
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/reset-password", url.Values{
 		"token":            {rawToken},
 		"new_password":     {newPassword},
 		"confirm_password": {newPassword},

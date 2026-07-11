@@ -10,6 +10,7 @@ type LoginPageData struct {
 	CodeChallenge       string
 	CodeChallengeMethod string
 	Nonce               string
+	CSRFToken           string
 }
 
 // RegisterPageData holds the data needed to render the registration page template.
@@ -23,6 +24,7 @@ type RegisterPageData struct {
 	Scope               []string
 	CodeChallenge       string
 	CodeChallengeMethod string
+	CSRFToken           string
 }
 
 // ScopeDescription maps a scope string to a human-readable description.
@@ -44,6 +46,7 @@ type ConsentPageData struct {
 	CodeChallengeMethod string
 	Nonce               string
 	ResponseType        string
+	CSRFToken           string
 }
 
 // ErrorPageData holds the data needed to render the error page template.
@@ -66,12 +69,14 @@ type AccountSettingsPageData struct {
 	IsInactive    bool
 	MfaEnabled    bool
 	EmailVerified bool
+	CSRFToken     string
 }
 
 // ChangePasswordPageData holds the data needed to render the change password page template.
 type ChangePasswordPageData struct {
-	Error   string
-	Success string
+	Error     string
+	Success   string
+	CSRFToken string
 }
 
 // ChangeUsernamePageData holds the data needed to render the change username page template.
@@ -79,6 +84,7 @@ type ChangeUsernamePageData struct {
 	Error           string
 	Success         string
 	CurrentUsername string
+	CSRFToken       string
 }
 
 // ChangeEmailPageData holds the data needed to render the change email page template.
@@ -86,18 +92,21 @@ type ChangeEmailPageData struct {
 	Error        string
 	Success      string
 	CurrentEmail string
+	CSRFToken    string
 }
 
 // ForgotPasswordPageData holds the data needed to render the forgot password page template.
 type ForgotPasswordPageData struct {
-	Error   string
-	Success string
+	Error     string
+	Success   string
+	CSRFToken string
 }
 
 // ResetPasswordPageData holds the data needed to render the reset password page template.
 type ResetPasswordPageData struct {
-	Error string
-	Token string
+	Error     string
+	Token     string
+	CSRFToken string
 }
 
 // EditProfilePageData holds the data needed to render the edit profile page template.
@@ -106,6 +115,7 @@ type EditProfilePageData struct {
 	Success    string
 	GivenName  string
 	FamilyName string
+	CSRFToken  string
 }
 
 // ChangeAvatarPageData holds the data needed to render the change avatar page template.
@@ -113,4 +123,5 @@ type ChangeAvatarPageData struct {
 	Error     string
 	Success   string
 	AvatarURL string
+	CSRFToken string
 }

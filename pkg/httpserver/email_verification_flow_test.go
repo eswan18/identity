@@ -32,7 +32,7 @@ func (s *OAuthFlowSuite) TestEmailVerificationFlow() {
 	emailAddr := username + "@example.com"
 	password := "securepassword123"
 
-	regResp, err := s.httpClient.PostForm("http://localhost:8080/oauth/register", url.Values{
+	regResp, err := csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/register", url.Values{
 		"username":              {username},
 		"email":                 {emailAddr},
 		"password":              {password},
@@ -110,8 +110,9 @@ func (s *OAuthFlowSuite) TestVerifyEmailWithMissingToken() {
 }
 
 func (s *OAuthFlowSuite) TestResendVerificationRequiresAuth() {
-	// Try to resend verification without being logged in
-	resp, err := s.httpClient.Post("http://localhost:8080/oauth/resend-verification", "application/x-www-form-urlencoded", nil)
+	// Try to resend verification without being logged in (CSRF-aware POST). With a
+	// valid CSRF token but no session, the handler still redirects to login.
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/resend-verification", nil)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 

@@ -24,6 +24,7 @@
             {{end}}
 
             <form method="POST" action="/oauth/mfa">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <fieldset class="fieldset mb-4">
                     <label class="fieldset-label" for="code">Verification Code</label>
                     <input

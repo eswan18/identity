@@ -159,11 +159,18 @@ func (s *AvatarFlowSuite) loginAndGetClient(user db.AuthUser, password string) *
 		},
 	}
 
-	// Post to login form
+	// Seed the CSRF token/cookie from the login page (double-submit). The cookie has
+	// Path=/ and stays in the jar, so every later request from this client (including
+	// the multipart avatar uploads and the delete-avatar POST) carries it; those
+	// requests only need to add the matching csrf_token form field.
 	loginURL := "http://localhost:8081/oauth/login"
+	csrfToken, _ := fetchCSRFToken(s.T(), client, loginURL)
+
+	// Post to login form
 	form := url.Values{}
 	form.Set("username", user.Username)
 	form.Set("password", password)
+	form.Set("csrf_token", csrfToken)
 	resp, err := client.PostForm(loginURL, form)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -172,6 +179,21 @@ func (s *AvatarFlowSuite) loginAndGetClient(user db.AuthUser, password string) *
 	s.Require().Equal(http.StatusFound, resp.StatusCode)
 
 	return client
+}
+
+// csrfTokenFromJar returns the csrf_token cookie value currently held in the client's
+// cookie jar (seeded by loginAndGetClient). Used to populate the csrf_token field on
+// multipart avatar uploads, where the cookie itself is sent automatically by the jar.
+func (s *AvatarFlowSuite) csrfTokenFromJar(client *http.Client) string {
+	u, err := url.Parse("http://localhost:8081/")
+	s.Require().NoError(err)
+	for _, c := range client.Jar.Cookies(u) {
+		if c.Name == csrfCookieName {
+			return c.Value
+		}
+	}
+	s.Require().FailNow("no csrf_token cookie present in jar")
+	return ""
 }
 
 func (s *AvatarFlowSuite) TestAvatarUpload() {
@@ -192,6 +214,7 @@ func (s *AvatarFlowSuite) TestAvatarUpload() {
 	s.Require().NoError(err)
 	_, err = io.Copy(part, bytes.NewReader(imgData))
 	s.Require().NoError(err)
+	s.Require().NoError(writer.WriteField("csrf_token", s.csrfTokenFromJar(client)))
 	s.Require().NoError(writer.Close())
 
 	// POST to change-avatar
@@ -231,6 +254,7 @@ func (s *AvatarFlowSuite) TestAvatarUploadOversizedFile() {
 	s.Require().NoError(err)
 	_, err = io.Copy(part, bytes.NewReader(largeData))
 	s.Require().NoError(err)
+	s.Require().NoError(writer.WriteField("csrf_token", s.csrfTokenFromJar(client)))
 	s.Require().NoError(writer.Close())
 
 	// POST to change-avatar
@@ -267,6 +291,7 @@ func (s *AvatarFlowSuite) TestAvatarUploadInvalidFileType() {
 	s.Require().NoError(err)
 	_, err = io.Copy(part, bytes.NewReader(textData))
 	s.Require().NoError(err)
+	s.Require().NoError(writer.WriteField("csrf_token", s.csrfTokenFromJar(client)))
 	s.Require().NoError(writer.Close())
 
 	// POST to change-avatar
@@ -306,6 +331,7 @@ func (s *AvatarFlowSuite) TestAvatarUpdate() {
 	s.Require().NoError(err)
 	_, err = io.Copy(part, bytes.NewReader(imgData1))
 	s.Require().NoError(err)
+	s.Require().NoError(writer.WriteField("csrf_token", s.csrfTokenFromJar(client)))
 	s.Require().NoError(writer.Close())
 
 	req, err := http.NewRequest("POST", "http://localhost:8081/oauth/change-avatar", body)
@@ -332,6 +358,7 @@ func (s *AvatarFlowSuite) TestAvatarUpdate() {
 	s.Require().NoError(err)
 	_, err = io.Copy(part, bytes.NewReader(imgData2))
 	s.Require().NoError(err)
+	s.Require().NoError(writer.WriteField("csrf_token", s.csrfTokenFromJar(client)))
 	s.Require().NoError(writer.Close())
 
 	req, err = http.NewRequest("POST", "http://localhost:8081/oauth/change-avatar", body)
@@ -375,6 +402,7 @@ func (s *AvatarFlowSuite) TestAvatarDelete() {
 	s.Require().NoError(err)
 	_, err = io.Copy(part, bytes.NewReader(imgData))
 	s.Require().NoError(err)
+	s.Require().NoError(writer.WriteField("csrf_token", s.csrfTokenFromJar(client)))
 	s.Require().NoError(writer.Close())
 
 	req, err := http.NewRequest("POST", "http://localhost:8081/oauth/change-avatar", body)
@@ -390,8 +418,10 @@ func (s *AvatarFlowSuite) TestAvatarDelete() {
 	s.Require().NoError(err)
 	s.Require().True(updatedUser.Picture.Valid)
 
-	// Now delete the avatar
-	resp, err = client.PostForm("http://localhost:8081/oauth/delete-avatar", url.Values{})
+	// Now delete the avatar (CSRF-aware: cookie from the jar, token in the form)
+	resp, err = client.PostForm("http://localhost:8081/oauth/delete-avatar", url.Values{
+		"csrf_token": {s.csrfTokenFromJar(client)},
+	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 
@@ -432,6 +462,7 @@ func (s *AvatarFlowSuite) TestUserInfoReturnsPicture() {
 	s.Require().NoError(err)
 	_, err = io.Copy(part, bytes.NewReader(imgData))
 	s.Require().NoError(err)
+	s.Require().NoError(writer.WriteField("csrf_token", s.csrfTokenFromJar(httpClient)))
 	s.Require().NoError(writer.Close())
 
 	req, err := http.NewRequest("POST", "http://localhost:8081/oauth/change-avatar", body)
@@ -604,6 +635,7 @@ func (s *AvatarFlowSuite) mustCompleteAuthorizationFlow(
 		form := url.Values{}
 		form.Set("username", user.Username)
 		form.Set("password", password)
+		form.Set("csrf_token", s.csrfTokenFromJar(client))
 		resp, err = client.PostForm(loginURL, form)
 		s.Require().NoError(err)
 		s.Require().Equal(http.StatusFound, resp.StatusCode)
@@ -641,6 +673,7 @@ func (s *AvatarFlowSuite) mustCompleteAuthorizationFlow(
 		"code_challenge":        {consentURL.Query().Get("code_challenge")},
 		"code_challenge_method": {consentURL.Query().Get("code_challenge_method")},
 		"nonce":                 {consentURL.Query().Get("nonce")},
+		"csrf_token":            {s.csrfTokenFromJar(client)},
 	}
 	resp, err = client.PostForm("http://localhost:8081/oauth/consent", consentForm)
 	s.Require().NoError(err)

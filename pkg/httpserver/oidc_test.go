@@ -99,7 +99,7 @@ func (s *OAuthFlowSuite) TestIDTokenIncludesNonce() {
 	}
 
 	// Login (with nonce) → authorize → consent → approve → callback with code
-	resp, err := httpClient.PostForm("http://localhost:8080/oauth/login", url.Values{
+	resp, err := csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/login", url.Values{
 		"username":              {username},
 		"password":              {password},
 		"client_id":             {client.ClientID},
@@ -128,7 +128,7 @@ func (s *OAuthFlowSuite) TestIDTokenIncludesNonce() {
 	consentLocation := resp.Header.Get("Location")
 	consentURL, err := url.Parse(consentLocation)
 	s.Require().NoError(err)
-	resp, err = httpClient.PostForm("http://localhost:8080/oauth/consent", url.Values{
+	resp, err = csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/consent", url.Values{
 		"decision":              {"allow"},
 		"client_id":             {consentURL.Query().Get("client_id")},
 		"redirect_uri":          {consentURL.Query().Get("redirect_uri")},
@@ -316,7 +316,7 @@ func (s *OAuthFlowSuite) TestIDTokenIncludesNonceThroughBrowserFlow() {
 		"code_challenge_method": {loginURL.Query().Get("code_challenge_method")},
 		"nonce":                 {loginURL.Query().Get("nonce")},
 	}
-	resp, err = httpClient.PostForm("http://localhost:8080/oauth/login", loginForm)
+	resp, err = csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/login", loginForm)
 	s.Require().NoError(err)
 	s.Require().NoError(resp.Body.Close())
 	s.Require().Equal(http.StatusFound, resp.StatusCode)
@@ -346,7 +346,7 @@ func (s *OAuthFlowSuite) TestIDTokenIncludesNonceThroughBrowserFlow() {
 		"code_challenge_method": {consentURL.Query().Get("code_challenge_method")},
 		"nonce":                 {consentURL.Query().Get("nonce")},
 	}
-	resp, err = httpClient.PostForm("http://localhost:8080/oauth/consent", consentForm)
+	resp, err = csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/consent", consentForm)
 	s.Require().NoError(err)
 	s.Require().NoError(resp.Body.Close())
 	s.Require().Equal(http.StatusFound, resp.StatusCode)

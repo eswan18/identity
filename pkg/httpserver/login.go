@@ -64,7 +64,7 @@ func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
 		}
 		// No redirect_uri, or client_id/redirect_uri failed validation: show error page
 		// locally rather than redirecting to an unverified destination.
-		s.renderLoginError(w, http.StatusBadRequest, "Only S256 code challenge method is supported", oauthParams)
+		s.renderLoginError(w, r, http.StatusBadRequest, "Only S256 code challenge method is supported", oauthParams)
 		return
 	}
 
@@ -93,6 +93,7 @@ func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
 		CodeChallenge:       codeChallenge,
 		CodeChallengeMethod: codeChallengeMethod,
 		Nonce:               nonce,
+		CSRFToken:           s.ensureCSRFToken(w, r),
 	})
 }
 
@@ -147,7 +148,7 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 		} else if errors.Is(err, ErrInvalidCredentials) {
 			status = http.StatusUnauthorized
 		}
-		s.renderLoginError(w, status, err.Error(), oauthParams)
+		s.renderLoginError(w, r, status, err.Error(), oauthParams)
 		return
 	}
 	log.Printf("[DEBUG] HandleLoginPost: Credentials validated successfully for user ID: %v", user.ID)
@@ -156,7 +157,7 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 	// Deactivated users can only log in directly (no client_id) to access account settings
 	if !user.IsActive && clientID != "" {
 		log.Printf("[DEBUG] HandleLoginPost: Deactivated user (ID: %v) attempted OAuth login", user.ID)
-		s.renderLoginError(w, http.StatusForbidden, ErrAccountDeactivated.Error(), oauthParams)
+		s.renderLoginError(w, r, http.StatusForbidden, ErrAccountDeactivated.Error(), oauthParams)
 		return
 	}
 
@@ -166,7 +167,7 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 		pendingID, err := s.createMFAPendingSession(r, user.ID, oauthParams)
 		if err != nil {
 			log.Printf("[ERROR] HandleLoginPost: Failed to create MFA pending session: %v", err)
-			s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
+			s.renderLoginError(w, r, http.StatusInternalServerError, "An error occurred", oauthParams)
 			return
 		}
 		// Redirect to MFA verification page
@@ -179,7 +180,7 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 	session, err := s.createSession(r.Context(), user.ID)
 	if err != nil {
 		log.Printf("[ERROR] HandleLoginPost: Failed to create session: %v", err)
-		s.renderLoginError(w, http.StatusInternalServerError, "An error occurred", oauthParams)
+		s.renderLoginError(w, r, http.StatusInternalServerError, "An error occurred", oauthParams)
 		return
 	}
 	// Log only the user ID, never the session token itself: session.ID is the bearer
@@ -205,7 +206,10 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 
 // renderLoginError renders the login page with an error message, preserving OAuth parameters.
 // It handles template execution errors gracefully by falling back to the error template.
-func (s *Server) renderLoginError(w http.ResponseWriter, statusCode int, errorMsg string, oauthParams LoginPageData) {
+func (s *Server) renderLoginError(w http.ResponseWriter, r *http.Request, statusCode int, errorMsg string, oauthParams LoginPageData) {
+	// Ensure the CSRF token/cookie before writing the status line, so the re-rendered
+	// login form carries a token the eventual POST can echo back.
+	csrfToken := s.ensureCSRFToken(w, r)
 	w.WriteHeader(statusCode)
 	err := s.loginTemplate.Execute(w, LoginPageData{
 		Error:               errorMsg,
@@ -216,6 +220,7 @@ func (s *Server) renderLoginError(w http.ResponseWriter, statusCode int, errorMs
 		CodeChallenge:       oauthParams.CodeChallenge,
 		CodeChallengeMethod: oauthParams.CodeChallengeMethod,
 		Nonce:               oauthParams.Nonce,
+		CSRFToken:           csrfToken,
 	})
 	if err != nil {
 		// Fallback to error template if login template fails

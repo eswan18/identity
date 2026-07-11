@@ -66,7 +66,7 @@ func (s *OAuthFlowSuite) TestOAuthFlowWithMFA() {
 		"code_challenge":        {scv.CodeChallenge},
 		"code_challenge_method": {scv.CodeChallengeMethod},
 	}
-	resp, err := httpClient.PostForm(fmt.Sprintf("http://%s/oauth/login", host), formValues)
+	resp, err := csrfPostFormLogin(s.T(), httpClient, fmt.Sprintf("http://%s/oauth/login", host), formValues)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 	s.Require().Equal(http.StatusFound, resp.StatusCode, "login should redirect")
@@ -83,7 +83,7 @@ func (s *OAuthFlowSuite) TestOAuthFlowWithMFA() {
 	validCode, err := generateTOTPCode(totpSecret)
 	s.Require().NoError(err)
 
-	resp, err = httpClient.PostForm(fmt.Sprintf("http://%s/oauth/mfa", host), url.Values{
+	resp, err = csrfPostFormLogin(s.T(), httpClient, fmt.Sprintf("http://%s/oauth/mfa", host), url.Values{
 		"pending_id": {pendingID},
 		"code":       {validCode},
 	})
@@ -105,7 +105,7 @@ func (s *OAuthFlowSuite) TestOAuthFlowWithMFA() {
 	consentLocation := resp.Header.Get("Location")
 	consentURL, err := url.Parse(consentLocation)
 	s.Require().NoError(err)
-	resp, err = httpClient.PostForm(fmt.Sprintf("http://%s/oauth/consent", host), url.Values{
+	resp, err = csrfPostFormLogin(s.T(), httpClient, fmt.Sprintf("http://%s/oauth/consent", host), url.Values{
 		"decision":              {"allow"},
 		"client_id":             {consentURL.Query().Get("client_id")},
 		"redirect_uri":          {consentURL.Query().Get("redirect_uri")},
@@ -185,7 +185,7 @@ func (s *OAuthFlowSuite) TestMFAWithInvalidCode() {
 		"code_challenge_method": {scv.CodeChallengeMethod},
 	}
 	postLoginUrl := fmt.Sprintf("http://%s/oauth/login", host)
-	resp, err := s.httpClient.PostForm(postLoginUrl, formValues)
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, postLoginUrl, formValues)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 	s.Require().Equal(http.StatusFound, resp.StatusCode)
@@ -201,7 +201,7 @@ func (s *OAuthFlowSuite) TestMFAWithInvalidCode() {
 		"code":       {"000000"}, // Invalid code
 	}
 	postMfaUrl := fmt.Sprintf("http://%s/oauth/mfa", host)
-	resp, err = s.httpClient.PostForm(postMfaUrl, mfaFormValues)
+	resp, err = csrfPostFormLogin(s.T(), s.httpClient, postMfaUrl, mfaFormValues)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 
@@ -240,7 +240,7 @@ func (s *OAuthFlowSuite) TestMFAPageRendersOAuthContext() {
 	host := "localhost:8080"
 
 	// Login to reach the MFA page.
-	resp, err := s.httpClient.PostForm(fmt.Sprintf("http://%s/oauth/login", host), url.Values{
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, fmt.Sprintf("http://%s/oauth/login", host), url.Values{
 		"username":              {user.Username},
 		"password":              {user.Password},
 		"client_id":             {client.ClientID},
@@ -305,7 +305,7 @@ func (s *OAuthFlowSuite) TestMFAPostWithExpiredPendingPreservesContext() {
 	nonce := s.mustGenerateRandomString(16)
 	host := "localhost:8080"
 
-	resp, err := s.httpClient.PostForm(fmt.Sprintf("http://%s/oauth/login", host), url.Values{
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, fmt.Sprintf("http://%s/oauth/login", host), url.Values{
 		"username":              {user.Username},
 		"password":              {user.Password},
 		"client_id":             {client.ClientID},
@@ -332,7 +332,7 @@ func (s *OAuthFlowSuite) TestMFAPostWithExpiredPendingPreservesContext() {
 	s.Require().NoError(err)
 
 	// Submit the code together with the OAuth context the rendered page would carry.
-	resp, err = s.httpClient.PostForm(fmt.Sprintf("http://%s/oauth/mfa", host), url.Values{
+	resp, err = csrfPostFormLogin(s.T(), s.httpClient, fmt.Sprintf("http://%s/oauth/mfa", host), url.Values{
 		"pending_id":            {pendingID},
 		"code":                  {validCode},
 		"client_id":             {client.ClientID},
@@ -394,7 +394,7 @@ func (s *OAuthFlowSuite) TestMFADoubleSubmitPreservesContext() {
 		},
 	}
 
-	resp, err := httpClient.PostForm(fmt.Sprintf("http://%s/oauth/login", host), url.Values{
+	resp, err := csrfPostFormLogin(s.T(), httpClient, fmt.Sprintf("http://%s/oauth/login", host), url.Values{
 		"username":              {user.Username},
 		"password":              {user.Password},
 		"client_id":             {client.ClientID},
@@ -429,7 +429,7 @@ func (s *OAuthFlowSuite) TestMFADoubleSubmitPreservesContext() {
 	}
 
 	// First submit: succeeds, consumes the pending row, and sets the session cookie.
-	resp, err = httpClient.PostForm(fmt.Sprintf("http://%s/oauth/mfa", host), mfaForm)
+	resp, err = csrfPostFormLogin(s.T(), httpClient, fmt.Sprintf("http://%s/oauth/mfa", host), mfaForm)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 	s.Require().Equal(http.StatusFound, resp.StatusCode)
@@ -447,7 +447,7 @@ func (s *OAuthFlowSuite) TestMFADoubleSubmitPreservesContext() {
 
 	// Second submit (replay): the pending row is already gone. The flow must still be
 	// preserved — resume authorize, not bounce to account settings.
-	resp, err = httpClient.PostForm(fmt.Sprintf("http://%s/oauth/mfa", host), mfaForm)
+	resp, err = csrfPostFormLogin(s.T(), httpClient, fmt.Sprintf("http://%s/oauth/mfa", host), mfaForm)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 	s.Require().Equal(http.StatusFound, resp.StatusCode)
@@ -489,7 +489,7 @@ func (s *OAuthFlowSuite) TestMFALoginSetsLastLoginAt() {
 	scv := s.mustCreateStateAndCodeVerifier()
 
 	// Step 1: Login (should redirect to MFA)
-	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/login", url.Values{
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/login", url.Values{
 		"username":              {username},
 		"password":              {password},
 		"client_id":             {client.ClientID},
@@ -520,7 +520,7 @@ func (s *OAuthFlowSuite) TestMFALoginSetsLastLoginAt() {
 	totpCode, err := generateTOTPCode(totpSecret)
 	s.Require().NoError(err)
 
-	resp, err = s.httpClient.PostForm("http://localhost:8080/oauth/mfa", url.Values{
+	resp, err = csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/mfa", url.Values{
 		"pending_id": {pendingID},
 		"code":       {totpCode},
 	})

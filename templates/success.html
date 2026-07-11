@@ -29,6 +29,7 @@
 
             <div class="flex flex-col gap-3">
                 <form method="POST" action="/oauth/logout" class="m-0">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                     <button type="submit" class="btn btn-primary w-full">Log Out</button>
                 </form>
                 <a href="/oauth/login" class="btn btn-ghost w-full">Back to Login</a>
