@@ -230,6 +230,16 @@ func (q *Queries) DeactivateUser(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const deleteAllUserSessions = `-- name: DeleteAllUserSessions :exec
+DELETE FROM auth_sessions
+WHERE user_id = $1
+`
+
+func (q *Queries) DeleteAllUserSessions(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, deleteAllUserSessions, userID)
+	return err
+}
+
 const deleteExpiredEmailTokens = `-- name: DeleteExpiredEmailTokens :exec
 DELETE FROM auth_email_tokens WHERE expires_at <= now()
 `
@@ -1109,7 +1119,7 @@ func (q *Queries) UpdateOAuthClient(ctx context.Context, arg UpdateOAuthClientPa
 
 const updateUserEmail = `-- name: UpdateUserEmail :exec
 UPDATE auth_users
-SET email = $1, updated_at = now()
+SET email = $1, email_verified = false, updated_at = now()
 WHERE id = $2
 `
 
@@ -1118,6 +1128,9 @@ type UpdateUserEmailParams struct {
 	ID    uuid.UUID `json:"id"`
 }
 
+// Changing the email address invalidates any prior verification: the user
+// has not proven ownership of the new address, so email_verified must be
+// reset to false here rather than left at its previous value.
 func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) error {
 	_, err := q.db.ExecContext(ctx, updateUserEmail, arg.Email, arg.ID)
 	return err

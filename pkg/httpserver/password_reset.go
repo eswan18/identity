@@ -11,6 +11,7 @@ import (
 	"github.com/eswan18/identity/pkg/auth"
 	"github.com/eswan18/identity/pkg/db"
 	"github.com/eswan18/identity/pkg/email"
+	"github.com/google/uuid"
 )
 
 const (
@@ -292,6 +293,21 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 	}
 
 	log.Printf("[DEBUG] HandleResetPasswordPost: Password reset successfully for user %s", tokenRecord.Username)
+
+	// A password reset is a credential change: log the user out everywhere.
+	// Revoke all OAuth tokens and delete all sessions for this user, same as
+	// HandleChangePasswordPost and account deactivation do. There's no active
+	// session tied to this request (the user isn't logged in during a reset),
+	// so there's no cookie to clear here.
+	userIDNullable := uuid.NullUUID{UUID: tokenRecord.UserID, Valid: true}
+	if err := s.datastore.Q.RevokeAllUserTokens(r.Context(), userIDNullable); err != nil {
+		log.Printf("[ERROR] HandleResetPasswordPost: Failed to revoke tokens: %v", err)
+		// Continue anyway - the password was already reset successfully.
+	}
+	if err := s.datastore.Q.DeleteAllUserSessions(r.Context(), tokenRecord.UserID); err != nil {
+		log.Printf("[ERROR] HandleResetPasswordPost: Failed to delete sessions: %v", err)
+		// Continue anyway - the password was already reset successfully.
+	}
 
 	// Redirect to login with success message
 	http.Redirect(w, r, "/oauth/login?password_reset=true", http.StatusFound)

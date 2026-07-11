@@ -151,6 +151,10 @@ WHERE id = $1
 DELETE FROM auth_sessions
 WHERE id = $1;
 
+-- name: DeleteAllUserSessions :exec
+DELETE FROM auth_sessions
+WHERE user_id = $1;
+
 -- name: UpdateUserPasswordWithTimestamp :exec
 UPDATE auth_users
 SET password_hash = $1, password_changed_at = now(), updated_at = now()
@@ -167,8 +171,11 @@ SET username = $1, updated_at = now()
 WHERE id = $2;
 
 -- name: UpdateUserEmail :exec
+-- Changing the email address invalidates any prior verification: the user
+-- has not proven ownership of the new address, so email_verified must be
+-- reset to false here rather than left at its previous value.
 UPDATE auth_users
-SET email = $1, updated_at = now()
+SET email = $1, email_verified = false, updated_at = now()
 WHERE id = $2;
 
 -- name: UpdateUserProfile :exec
