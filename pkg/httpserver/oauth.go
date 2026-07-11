@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -120,7 +121,8 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		UserID:   session.UserID,
 		ClientID: client.ID,
 	})
-	if err != nil || !scopesCovered(consent.Scopes, scope) {
+	scopesOK, _ := containsAll(consent.Scopes, scope)
+	if err != nil || !scopesOK {
 		// Need consent — redirect to consent page with all OAuth params
 		consentURL := "/oauth/consent?" + r.URL.RawQuery
 		http.Redirect(w, r, consentURL, http.StatusFound)
@@ -183,27 +185,18 @@ func (s *Server) HandleOauthToken(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleOauthRefresh godoc
-// @Summary      OAuth2 refresh token endpoint
-// @Description  Exchanges a refresh token for new access and refresh tokens
-// @Tags         oauth2
-// @Accept       application/x-www-form-urlencoded
-// @Produce      json
-// @Param        refresh_token formData  string  true  "Refresh token to exchange"
-// @Param        client_id     formData  string  true  "OAuth client ID"
-// @Param        client_secret formData  string  false "OAuth client secret (required for confidential clients)"
-// @Success      200 {object} TokenResponse "Token response with access_token, token_type, expires_in, refresh_token, and scope"
-// @Failure      400 {object} map[string]string "OAuth2 error response (invalid_request, invalid_grant, etc.)"
-// @Failure      401 {object} map[string]string "OAuth2 error response (invalid_client)"
-// @Router       /oauth/refresh [post]
-func (s *Server) HandleOauthRefresh(w http.ResponseWriter, r *http.Request) {
-	client, err := s.authenticateClient(r)
-	if err != nil {
-		s.writeInvalidClientError(w)
-		return
-	}
+// codeVerifierPattern matches the "unreserved" character set that RFC 7636
+// §4.1 requires for a PKCE code verifier: ALPHA / DIGIT / "-" / "." / "_" / "~".
+var codeVerifierPattern = regexp.MustCompile(`^[A-Za-z0-9\-._~]+$`)
 
-	s.handleRefreshTokenGrant(w, r, client)
+// isValidCodeVerifier reports whether verifier is a syntactically valid PKCE
+// code verifier per RFC 7636 §4.1: 43-128 characters, all drawn from the
+// unreserved character set.
+func isValidCodeVerifier(verifier string) bool {
+	if len(verifier) < 43 || len(verifier) > 128 {
+		return false
+	}
+	return codeVerifierPattern.MatchString(verifier)
 }
 
 // handleAuthorizationCodeGrant exchanges an authorization code for tokens
@@ -252,6 +245,15 @@ func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Req
 	if authCode.CodeChallenge.Valid {
 		if codeVerifier == "" {
 			s.writeTokenError(w, "invalid_request", "Code verifier is required")
+			return
+		}
+		// Validate the verifier's shape per RFC 7636 §4.1 before hashing it: it
+		// must be 43-128 characters from the unreserved character set. A
+		// malformed verifier can never match a validly-generated challenge, so
+		// this is just an early, cheap rejection — same invalid_grant outcome
+		// as a verifier that fails the hash comparison below.
+		if !isValidCodeVerifier(codeVerifier) {
+			s.writeTokenError(w, "invalid_grant", "Invalid code verifier")
 			return
 		}
 		// Compute SHA256 hash of the verifier
@@ -444,8 +446,8 @@ func (s *Server) writeTokenError(w http.ResponseWriter, errorCode, description s
 // Per RFC 6749 §5.2, a failed client authentication attempt at the token endpoint
 // must be reported as HTTP 401 (not the 400 used for other token errors), with a
 // WWW-Authenticate header. This matches the invalid_client handling already used
-// by the introspection and revocation endpoints (see writeIntrospectError and
-// writeRevokeError call sites for the same error code).
+// by the introspection and revocation endpoints (see their writeJSONError call
+// sites for the same error code).
 func (s *Server) writeInvalidClientError(w http.ResponseWriter) {
 	w.Header().Set("WWW-Authenticate", `Basic realm="oauth"`)
 	writeJSONError(w, http.StatusUnauthorized, "invalid_client", "Invalid client credentials")
@@ -588,12 +590,12 @@ func (s *Server) HandleIntrospect(w http.ResponseWriter, r *http.Request) {
 	_, err := s.authenticateConfidentialClient(r)
 	if err != nil {
 		w.Header().Set("WWW-Authenticate", `Basic realm="oauth"`)
-		s.writeIntrospectError(w, http.StatusUnauthorized, "invalid_client", "Client authentication required")
+		writeJSONError(w, http.StatusUnauthorized, "invalid_client", "Client authentication required")
 		return
 	}
 
 	if token == "" {
-		s.writeIntrospectError(w, http.StatusBadRequest, "invalid_request", "Token parameter is required")
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", "Token parameter is required")
 		return
 	}
 
@@ -608,7 +610,7 @@ func (s *Server) HandleIntrospect(w http.ResponseWriter, r *http.Request) {
 		response, err = s.introspectAccessToken(r.Context(), token)
 		if err != nil {
 			log.Printf("HandleIntrospect: %v", err)
-			s.writeIntrospectError(w, http.StatusInternalServerError, "server_error", "Failed to verify token status")
+			writeJSONError(w, http.StatusInternalServerError, "server_error", "Failed to verify token status")
 			return
 		}
 		// If not active and no hint was provided, try refresh token
@@ -621,7 +623,7 @@ func (s *Server) HandleIntrospect(w http.ResponseWriter, r *http.Request) {
 		response, err = s.introspectAccessToken(r.Context(), token)
 		if err != nil {
 			log.Printf("HandleIntrospect: %v", err)
-			s.writeIntrospectError(w, http.StatusInternalServerError, "server_error", "Failed to verify token status")
+			writeJSONError(w, http.StatusInternalServerError, "server_error", "Failed to verify token status")
 			return
 		}
 		if !response["active"].(bool) {
@@ -708,11 +710,6 @@ func (s *Server) introspectRefreshToken(ctx context.Context, token string) map[s
 	}
 }
 
-// writeIntrospectError writes an error response for the introspection endpoint
-func (s *Server) writeIntrospectError(w http.ResponseWriter, statusCode int, errorCode, description string) {
-	writeJSONError(w, statusCode, errorCode, description)
-}
-
 // handleRevoke godoc
 // @Summary      Token revocation endpoint
 // @Description  Revokes a specific access token or refresh token per RFC 7009. This is more granular than /logout which invalidates all user tokens - revoke can invalidate individual tokens.
@@ -738,12 +735,12 @@ func (s *Server) HandleOauthRevoke(w http.ResponseWriter, r *http.Request) {
 	client, err := s.authenticateConfidentialClient(r)
 	if err != nil {
 		w.Header().Set("WWW-Authenticate", `Basic realm="oauth"`)
-		s.writeRevokeError(w, http.StatusUnauthorized, "invalid_client", "Client authentication required")
+		writeJSONError(w, http.StatusUnauthorized, "invalid_client", "Client authentication required")
 		return
 	}
 
 	if token == "" {
-		s.writeRevokeError(w, http.StatusBadRequest, "invalid_request", "Token parameter is required")
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", "Token parameter is required")
 		return
 	}
 
@@ -841,11 +838,6 @@ func (s *Server) extractJTIFromToken(token string) string {
 	return claims.JTI
 }
 
-// writeRevokeError writes an error response for the revocation endpoint
-func (s *Server) writeRevokeError(w http.ResponseWriter, statusCode int, errorCode, description string) {
-	writeJSONError(w, statusCode, errorCode, description)
-}
-
 // getSessionFromCookie checks if the user is authenticated via session cookie.
 // Returns (session, true) if authenticated, (nil Session, false) otherwise.
 func (s *Server) getSessionFromCookie(r *http.Request) (Session, error) {
@@ -938,16 +930,6 @@ func validateAuthorizeParams(client db.OauthClient, responseType, codeChallenge,
 		return &oauthAuthorizeError{"invalid_scope", fmt.Sprintf("Scopes %v not allowed for this client", invalidScopes)}
 	}
 	return nil
-}
-
-// scopesCovered returns true if all requested scopes are present in the stored scopes.
-func scopesCovered(storedScopes, requestedScopes []string) bool {
-	for _, s := range requestedScopes {
-		if !slices.Contains(storedScopes, s) {
-			return false
-		}
-	}
-	return true
 }
 
 // scopeDescriptions maps scope strings to human-readable descriptions.

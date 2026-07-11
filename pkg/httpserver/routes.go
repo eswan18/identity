@@ -66,7 +66,6 @@ func (s *Server) registerRoutes() {
 		// CSRF-protected group below.
 		r.Get("/authorize", s.HandleOauthAuthorize)
 		r.Post("/token", s.HandleOauthToken)
-		r.Post("/refresh", s.HandleOauthRefresh)
 		r.Post("/introspect", s.HandleIntrospect)
 		r.Post("/revoke", s.HandleOauthRevoke)
 		r.Get("/userinfo", s.HandleOauthUserInfo)

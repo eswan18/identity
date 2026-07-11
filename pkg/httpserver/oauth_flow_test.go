@@ -107,19 +107,19 @@ func (s *OAuthFlowSuite) TestFullOAuthFlow() {
 		s.Equal("openid profile email", tokenResponse.Scope)
 	})
 
-	s.Run("/oauth/refresh", func() {
-		// Calling refresh should exchange the refresh token for a new token.
-
-		// Call /refresh
+	s.Run("/oauth/token (refresh_token grant)", func() {
+		// Calling /oauth/token with grant_type=refresh_token should exchange the
+		// refresh token for a new token. There is no separate /oauth/refresh
+		// endpoint — the token endpoint covers the refresh_token grant too.
 		host := "localhost:8080"
-		route := "/oauth/refresh"
+		route := "/oauth/token"
 		refreshQuery := url.Values{
 			"grant_type":    {"refresh_token"},
 			"refresh_token": {tokenResponse.RefreshToken},
 			"client_id":     {client.ClientID},
 		}
 		postRefreshUrl := fmt.Sprintf("http://%s%s", host, route)
-		// /oauth/refresh is a machine endpoint, exempt from CSRF.
+		// /oauth/token is a machine endpoint, exempt from CSRF.
 		resp, err := s.httpClient.PostForm(postRefreshUrl, refreshQuery)
 		s.Require().NoError(err)
 		defer resp.Body.Close()

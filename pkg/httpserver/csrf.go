@@ -74,9 +74,9 @@ func (s *Server) ensureCSRFToken(w http.ResponseWriter, r *http.Request) string 
 // equal (compared in constant time). Failure is a 403.
 //
 // This middleware is applied ONLY to the browser form route group. The OAuth2/OIDC
-// machine endpoints (/oauth/token, /oauth/refresh, /oauth/introspect, /oauth/revoke)
-// and the admin API authenticate with Authorization headers / client credentials and
-// have no browser form, so they are deliberately outside this group and never see it.
+// machine endpoints (/oauth/token, /oauth/introspect, /oauth/revoke) and the admin
+// API authenticate with Authorization headers / client credentials and have no
+// browser form, so they are deliberately outside this group and never see it.
 func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
