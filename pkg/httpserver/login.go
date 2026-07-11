@@ -35,18 +35,7 @@ func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
 
 	// If code_challenge_method is provided, it must be S256 -- meaning a sha256 hash of the code verifier.
 	if codeChallengeMethod != "" && codeChallengeMethod != "S256" {
-		if redirectURI != "" {
-			// OAuth error: redirect back to client with error parameters
-			errorDesc := "Only S256 code challenge method is supported"
-			redirectURL := fmt.Sprintf("%s?error=invalid_request&error_description=%s&state=%s",
-				redirectURI,
-				url.QueryEscape(errorDesc),
-				url.QueryEscape(state))
-			http.Redirect(w, r, redirectURL, http.StatusFound)
-			return
-		}
-		// No redirect_uri: show error page
-		s.renderLoginError(w, http.StatusBadRequest, "Only S256 code challenge method is supported", LoginPageData{
+		oauthParams := LoginPageData{
 			ClientID:            clientID,
 			RedirectURI:         redirectURI,
 			State:               state,
@@ -54,7 +43,28 @@ func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
 			CodeChallenge:       codeChallenge,
 			CodeChallengeMethod: codeChallengeMethod,
 			Nonce:               nonce,
-		})
+		}
+
+		// Only redirect this OAuth error back to the client if client_id + redirect_uri have
+		// been confirmed valid against the registered client. Blindly redirecting to a raw,
+		// unvalidated redirect_uri is an open redirect (RFC 6749 4.1.2.1 requires validating
+		// client_id/redirect_uri before trusting them for error redirects). This mirrors the
+		// validate-before-redirect pattern used in HandleOauthAuthorize / HandleConsentPost.
+		if clientID != "" && redirectURI != "" {
+			if _, err := s.validateOAuthClientRedirect(r.Context(), clientID, redirectURI); err == nil {
+				// OAuth error: redirect back to client with error parameters
+				errorDesc := "Only S256 code challenge method is supported"
+				redirectURL := fmt.Sprintf("%s?error=invalid_request&error_description=%s&state=%s",
+					redirectURI,
+					url.QueryEscape(errorDesc),
+					url.QueryEscape(state))
+				http.Redirect(w, r, redirectURL, http.StatusFound)
+				return
+			}
+		}
+		// No redirect_uri, or client_id/redirect_uri failed validation: show error page
+		// locally rather than redirecting to an unverified destination.
+		s.renderLoginError(w, http.StatusBadRequest, "Only S256 code challenge method is supported", oauthParams)
 		return
 	}
 
