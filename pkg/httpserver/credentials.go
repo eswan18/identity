@@ -37,7 +37,6 @@ var (
 var (
 	ErrInvalidClient      = errors.New("invalid client")
 	ErrInvalidRedirectURI = errors.New("invalid redirect URI")
-	ErrInvalidScope       = errors.New("invalid scope")
 )
 
 // ErrConfidentialClientRequired is returned when an endpoint that requires a fully
@@ -125,42 +124,6 @@ func (s *Server) validateOAuthClientRedirect(ctx context.Context, clientID, redi
 		return db.OauthClient{}, ErrInvalidRedirectURI
 	}
 	return client, nil
-}
-
-// validateOAuthClient validates that the client exists and the redirect URI and scopes are allowed.
-// Returns the client on success. On failure, returns one of:
-//   - ErrInvalidClient (client doesn't exist)
-//   - ErrInvalidRedirectURI (redirect URI not in allowlist)
-//   - ErrInvalidScope (requested scopes not allowed)
-func (s *Server) validateOAuthClient(ctx context.Context, clientID, redirectURI string, scopes []string) (db.OauthClient, error) {
-	client, err := s.datastore.Q.GetOAuthClientByClientID(ctx, clientID)
-	if err != nil {
-		log.Printf("validateOAuthClient: error getting client by client ID: %s\n", err)
-		return db.OauthClient{}, ErrInvalidClient
-	}
-	if !slices.Contains(client.RedirectUris, redirectURI) {
-		log.Printf("validateOAuthClient: redirect URI %s not in allowlist for client: %s\n", redirectURI, clientID)
-		return db.OauthClient{}, ErrInvalidRedirectURI
-	}
-	if scopesAreAllowed, invalidScopes := containsAll(client.AllowedScopes, scopes); !scopesAreAllowed {
-		log.Printf("validateOAuthClient: scopes %v not allowed for client: %s\n", invalidScopes, clientID)
-		return db.OauthClient{}, fmt.Errorf("%w: scopes %v not allowed", ErrInvalidScope, invalidScopes)
-	}
-	return client, nil
-}
-
-// validateCredentials validates a username and password against the database.
-// Returns the user on success. On failure, returns one of:
-//   - ErrMissingCredentials (400)
-//   - ErrInvalidCredentials (401)
-//   - ErrInternal (500)
-//
-// Security: Always returns ErrInvalidCredentials for invalid username/password
-// to prevent username enumeration attacks. The specific reason (user not found vs
-// wrong password) is logged for debugging but not exposed to the client.
-// Note: This function only returns active users.
-func (s *Server) validateCredentials(ctx context.Context, username, password string) (db.AuthUser, error) {
-	return s.doValidateCredentials(ctx, username, password, s.datastore.Q.GetUserByUsername)
 }
 
 // validateCredentialsIncludingInactive validates a username and password against the database,
