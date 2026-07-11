@@ -467,9 +467,16 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if token has been revoked by looking up the JTI
+	// Check if the token has been revoked by looking up its JTI. Every access
+	// token this server issues (see generateTokens/generateServiceAccountTokens
+	// in credentials.go) gets a corresponding row inserted into oauth_tokens at
+	// issuance time, and GetTokenByAccessToken's query already filters out rows
+	// where revoked_at IS NOT NULL or expires_at has passed. So sql.ErrNoRows
+	// here means the token was revoked (or has expired at the DB level), not
+	// that revocation tracking is unavailable - it must be rejected, mirroring
+	// introspectAccessToken's handling of the same lookup.
 	if claims.ID != "" {
-		token, err := s.datastore.Q.GetTokenByAccessToken(r.Context(), sql.NullString{String: claims.ID, Valid: true})
+		_, err := s.datastore.Q.GetTokenByAccessToken(r.Context(), sql.NullString{String: claims.ID, Valid: true})
 		if err != nil {
 			if !errors.Is(err, sql.ErrNoRows) {
 				// Database error (not "not found") - fail closed for security
@@ -481,9 +488,7 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 				})
 				return
 			}
-			// Token not found in DB - that's okay, JWT is still valid
-			// This can happen if revocation tracking is not enabled
-		} else if token.RevokedAt.Valid {
+			// No matching, non-revoked, non-expired row - the token is invalid.
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{
