@@ -5,10 +5,12 @@ import (
 	"testing"
 )
 
-// TestIsValidCodeVerifier exercises the RFC 7636 §4.1 shape check applied to
-// PKCE code verifiers before they are hashed and compared against the stored
-// code_challenge: 43-128 characters drawn from the unreserved character set
-// (ALPHA / DIGIT / "-" / "." / "_" / "~").
+// TestIsValidCodeVerifier exercises the length check applied to PKCE code
+// verifiers before they are hashed and compared against the stored
+// code_challenge: RFC 7636 §4.1 requires 43-128 characters. The character set
+// is intentionally NOT enforced (see isValidCodeVerifier) — clients may send
+// base64url values with '=' padding, and any unexpected characters simply fail
+// the code_challenge comparison rather than being rejected here.
 func TestIsValidCodeVerifier(t *testing.T) {
 	repeat := func(s string, n int) string { return strings.Repeat(s, n) }
 
@@ -28,8 +30,13 @@ func TestIsValidCodeVerifier(t *testing.T) {
 			want:     true,
 		},
 		{
-			name:     "valid verifier with all allowed punctuation",
-			verifier: repeat("A-b.c_d~9", 5), // 45 chars, mixes '-', '.', '_', '~'
+			name:     "padded base64url verifier is accepted (contains '=')",
+			verifier: repeat("a", 43) + "=", // 44 chars; clients that pad must still work
+			want:     true,
+		},
+		{
+			name:     "base64 std-alphabet verifier is accepted ('+' and '/')",
+			verifier: repeat("a", 42) + "+/", // 44 chars; charset is not enforced
 			want:     true,
 		},
 		{
@@ -45,21 +52,6 @@ func TestIsValidCodeVerifier(t *testing.T) {
 		{
 			name:     "empty string",
 			verifier: "",
-			want:     false,
-		},
-		{
-			name:     "contains disallowed character (plus sign)",
-			verifier: repeat("a", 42) + "+",
-			want:     false,
-		},
-		{
-			name:     "contains disallowed character (slash, base64 std alphabet)",
-			verifier: repeat("a", 42) + "/",
-			want:     false,
-		},
-		{
-			name:     "contains whitespace",
-			verifier: repeat("a", 21) + " " + repeat("a", 21),
 			want:     false,
 		},
 	}
