@@ -375,7 +375,6 @@ func TestGenerateIDToken(t *testing.T) {
 		"user-123",
 		"my-client-id",
 		accessToken,
-		[]string{"openid", "profile", "email"},
 		idClaims,
 		time.Hour,
 	)
@@ -436,7 +435,6 @@ func TestGenerateIDToken_OmitsEmptyClaims(t *testing.T) {
 		"user-123",
 		"my-client-id",
 		"fake-access-token",
-		[]string{"openid"},
 		IDTokenClaims{},
 		time.Hour,
 	)

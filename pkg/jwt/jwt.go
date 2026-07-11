@@ -157,7 +157,6 @@ type IDTokenClaims struct {
 // of the access token, base64url-encoded (per OIDC Core Section 3.1.3.6).
 func (g *Generator) GenerateIDToken(
 	userID, clientID, accessToken string,
-	scope []string,
 	claims IDTokenClaims,
 	expiresIn time.Duration,
 ) (string, error) {
