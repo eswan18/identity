@@ -16,7 +16,6 @@ import (
 type Config struct {
 	HTTPAddress   string
 	DatabaseURL   string
-	TemplatesDir  string
 	JWTPrivateKey string
 	JWTIssuer     string
 
@@ -75,7 +74,6 @@ func NewFromEnv() *Config {
 		log.Println("Loading environment variables directly from Koyeb")
 		config = &Config{
 			DatabaseURL:      os.Getenv("DATABASE_URL"),
-			TemplatesDir:     os.Getenv("TEMPLATES_DIR"),
 			HTTPAddress:      os.Getenv("HTTP_ADDRESS"),
 			JWTPrivateKey:    os.Getenv("JWT_PRIVATE_KEY"),
 			JWTIssuer:        os.Getenv("JWT_ISSUER"),
@@ -104,7 +102,6 @@ func NewFromEnv() *Config {
 		config = &Config{
 			HTTPAddress:      os.Getenv("HTTP_ADDRESS"),
 			DatabaseURL:      os.Getenv("DATABASE_URL"),
-			TemplatesDir:     os.Getenv("TEMPLATES_DIR"),
 			JWTPrivateKey:    os.Getenv("JWT_PRIVATE_KEY"),
 			JWTIssuer:        os.Getenv("JWT_ISSUER"),
 			EmailProvider:    os.Getenv("EMAIL_PROVIDER"),
@@ -128,9 +125,6 @@ func NewFromEnv() *Config {
 	}
 	if config.DatabaseURL == "" {
 		log.Fatal("DATABASE_URL is not set")
-	}
-	if config.TemplatesDir == "" {
-		log.Fatal("TEMPLATES_DIR is not set")
 	}
 	if config.JWTPrivateKey == "" {
 		log.Fatal("JWT_PRIVATE_KEY is not set")

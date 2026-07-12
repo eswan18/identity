@@ -41,7 +41,6 @@ func newHermeticTestServer(t *testing.T) *Server {
 
 	ds := &store.Store{DB: sqlDB, Q: db.New(sqlDB)}
 	cfg := &config.Config{
-		TemplatesDir:  "../../templates",
 		JWTPrivateKey: testJWTECPrivateKey,
 		JWTIssuer:     "test-issuer",
 	}

@@ -1,7 +1,6 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 GO_SOURCES := $(shell find . -name '*.go' -not -path './docs/*' -not -path './vendor/*')
-TEMPLATES := $(wildcard templates/*.html)
 TEMPL_SOURCES := $(wildcard pkg/views/*.templ)
 MIGRATIONS := $(wildcard db/migrations/*.up.sql)
 ENV ?= local
@@ -22,7 +21,7 @@ templ:
 
 css: static/style.css
 
-static/style.css: static/input.css $(TEMPLATES) $(TEMPL_SOURCES)
+static/style.css: static/input.css $(TEMPL_SOURCES)
 	npx @tailwindcss/cli -i static/input.css -o static/style.css --minify
 
 css-watch:

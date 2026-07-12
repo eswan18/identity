@@ -2,7 +2,6 @@ package httpserver
 
 import (
 	"context"
-	"html/template"
 	"log"
 	"net"
 	"net/http"
@@ -29,26 +28,6 @@ type Server struct {
 	jwtGenerator   *jwt.Generator
 	emailSender    email.Sender
 	avatarService  *avatar.Service
-}
-
-// mustParsePageTemplate parses a page template together with the shared
-// base.html layout and partials.html partials (alert boxes, icons, footer)
-// into a single template set, and panics if parsing fails (mirroring the
-// prior template.Must(template.ParseFiles(...)) behavior at startup).
-//
-// base.html is parsed first, so the returned *template.Template is named
-// "base.html" and its top-level body is the full page skeleton (doctype,
-// head, card wrapper). That skeleton references {{block "title" .}},
-// {{block "content" .}}, etc., which page (the last file parsed) then
-// overrides with its own {{define "title"}}/{{define "content"}} blocks -
-// later definitions in the same parse win, so callers can keep calling
-// Execute(w, data) exactly as before and get the fully rendered page.
-func mustParsePageTemplate(templatesDir, page string) *template.Template {
-	return template.Must(template.ParseFiles(
-		templatesDir+"/base.html",
-		templatesDir+"/partials.html",
-		templatesDir+"/"+page,
-	))
 }
 
 func New(config *config.Config, datastore *store.Store, emailSender email.Sender, storageProvider storage.Storage) *Server {
