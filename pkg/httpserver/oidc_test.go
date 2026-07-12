@@ -627,6 +627,73 @@ func (s *OAuthFlowSuite) TestUserInfoEndpoint() {
 	s.False(userInfo.EmailVerified, "email_verified should be false for new unverified user")
 }
 
+// TestUserInfoEndpointPOST verifies the POST variant of the UserInfo endpoint
+// required by OIDC Core Section 5.3: both the standard Authorization: Bearer
+// header and the RFC 6750 Section 2.2 form-encoded "access_token" fallback
+// must work over POST and return the same claims as the GET endpoint.
+func (s *OAuthFlowSuite) TestUserInfoEndpointPOST() {
+	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "http://localhost:8000",
+	})
+
+	accessToken := result.TokenResponse.AccessToken
+	s.Require().NotEmpty(accessToken)
+
+	type userInfoResponse struct {
+		Sub           string `json:"sub"`
+		Username      string `json:"username"`
+		Email         string `json:"email"`
+		EmailVerified bool   `json:"email_verified"`
+	}
+
+	// POST with the token in the Authorization header (no request body).
+	s.Run("Authorization header", func() {
+		req, err := http.NewRequest("POST", "http://localhost:8080/oauth/userinfo", nil)
+		s.Require().NoError(err)
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+
+		resp, err := s.httpClient.Do(req)
+		s.Require().NoError(err)
+		defer resp.Body.Close()
+		s.Equal(http.StatusOK, resp.StatusCode)
+
+		body, err := io.ReadAll(resp.Body)
+		s.Require().NoError(err)
+		var userInfo userInfoResponse
+		s.Require().NoError(json.Unmarshal(body, &userInfo))
+
+		s.Equal(result.User.ID.String(), userInfo.Sub, "sub should be user ID")
+		s.Equal(result.User.Username, userInfo.Username, "username should match")
+		s.Equal(result.User.Email, userInfo.Email, "email should match")
+	})
+
+	// POST with the token as a form-encoded access_token parameter and no
+	// Authorization header at all (RFC 6750 Section 2.2).
+	s.Run("form body access_token", func() {
+		resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/userinfo", url.Values{
+			"access_token": {accessToken},
+		})
+		s.Require().NoError(err)
+		defer resp.Body.Close()
+		s.Equal(http.StatusOK, resp.StatusCode)
+
+		body, err := io.ReadAll(resp.Body)
+		s.Require().NoError(err)
+		var userInfo userInfoResponse
+		s.Require().NoError(json.Unmarshal(body, &userInfo))
+
+		s.Equal(result.User.ID.String(), userInfo.Sub, "sub should be user ID")
+		s.Equal(result.User.Username, userInfo.Username, "username should match")
+		s.Equal(result.User.Email, userInfo.Email, "email should match")
+	})
+}
+
 // TestUserInfoScopeGating verifies that UserInfo only returns claims for requested scopes.
 // Per OIDC Core Section 5.4, email/email_verified require "email" scope, and
 // username/given_name/family_name/picture require "profile" scope.
