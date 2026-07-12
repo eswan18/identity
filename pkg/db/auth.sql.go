@@ -260,6 +260,29 @@ func (q *Queries) DeleteAllUserSessions(ctx context.Context, userID uuid.UUID) e
 	return err
 }
 
+const deleteDeadTokens = `-- name: DeleteDeadTokens :exec
+DELETE FROM oauth_tokens
+WHERE revoked_at IS NOT NULL
+   OR (expires_at <= now()
+       AND refresh_expires_at IS NOT NULL
+       AND refresh_expires_at <= now())
+`
+
+func (q *Queries) DeleteDeadTokens(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteDeadTokens)
+	return err
+}
+
+const deleteExpiredAuthorizationCodes = `-- name: DeleteExpiredAuthorizationCodes :exec
+DELETE FROM oauth_authorization_codes
+WHERE expires_at <= now() OR consumed_at IS NOT NULL
+`
+
+func (q *Queries) DeleteExpiredAuthorizationCodes(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteExpiredAuthorizationCodes)
+	return err
+}
+
 const deleteExpiredEmailTokens = `-- name: DeleteExpiredEmailTokens :exec
 DELETE FROM auth_email_tokens WHERE expires_at <= now()
 `
@@ -295,6 +318,16 @@ WHERE token_type = 'password_reset'
 
 func (q *Queries) DeleteExpiredPasswordResetTokens(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteExpiredPasswordResetTokens)
+	return err
+}
+
+const deleteExpiredSessions = `-- name: DeleteExpiredSessions :exec
+DELETE FROM auth_sessions
+WHERE expires_at <= now()
+`
+
+func (q *Queries) DeleteExpiredSessions(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteExpiredSessions)
 	return err
 }
 
