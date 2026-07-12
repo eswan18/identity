@@ -40,11 +40,6 @@ spec:
                 secretKeyRef:
                   name: identity-staging-secrets
                   key: STORAGE_SECRET_KEY
-            - name: STORAGE_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: identity-staging-secrets
-                  key: STORAGE_TOKEN
       volumes:
         - name: secrets-store
           csi:

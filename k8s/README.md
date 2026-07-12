@@ -81,7 +81,7 @@ kubectl get pods -n identity-prod -o jsonpath='{.items[0].spec.containers[0].ima
 - DATABASE_URL
 - JWT_PRIVATE_KEY
 - RESEND_API_KEY
-- STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY, STORAGE_TOKEN
+- STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY
 
 ## Secrets Management
 
