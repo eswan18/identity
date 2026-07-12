@@ -259,42 +259,81 @@ func TestPageTemplatesRenderMFASetup(t *testing.T) {
 	)
 }
 
+// TestPageTemplatesRenderForgotPassword covers the forgot-password page, which
+// has been migrated from html/template to a templ component (pkg/views).
+// Instead of parsing an .html file by name, it renders the typed component
+// directly.
 func TestPageTemplatesRenderForgotPassword(t *testing.T) {
 	// Form branch (no success message yet).
-	html := render(t, "forgot-password.html", ForgotPasswordPageData{CSRFToken: "csrf-fp"})
-	requireContainsAll(t, html,
-		"<!DOCTYPE html>",
+	var buf bytes.Buffer
+	err := views.ForgotPassword(views.ForgotPasswordView{CSRFToken: "csrf-fp"}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering ForgotPassword component: %v", err)
+	}
+	requireContainsAll(t, buf.String(),
+		"<!doctype html>",
 		"<title>Forgot Password</title>",
 		`action="/oauth/forgot-password"`,
 		`name="csrf_token" value="csrf-fp"`,
 	)
 
 	// Success branch (form should be hidden).
-	html = render(t, "forgot-password.html", ForgotPasswordPageData{Success: "Check your email", CSRFToken: "csrf-fp2"})
-	requireContainsAll(t, html, "Check your email")
-	if strings.Contains(html, `action="/oauth/forgot-password"`) {
+	buf.Reset()
+	err = views.ForgotPassword(views.ForgotPasswordView{Success: "Check your email", CSRFToken: "csrf-fp2"}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering ForgotPassword component: %v", err)
+	}
+	requireContainsAll(t, buf.String(), "Check your email")
+	if strings.Contains(buf.String(), `action="/oauth/forgot-password"`) {
 		t.Errorf("expected form to be hidden once .Success is set")
 	}
 }
 
+// TestPageTemplatesRenderForgotUsername covers the forgot-username page,
+// which has been migrated from html/template to a templ component
+// (pkg/views). It shares views.ForgotPasswordView with ForgotPassword above.
 func TestPageTemplatesRenderForgotUsername(t *testing.T) {
-	html := render(t, "forgot-username.html", ForgotPasswordPageData{CSRFToken: "csrf-fu"})
-	requireContainsAll(t, html,
-		"<!DOCTYPE html>",
+	// Form branch (no success message yet).
+	var buf bytes.Buffer
+	err := views.ForgotUsername(views.ForgotPasswordView{CSRFToken: "csrf-fu"}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering ForgotUsername component: %v", err)
+	}
+	requireContainsAll(t, buf.String(),
+		"<!doctype html>",
 		"<title>Forgot Username</title>",
 		`action="/oauth/forgot-username"`,
 		`name="csrf_token" value="csrf-fu"`,
 	)
+
+	// Success branch (form should be hidden).
+	buf.Reset()
+	err = views.ForgotUsername(views.ForgotPasswordView{Success: "Check your email for your username", CSRFToken: "csrf-fu2"}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering ForgotUsername component: %v", err)
+	}
+	requireContainsAll(t, buf.String(), "Check your email for your username")
+	if strings.Contains(buf.String(), `action="/oauth/forgot-username"`) {
+		t.Errorf("expected form to be hidden once .Success is set")
+	}
 }
 
+// TestPageTemplatesRenderResetPassword covers the reset-password page, which
+// has been migrated from html/template to a templ component (pkg/views).
+// Instead of parsing an .html file by name, it renders the typed component
+// directly.
 func TestPageTemplatesRenderResetPassword(t *testing.T) {
-	html := render(t, "reset-password.html", ResetPasswordPageData{
+	var buf bytes.Buffer
+	err := views.ResetPassword(views.ResetPasswordView{
 		Error:     "Token expired",
 		Token:     "reset-token-xyz",
 		CSRFToken: "csrf-rp",
-	})
-	requireContainsAll(t, html,
-		"<!DOCTYPE html>",
+	}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering ResetPassword component: %v", err)
+	}
+	requireContainsAll(t, buf.String(),
+		"<!doctype html>",
 		"<title>Reset Password</title>",
 		`action="/oauth/reset-password"`,
 		`name="csrf_token" value="csrf-rp"`,
@@ -384,13 +423,11 @@ func TestPageTemplatesAllHaveFooterAndDoctype(t *testing.T) {
 		{"error.html", ErrorPageData{}},
 		{"success.html", struct{ CSRFToken string }{CSRFToken: "t"}},
 		{"account-settings.html", AccountSettingsPageData{CSRFToken: "t"}},
-		// change-password, change-username, change-email, and edit-profile are
-		// templ components now (see their dedicated TestPageTemplatesRender* tests).
+		// change-password, change-username, change-email, edit-profile,
+		// forgot-password, forgot-username, and reset-password are templ
+		// components now (see their dedicated TestPageTemplatesRender* tests).
 		{"mfa.html", MFAPageData{CSRFToken: "t"}},
 		{"mfa-setup.html", MFASetupPageData{CSRFToken: "t"}},
-		{"forgot-password.html", ForgotPasswordPageData{CSRFToken: "t"}},
-		{"reset-password.html", ResetPasswordPageData{CSRFToken: "t"}},
-		{"forgot-username.html", ForgotPasswordPageData{CSRFToken: "t"}},
 		{"change-avatar.html", ChangeAvatarPageData{CSRFToken: "t"}},
 		{"consent.html", ConsentPageData{CSRFToken: "t"}},
 	}
