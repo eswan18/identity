@@ -36,9 +36,6 @@ type Server struct {
 	accountSettingsTemplate *template.Template
 	mfaTemplate             *template.Template
 	mfaSetupTemplate        *template.Template
-	forgotPasswordTemplate  *template.Template
-	resetPasswordTemplate   *template.Template
-	forgotUsernameTemplate  *template.Template
 	changeAvatarTemplate    *template.Template
 	consentTemplate         *template.Template
 }
@@ -72,9 +69,6 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 	accountSettingsTemplate := mustParsePageTemplate(config.TemplatesDir, "account-settings.html")
 	mfaTemplate := mustParsePageTemplate(config.TemplatesDir, "mfa.html")
 	mfaSetupTemplate := mustParsePageTemplate(config.TemplatesDir, "mfa-setup.html")
-	forgotPasswordTemplate := mustParsePageTemplate(config.TemplatesDir, "forgot-password.html")
-	resetPasswordTemplate := mustParsePageTemplate(config.TemplatesDir, "reset-password.html")
-	forgotUsernameTemplate := mustParsePageTemplate(config.TemplatesDir, "forgot-username.html")
 	changeAvatarTemplate := mustParsePageTemplate(config.TemplatesDir, "change-avatar.html")
 	consentTemplate := mustParsePageTemplate(config.TemplatesDir, "consent.html")
 
@@ -131,9 +125,6 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 		accountSettingsTemplate: accountSettingsTemplate,
 		mfaTemplate:             mfaTemplate,
 		mfaSetupTemplate:        mfaSetupTemplate,
-		forgotPasswordTemplate:  forgotPasswordTemplate,
-		resetPasswordTemplate:   resetPasswordTemplate,
-		forgotUsernameTemplate:  forgotUsernameTemplate,
 		changeAvatarTemplate:    changeAvatarTemplate,
 		consentTemplate:         consentTemplate,
 	}

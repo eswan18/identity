@@ -12,6 +12,7 @@ import (
 	"github.com/eswan18/identity/pkg/auth"
 	"github.com/eswan18/identity/pkg/db"
 	"github.com/eswan18/identity/pkg/email"
+	"github.com/eswan18/identity/pkg/views"
 	"github.com/google/uuid"
 )
 
@@ -40,21 +41,21 @@ func generateResetToken() (rawToken, tokenHash string, err error) {
 }
 
 // renderForgotPassword renders the forgot-password page, injecting the CSRF token.
-func (s *Server) renderForgotPassword(w http.ResponseWriter, r *http.Request, data ForgotPasswordPageData) {
+func (s *Server) renderForgotPassword(w http.ResponseWriter, r *http.Request, data views.ForgotPasswordView) {
 	data.CSRFToken = s.ensureCSRFToken(w, r)
-	s.forgotPasswordTemplate.Execute(w, data)
+	_ = views.ForgotPassword(data).Render(r.Context(), w)
 }
 
 // renderForgotUsername renders the forgot-username page, injecting the CSRF token.
-func (s *Server) renderForgotUsername(w http.ResponseWriter, r *http.Request, data ForgotPasswordPageData) {
+func (s *Server) renderForgotUsername(w http.ResponseWriter, r *http.Request, data views.ForgotPasswordView) {
 	data.CSRFToken = s.ensureCSRFToken(w, r)
-	s.forgotUsernameTemplate.Execute(w, data)
+	_ = views.ForgotUsername(data).Render(r.Context(), w)
 }
 
 // renderResetPassword renders the reset-password page, injecting the CSRF token.
-func (s *Server) renderResetPassword(w http.ResponseWriter, r *http.Request, data ResetPasswordPageData) {
+func (s *Server) renderResetPassword(w http.ResponseWriter, r *http.Request, data views.ResetPasswordView) {
 	data.CSRFToken = s.ensureCSRFToken(w, r)
-	s.resetPasswordTemplate.Execute(w, data)
+	_ = views.ResetPassword(data).Render(r.Context(), w)
 }
 
 // HandleForgotPasswordGet godoc
@@ -65,7 +66,7 @@ func (s *Server) renderResetPassword(w http.ResponseWriter, r *http.Request, dat
 // @Success      200 {string} string "HTML forgot password page"
 // @Router       /forgot-password [get]
 func (s *Server) HandleForgotPasswordGet(w http.ResponseWriter, r *http.Request) {
-	s.renderForgotPassword(w, r, ForgotPasswordPageData{})
+	s.renderForgotPassword(w, r, views.ForgotPasswordView{})
 }
 
 // HandleForgotPasswordPost godoc
@@ -82,7 +83,7 @@ func (s *Server) HandleForgotPasswordPost(w http.ResponseWriter, r *http.Request
 
 	if emailAddr == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		s.renderForgotPassword(w, r, ForgotPasswordPageData{
+		s.renderForgotPassword(w, r, views.ForgotPasswordView{
 			Error: "Email address is required",
 		})
 		return
@@ -100,7 +101,7 @@ func (s *Server) HandleForgotPasswordPost(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		// User not found - still show success message (no email enumeration)
 		s.debugf("HandleForgotPasswordPost: No user found for email %s", emailAddr)
-		s.renderForgotPassword(w, r, ForgotPasswordPageData{
+		s.renderForgotPassword(w, r, views.ForgotPasswordView{
 			Success: successMsg,
 		})
 		return
@@ -122,7 +123,7 @@ func (s *Server) HandleForgotPasswordPost(w http.ResponseWriter, r *http.Request
 	// request-scoped mutable state.
 	go s.sendPasswordResetEmailAsync(user.ID, emailAddr)
 
-	s.renderForgotPassword(w, r, ForgotPasswordPageData{
+	s.renderForgotPassword(w, r, views.ForgotPasswordView{
 		Success: successMsg,
 	})
 }
@@ -202,7 +203,7 @@ func (s *Server) HandleResetPasswordGet(w http.ResponseWriter, r *http.Request) 
 
 	if token == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		s.renderResetPassword(w, r, ResetPasswordPageData{
+		s.renderResetPassword(w, r, views.ResetPasswordView{
 			Error: "Invalid password reset link.",
 		})
 		return
@@ -214,13 +215,13 @@ func (s *Server) HandleResetPasswordGet(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		s.debugf("HandleResetPasswordGet: Invalid or expired token")
 		w.WriteHeader(http.StatusBadRequest)
-		s.renderResetPassword(w, r, ResetPasswordPageData{
+		s.renderResetPassword(w, r, views.ResetPasswordView{
 			Error: "This password reset link is invalid or has expired. Please request a new one.",
 		})
 		return
 	}
 
-	s.renderResetPassword(w, r, ResetPasswordPageData{
+	s.renderResetPassword(w, r, views.ResetPasswordView{
 		Token: token,
 	})
 }
@@ -245,7 +246,7 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 	// Validate required fields
 	if token == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		s.renderResetPassword(w, r, ResetPasswordPageData{
+		s.renderResetPassword(w, r, views.ResetPasswordView{
 			Error: "Invalid password reset link.",
 		})
 		return
@@ -253,7 +254,7 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 
 	if newPassword == "" || confirmPassword == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		s.renderResetPassword(w, r, ResetPasswordPageData{
+		s.renderResetPassword(w, r, views.ResetPasswordView{
 			Error: "All fields are required.",
 			Token: token,
 		})
@@ -262,7 +263,7 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 
 	if newPassword != confirmPassword {
 		w.WriteHeader(http.StatusBadRequest)
-		s.renderResetPassword(w, r, ResetPasswordPageData{
+		s.renderResetPassword(w, r, views.ResetPasswordView{
 			Error: "Passwords do not match.",
 			Token: token,
 		})
@@ -275,7 +276,7 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		s.debugf("HandleResetPasswordPost: Invalid or expired token")
 		w.WriteHeader(http.StatusBadRequest)
-		s.renderResetPassword(w, r, ResetPasswordPageData{
+		s.renderResetPassword(w, r, views.ResetPasswordView{
 			Error: "This password reset link is invalid or has expired. Please request a new one.",
 		})
 		return
@@ -284,7 +285,7 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 	// Validate password requirements
 	if err := auth.ValidatePassword(newPassword, tokenRecord.Username); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		s.renderResetPassword(w, r, ResetPasswordPageData{
+		s.renderResetPassword(w, r, views.ResetPasswordView{
 			Error: err.Error(),
 			Token: token,
 		})
@@ -296,7 +297,7 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		log.Printf("[ERROR] HandleResetPasswordPost: Failed to hash password: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		s.renderResetPassword(w, r, ResetPasswordPageData{
+		s.renderResetPassword(w, r, views.ResetPasswordView{
 			Error: "An error occurred. Please try again.",
 			Token: token,
 		})
@@ -314,7 +315,7 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		log.Printf("[ERROR] HandleResetPasswordPost: Failed to mark token as used: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		s.renderResetPassword(w, r, ResetPasswordPageData{
+		s.renderResetPassword(w, r, views.ResetPasswordView{
 			Error: "An error occurred. Please try again.",
 			Token: token,
 		})
@@ -322,7 +323,7 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 	}
 	if rowsAffected == 0 {
 		w.WriteHeader(http.StatusBadRequest)
-		s.renderResetPassword(w, r, ResetPasswordPageData{
+		s.renderResetPassword(w, r, views.ResetPasswordView{
 			Error: "This password reset link is invalid or has expired. Please request a new one.",
 		})
 		return
@@ -336,7 +337,7 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		log.Printf("[ERROR] HandleResetPasswordPost: Failed to update password: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		s.renderResetPassword(w, r, ResetPasswordPageData{
+		s.renderResetPassword(w, r, views.ResetPasswordView{
 			Error: "An error occurred. Please try again.",
 			Token: token,
 		})
@@ -372,7 +373,7 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 // @Success      200 {string} string "HTML forgot username page"
 // @Router       /forgot-username [get]
 func (s *Server) HandleForgotUsernameGet(w http.ResponseWriter, r *http.Request) {
-	s.renderForgotUsername(w, r, ForgotPasswordPageData{})
+	s.renderForgotUsername(w, r, views.ForgotPasswordView{})
 }
 
 // HandleForgotUsernamePost godoc
@@ -389,7 +390,7 @@ func (s *Server) HandleForgotUsernamePost(w http.ResponseWriter, r *http.Request
 
 	if emailAddr == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		s.renderForgotUsername(w, r, ForgotPasswordPageData{
+		s.renderForgotUsername(w, r, views.ForgotPasswordView{
 			Error: "Email address is required",
 		})
 		return
@@ -405,7 +406,7 @@ func (s *Server) HandleForgotUsernamePost(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		// User not found - still show success message (no email enumeration)
 		s.debugf("HandleForgotUsernamePost: No user found for email %s", emailAddr)
-		s.renderForgotUsername(w, r, ForgotPasswordPageData{
+		s.renderForgotUsername(w, r, views.ForgotPasswordView{
 			Success: successMsg,
 		})
 		return
@@ -419,7 +420,7 @@ func (s *Server) HandleForgotUsernamePost(w http.ResponseWriter, r *http.Request
 	// returns (which happens right after this call).
 	go s.sendUsernameReminderEmailAsync(user.Username, emailAddr)
 
-	s.renderForgotUsername(w, r, ForgotPasswordPageData{
+	s.renderForgotUsername(w, r, views.ForgotPasswordView{
 		Success: successMsg,
 	})
 }
