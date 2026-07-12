@@ -82,7 +82,10 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		q := redirectURL.Query()
 		q.Set("error", errorCode)
 		q.Set("error_description", description)
-		q.Set("state", state)
+		// Per RFC 6749 §4.1.2.1, state is only echoed back if the client sent it.
+		if state != "" {
+			q.Set("state", state)
+		}
 		redirectURL.RawQuery = q.Encode()
 		http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 	}
@@ -141,7 +144,11 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 	q := redirectURL.Query()
 	q.Set("code", authorizationCode)
-	q.Set("state", state)
+	// Per RFC 6749 §4.1.2, state is only returned to the client if it was present
+	// in the authorization request.
+	if state != "" {
+		q.Set("state", state)
+	}
 	redirectURL.RawQuery = q.Encode()
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 }
@@ -450,6 +457,19 @@ func (s *Server) writeInvalidClientError(w http.ResponseWriter) {
 	writeJSONError(w, http.StatusUnauthorized, "invalid_client", "Invalid client credentials")
 }
 
+// writeUserInfoUnauthorized writes a 401 JSON error for the UserInfo endpoint,
+// including a WWW-Authenticate header per RFC 6750 §3. Unlike the token,
+// introspection, and revocation endpoints (which authenticate the *client* via
+// HTTP Basic and so challenge with `Basic realm="oauth"` — see
+// writeInvalidClientError), UserInfo is a Bearer-token-protected resource: a
+// missing, invalid, or revoked bearer token must be challenged with the Bearer
+// scheme instead. The errorCode/description are echoed into both the header
+// and the JSON body so the two agree.
+func writeUserInfoUnauthorized(w http.ResponseWriter, errorCode, description string) {
+	w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer error=%q, error_description=%q`, errorCode, description))
+	writeJSONError(w, http.StatusUnauthorized, errorCode, description)
+}
+
 // handleUserInfo godoc
 // @Summary      OIDC UserInfo endpoint
 // @Description  Returns user identity claims for the authenticated user. Claims are gated by scope per OIDC Core Section 5.4: "sub" is always returned; "email" and "email_verified" require the "email" scope; "username", "given_name", "family_name", and "picture" require the "profile" scope. Supports both GET and POST per OIDC Core Section 5.3; on POST, the access token may alternatively be sent as a form-encoded "access_token" parameter (RFC 6750 Section 2.2) instead of the Authorization header.
@@ -488,12 +508,7 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if accessToken == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error":             "invalid_token",
-			"error_description": "Missing or invalid Authorization header",
-		})
+		writeUserInfoUnauthorized(w, "invalid_token", "Missing or invalid Authorization header")
 		return
 	}
 
@@ -505,12 +520,7 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 		// Log the detailed error server-side, but return generic error to client
 		// to avoid leaking information about token structure or validation logic
 		log.Printf("JWT validation failed: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error":             "invalid_token",
-			"error_description": "Invalid or expired access token",
-		})
+		writeUserInfoUnauthorized(w, "invalid_token", "Invalid or expired access token")
 		return
 	}
 
@@ -536,12 +546,7 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			// No matching, non-revoked, non-expired row - the token is invalid.
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error":             "invalid_token",
-				"error_description": "Token has been revoked",
-			})
+			writeUserInfoUnauthorized(w, "invalid_token", "Token has been revoked")
 			return
 		}
 	}
@@ -717,16 +722,25 @@ func (s *Server) introspectRefreshToken(ctx context.Context, token string) map[s
 		username = user.Username
 	}
 
-	return map[string]interface{}{
+	response := map[string]interface{}{
 		"active":     true,
 		"scope":      strings.Join(dbToken.Scope, " "),
 		"client_id":  dbToken.ClientID.String(),
 		"username":   username,
 		"token_type": "refresh_token",
-		"exp":        dbToken.RefreshExpiresAt.Time.Unix(),
 		"iat":        dbToken.CreatedAt.Unix(),
 		"sub":        dbToken.UserID.UUID.String(),
 	}
+
+	// Per RFC 7662, "exp" should only be present when the token actually expires.
+	// RefreshExpiresAt is a nullable column (NULL means the refresh token does not
+	// expire), so unconditionally taking .Time.Unix() would emit the zero-value
+	// time's epoch (a bogus negative/zero "exp") for non-expiring refresh tokens.
+	if dbToken.RefreshExpiresAt.Valid {
+		response["exp"] = dbToken.RefreshExpiresAt.Time.Unix()
+	}
+
+	return response
 }
 
 // handleRevoke godoc
@@ -1050,7 +1064,10 @@ func (s *Server) HandleConsentPost(w http.ResponseWriter, r *http.Request) {
 		q := redirectURL.Query()
 		q.Set("error", errorCode)
 		q.Set("error_description", description)
-		q.Set("state", state)
+		// Per RFC 6749 §4.1.2.1, state is only echoed back if the client sent it.
+		if state != "" {
+			q.Set("state", state)
+		}
 		redirectURL.RawQuery = q.Encode()
 		http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 	}
@@ -1096,7 +1113,11 @@ func (s *Server) HandleConsentPost(w http.ResponseWriter, r *http.Request) {
 	}
 	q := redirectURL.Query()
 	q.Set("code", authorizationCode)
-	q.Set("state", state)
+	// Per RFC 6749 §4.1.2, state is only returned to the client if it was present
+	// in the authorization request.
+	if state != "" {
+		q.Set("state", state)
+	}
 	redirectURL.RawQuery = q.Encode()
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 }
