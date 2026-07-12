@@ -504,9 +504,9 @@ func (s *Server) renderAccountSettings(w http.ResponseWriter, r *http.Request, d
 
 // renderChangeAvatar renders the change avatar page, injecting the CSRF token so the
 // upload and delete-avatar forms both submit a valid token.
-func (s *Server) renderChangeAvatar(w http.ResponseWriter, r *http.Request, data ChangeAvatarPageData) {
+func (s *Server) renderChangeAvatar(w http.ResponseWriter, r *http.Request, data views.ChangeAvatarView) {
 	data.CSRFToken = s.ensureCSRFToken(w, r)
-	if err := s.changeAvatarTemplate.Execute(w, data); err != nil {
+	if err := views.ChangeAvatar(data).Render(r.Context(), w); err != nil {
 		log.Printf("[ERROR] renderChangeAvatar: Failed to render change avatar page: %v", err)
 	}
 }
@@ -729,7 +729,7 @@ func (s *Server) HandleChangeAvatarGet(w http.ResponseWriter, r *http.Request) {
 		success = "Avatar removed successfully."
 	}
 
-	s.renderChangeAvatar(w, r, ChangeAvatarPageData{
+	s.renderChangeAvatar(w, r, views.ChangeAvatarView{
 		Success:   success,
 		AvatarURL: user.Picture.String,
 	})
@@ -763,7 +763,7 @@ func (s *Server) HandleChangeAvatarPost(w http.ResponseWriter, r *http.Request) 
 	// already-parsed form; it's kept as defense in depth in case this handler
 	// is ever reached without going through that middleware.
 	if err := r.ParseMultipartForm(avatar.MaxAvatarRequestBodySize); err != nil {
-		s.renderChangeAvatar(w, r, ChangeAvatarPageData{
+		s.renderChangeAvatar(w, r, views.ChangeAvatarView{
 			Error:     "File too large. Maximum size is 5MB.",
 			AvatarURL: user.Picture.String,
 		})
@@ -772,7 +772,7 @@ func (s *Server) HandleChangeAvatarPost(w http.ResponseWriter, r *http.Request) 
 
 	file, header, err := r.FormFile("avatar")
 	if err != nil {
-		s.renderChangeAvatar(w, r, ChangeAvatarPageData{
+		s.renderChangeAvatar(w, r, views.ChangeAvatarView{
 			Error:     "Please select a file to upload.",
 			AvatarURL: user.Picture.String,
 		})
@@ -791,14 +791,14 @@ func (s *Server) HandleChangeAvatarPost(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		// Check if it's a validation error
 		if validationErr, ok := err.(*avatar.ValidationError); ok {
-			s.renderChangeAvatar(w, r, ChangeAvatarPageData{
+			s.renderChangeAvatar(w, r, views.ChangeAvatarView{
 				Error:     validationErr.Message,
 				AvatarURL: user.Picture.String,
 			})
 			return
 		}
 		log.Printf("[ERROR] HandleChangeAvatarPost: Failed to upload avatar: %v", err)
-		s.renderChangeAvatar(w, r, ChangeAvatarPageData{
+		s.renderChangeAvatar(w, r, views.ChangeAvatarView{
 			Error:     "Failed to upload avatar. Please try again.",
 			AvatarURL: user.Picture.String,
 		})
@@ -818,7 +818,7 @@ func (s *Server) HandleChangeAvatarPost(w http.ResponseWriter, r *http.Request) 
 		if deleteErr := s.avatarService.Delete(r.Context(), avatarURL); deleteErr != nil {
 			log.Printf("[WARN] HandleChangeAvatarPost: Failed to rollback uploaded avatar: %v", deleteErr)
 		}
-		s.renderChangeAvatar(w, r, ChangeAvatarPageData{
+		s.renderChangeAvatar(w, r, views.ChangeAvatarView{
 			Error:     "Failed to save avatar. Please try again.",
 			AvatarURL: user.Picture.String,
 		})
@@ -826,7 +826,7 @@ func (s *Server) HandleChangeAvatarPost(w http.ResponseWriter, r *http.Request) 
 	}
 
 	s.debugf("HandleChangeAvatarPost: Avatar updated for user %s", user.Username)
-	s.renderChangeAvatar(w, r, ChangeAvatarPageData{
+	s.renderChangeAvatar(w, r, views.ChangeAvatarView{
 		Success:   "Avatar updated successfully.",
 		AvatarURL: avatarURL,
 	})
@@ -862,7 +862,7 @@ func (s *Server) HandleDeleteAvatarPost(w http.ResponseWriter, r *http.Request) 
 		ID:      user.ID,
 	}); err != nil {
 		log.Printf("[ERROR] HandleDeleteAvatarPost: Failed to clear user picture: %v", err)
-		s.renderChangeAvatar(w, r, ChangeAvatarPageData{
+		s.renderChangeAvatar(w, r, views.ChangeAvatarView{
 			Error:     "Failed to remove avatar. Please try again.",
 			AvatarURL: user.Picture.String,
 		})

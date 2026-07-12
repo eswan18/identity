@@ -30,13 +30,10 @@ type Server struct {
 	emailSender             email.Sender
 	avatarService           *avatar.Service
 	loginTemplate           *template.Template
-	registerTemplate        *template.Template
 	errorTemplate           *template.Template
-	successTemplate         *template.Template
 	accountSettingsTemplate *template.Template
 	mfaTemplate             *template.Template
 	mfaSetupTemplate        *template.Template
-	changeAvatarTemplate    *template.Template
 	consentTemplate         *template.Template
 }
 
@@ -63,13 +60,10 @@ func mustParsePageTemplate(templatesDir, page string) *template.Template {
 func New(config *config.Config, datastore *store.Store, emailSender email.Sender, storageProvider storage.Storage) *Server {
 	r := chi.NewRouter()
 	loginTemplate := mustParsePageTemplate(config.TemplatesDir, "login.html")
-	registerTemplate := mustParsePageTemplate(config.TemplatesDir, "register.html")
 	errorTemplate := mustParsePageTemplate(config.TemplatesDir, "error.html")
-	successTemplate := mustParsePageTemplate(config.TemplatesDir, "success.html")
 	accountSettingsTemplate := mustParsePageTemplate(config.TemplatesDir, "account-settings.html")
 	mfaTemplate := mustParsePageTemplate(config.TemplatesDir, "mfa.html")
 	mfaSetupTemplate := mustParsePageTemplate(config.TemplatesDir, "mfa-setup.html")
-	changeAvatarTemplate := mustParsePageTemplate(config.TemplatesDir, "change-avatar.html")
 	consentTemplate := mustParsePageTemplate(config.TemplatesDir, "consent.html")
 
 	r.Use(middleware.RequestID)
@@ -119,13 +113,10 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 		emailSender:             emailSender,
 		avatarService:           avatar.NewService(storageProvider),
 		loginTemplate:           loginTemplate,
-		registerTemplate:        registerTemplate,
 		errorTemplate:           errorTemplate,
-		successTemplate:         successTemplate,
 		accountSettingsTemplate: accountSettingsTemplate,
 		mfaTemplate:             mfaTemplate,
 		mfaSetupTemplate:        mfaSetupTemplate,
-		changeAvatarTemplate:    changeAvatarTemplate,
 		consentTemplate:         consentTemplate,
 	}
 	s.registerRoutes()

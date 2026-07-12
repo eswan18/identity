@@ -1,0 +1,146 @@
+package views
+
+import "strings"
+
+// RegisterView holds everything the registration page renders. It replaces
+// httpserver.RegisterPageData; the fields are checked at compile time against
+// their use in the component below. Scope is joined with a single space when
+// rendered into the hidden "scope" input, matching templates/register.html's
+// `{{range $i, $s := .Scope}}{{if $i}} {{end}}{{$s}}{{end}}`.
+type RegisterView struct {
+	Error               string
+	Username            string
+	Email               string
+	ClientID            string
+	RedirectURI         string
+	State               string
+	Scope               []string
+	CodeChallenge       string
+	CodeChallengeMethod string
+	CSRFToken           string
+}
+
+// Register renders the registration form. Compare templates/register.html:
+// the OAuth parameters (client_id, redirect_uri, state, scope,
+// code_challenge, code_challenge_method) travel as hidden inputs so
+// registration can continue the OAuth flow afterward, and the same values are
+// echoed into the "Sign in" link's query string. The inline password-match
+// script is rendered via registerScript, passed to Layout's scripts slot, and
+// must keep the exact element IDs (registerForm, password, confirm_password,
+// passwordError) that the script references.
+templ Register(data RegisterView) {
+	@Layout("Sign Up", registerScript()) {
+		<div class="text-center mb-8">
+			<h1 class="card-title justify-center text-2xl">Create Account</h1>
+			<p class="text-sm text-base-content/60">Sign up to get started</p>
+		</div>
+		if data.Error != "" {
+			@alertError(data.Error)
+		}
+		<form method="POST" action="/oauth/register" id="registerForm" novalidate>
+			<input type="hidden" name="csrf_token" value={ data.CSRFToken }/>
+			<fieldset class="fieldset mb-4">
+				<label class="fieldset-label" for="username">Username</label>
+				<input
+					type="text"
+					id="username"
+					name="username"
+					placeholder="Choose a username"
+					required
+					autofocus
+					autocomplete="username"
+					value={ data.Username }
+					class="input input-bordered w-full"
+				/>
+			</fieldset>
+			<fieldset class="fieldset mb-4">
+				<label class="fieldset-label" for="email">Email</label>
+				<input
+					type="email"
+					id="email"
+					name="email"
+					placeholder="Enter your email"
+					required
+					autocomplete="email"
+					value={ data.Email }
+					class="input input-bordered w-full"
+				/>
+			</fieldset>
+			<fieldset class="fieldset mb-4">
+				<label class="fieldset-label" for="password">Password</label>
+				<input
+					type="password"
+					id="password"
+					name="password"
+					placeholder="Create a password"
+					required
+					autocomplete="new-password"
+					minlength="8"
+					class="input input-bordered w-full"
+				/>
+			</fieldset>
+			<fieldset class="fieldset mb-4">
+				<label class="fieldset-label" for="confirm_password">Confirm Password</label>
+				<input
+					type="password"
+					id="confirm_password"
+					name="confirm_password"
+					placeholder="Confirm your password"
+					required
+					autocomplete="new-password"
+					minlength="8"
+					class="input input-bordered w-full"
+				/>
+				<div class="text-error text-sm mt-1.5 hidden" id="passwordError">Passwords do not match</div>
+			</fieldset>
+			<input type="hidden" name="client_id" value={ data.ClientID }/>
+			<input type="hidden" name="redirect_uri" value={ data.RedirectURI }/>
+			<input type="hidden" name="state" value={ data.State }/>
+			<input type="hidden" name="scope" value={ strings.Join(data.Scope, " ") }/>
+			<input type="hidden" name="code_challenge" value={ data.CodeChallenge }/>
+			<input type="hidden" name="code_challenge_method" value={ data.CodeChallengeMethod }/>
+			<button type="submit" class="btn btn-primary w-full">Create Account</button>
+		</form>
+		<div class="text-center mt-6 text-sm text-base-content/60">
+			Already have an account? <a href={ templ.URL("/oauth/login?client_id=" + data.ClientID + "&redirect_uri=" + data.RedirectURI + "&state=" + data.State + "&scope=" + strings.Join(data.Scope, "%20") + "&code_challenge=" + data.CodeChallenge + "&code_challenge_method=" + data.CodeChallengeMethod) } class="link link-primary">Sign in</a>
+		</div>
+		@footer()
+	}
+}
+
+// registerScript is the inline password-match validation script from
+// templates/register.html's {{define "scripts"}} block, rendered via
+// Layout's scripts slot after the card div.
+templ registerScript() {
+	<script>
+        (function() {
+            const form = document.getElementById('registerForm');
+            const password = document.getElementById('password');
+            const confirmPassword = document.getElementById('confirm_password');
+            const passwordError = document.getElementById('passwordError');
+
+            function validatePasswords() {
+                if (confirmPassword.value && password.value !== confirmPassword.value) {
+                    confirmPassword.classList.add('input-error');
+                    passwordError.classList.remove('hidden');
+                    return false;
+                } else {
+                    confirmPassword.classList.remove('input-error');
+                    passwordError.classList.add('hidden');
+                    return true;
+                }
+            }
+
+            confirmPassword.addEventListener('input', validatePasswords);
+            password.addEventListener('input', function() {
+                if (confirmPassword.value) validatePasswords();
+            });
+
+            form.addEventListener('submit', function(e) {
+                if (!validatePasswords()) {
+                    e.preventDefault();
+                }
+            });
+        })();
+    </script>
+}

@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	_ "github.com/eswan18/identity/docs"
+	"github.com/eswan18/identity/pkg/views"
 	"github.com/go-chi/chi/v5"
 	httpSwagger "github.com/swaggo/http-swagger"
 )
@@ -247,7 +248,7 @@ func (s *Server) HandleSuccess(w http.ResponseWriter, r *http.Request) {
 	}
 	// The success page contains a POST logout form (a CSRF-protected route), so it
 	// must carry a CSRF token even though the success GET itself is not checked.
-	if err := s.successTemplate.Execute(w, struct{ CSRFToken string }{CSRFToken: s.ensureCSRFToken(w, r)}); err != nil {
+	if err := views.Success(views.SuccessView{CSRFToken: s.ensureCSRFToken(w, r)}).Render(r.Context(), w); err != nil {
 		http.Error(w, "An error occurred while rendering the success page", http.StatusInternalServerError)
 	}
 }
