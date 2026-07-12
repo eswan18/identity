@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/eswan18/identity/pkg/auth"
 	"github.com/eswan18/identity/pkg/db"
@@ -145,7 +146,7 @@ func (s *Server) HandleAdminCreateUser(w http.ResponseWriter, r *http.Request) {
 		Email:         user.Email,
 		IsActive:      user.IsActive,
 		EmailVerified: user.EmailVerified,
-		CreatedAt:     user.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		CreatedAt:     user.CreatedAt.UTC().Format(time.RFC3339),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -214,8 +215,8 @@ func (s *Server) HandleAdminListUsers(w http.ResponseWriter, r *http.Request) {
 			IsActive:      user.IsActive,
 			EmailVerified: user.EmailVerified,
 			MFAEnabled:    user.MfaEnabled,
-			CreatedAt:     user.CreatedAt.Format("2006-01-02T15:04:05Z"),
-			UpdatedAt:     user.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+			CreatedAt:     user.CreatedAt.UTC().Format(time.RFC3339),
+			UpdatedAt:     user.UpdatedAt.UTC().Format(time.RFC3339),
 		}
 	}
 
