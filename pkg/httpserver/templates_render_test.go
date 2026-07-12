@@ -9,10 +9,6 @@ import (
 	"github.com/eswan18/identity/pkg/views"
 )
 
-// testTemplatesDir mirrors the relative path used by other package tests
-// (see login_test.go) to point at the repo's templates/ directory.
-const testTemplatesDir = "../../templates"
-
 // requireContainsAll fails the test with a helpful message for any substring
 // missing from html.
 func requireContainsAll(t *testing.T, html string, subs ...string) {
@@ -22,19 +18,6 @@ func requireContainsAll(t *testing.T, html string, subs ...string) {
 			t.Errorf("expected rendered output to contain %q, but it did not.\n--- rendered output ---\n%s", s, html)
 		}
 	}
-}
-
-// render parses the given page together with base.html/partials.html exactly
-// the way Server.New does, executes it with data, and returns the output.
-// It fails the test immediately on any parse or execute error.
-func render(t *testing.T, page string, data any) string {
-	t.Helper()
-	tmpl := mustParsePageTemplate(testTemplatesDir, page)
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		t.Fatalf("executing %s: %v", page, err)
-	}
-	return buf.String()
 }
 
 // TestPageTemplatesRenderLogin covers the login page, which has been
@@ -623,43 +606,3 @@ func TestPageTemplatesRenderConsent(t *testing.T) {
 	)
 }
 
-// TestPageTemplatesAllHaveFooterAndDoctype is a lightweight smoke test that
-// every remaining html/template page composes cleanly with base.html +
-// partials.html and renders the shared skeleton once.
-//
-// As of this batch every server-rendered page (including login and consent,
-// the last two) has moved to a templ component in pkg/views - see their
-// dedicated TestPageTemplatesRender* tests above, which assert the same
-// doctype/footer/hidden-field properties directly against the rendered
-// component output. That leaves this table intentionally empty: base.html
-// and partials.html themselves are still used (Layout/footer/alert* in
-// pkg/views mirror them), but no .html *page* templates remain to exercise
-// here. A later cleanup batch removes base.html/partials.html, the
-// render()/mustParsePageTemplate test helpers, and this now-vestigial test.
-func TestPageTemplatesAllHaveFooterAndDoctype(t *testing.T) {
-	pages := []struct {
-		name string
-		data any
-	}{}
-	for _, p := range pages {
-		t.Run(p.name, func(t *testing.T) {
-			html := render(t, p.name, p.data)
-			requireContainsAll(t, html,
-				"<!DOCTYPE html>",
-				`<link rel="stylesheet" href="/static/style.css">`,
-				"Identity Service", // shared footer partial
-				`<div class="divider"></div>`,
-			)
-			if !strings.HasSuffix(strings.TrimSpace(html), "</html>") {
-				t.Errorf("%s: expected output to end with </html>, got tail: %q", p.name, tail(html, 80))
-			}
-		})
-	}
-}
-
-func tail(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[len(s)-n:]
-}

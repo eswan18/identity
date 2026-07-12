@@ -90,7 +90,6 @@ func (s *OAuthFlowSuite) SetupSuite() {
 
 	config := &config.Config{
 		HTTPAddress:   ":8080",
-		TemplatesDir:  "../../templates",
 		JWTPrivateKey: testJWTPrivateKey,
 		JWTIssuer:     "http://localhost:8080",
 	}

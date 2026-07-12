@@ -69,7 +69,7 @@ kubectl get pods -n identity-prod -o jsonpath='{.items[0].spec.containers[0].ima
 
 **Shared (in `base/configmap.yaml`):**
 - EMAIL_FROM, EMAIL_PROVIDER
-- HTTP_ADDRESS, TEMPLATES_DIR
+- HTTP_ADDRESS
 - STORAGE_ENDPOINT, STORAGE_PROVIDER, STORAGE_REGION
 
 **Environment-specific (in `{env}/configmap-env.yaml`):**

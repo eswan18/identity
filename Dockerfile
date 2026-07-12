@@ -7,9 +7,11 @@ WORKDIR /build
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# Copy source files needed for Tailwind
+# Copy source files needed for Tailwind. The page markup lives in templ
+# components under pkg/views (see static/input.css's @source), so Tailwind
+# scans those for utility classes.
 COPY static/input.css ./static/
-COPY templates ./templates
+COPY pkg/views ./pkg/views
 
 # Build Tailwind CSS
 RUN npx @tailwindcss/cli -i static/input.css -o static/style.css --minify
@@ -62,9 +64,6 @@ WORKDIR /app
 # Copy the binary from builder
 COPY --from=builder /build/auth-service .
 
-# Copy templates directory
-COPY --from=builder /build/templates ./templates
-
 # Copy static directory with built CSS from tailwind stage
 COPY --from=tailwind /build/static ./static
 
@@ -76,7 +75,6 @@ EXPOSE 8080
 
 # Set environment variables (can be overridden at runtime)
 ENV HTTP_ADDRESS=:8080
-ENV TEMPLATES_DIR=/app/templates
 
 # Switch to non-root user
 USER appuser

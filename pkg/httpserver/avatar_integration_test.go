@@ -101,7 +101,6 @@ func (s *AvatarFlowSuite) SetupSuite() {
 	// Setup server
 	cfg := &config.Config{
 		HTTPAddress:   ":8081", // Use different port than OAuthFlowSuite
-		TemplatesDir:  "../../templates",
 		JWTPrivateKey: testJWTPrivateKey,
 		JWTIssuer:     "http://localhost:8081",
 	}
