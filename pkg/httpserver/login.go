@@ -10,15 +10,15 @@ import (
 	"github.com/eswan18/identity/pkg/views"
 )
 
-// LoginPageData carries the OAuth authorization parameters through the login
+// oauthFlowParams carries the OAuth authorization parameters through the login
 // (and, via mfa.go, MFA) flow. Unlike pkg/views' *View types, it is not only
 // a rendering type: it doubles as the internal carrier passed between
 // handlers (e.g. HandleLoginPost -> createMFAPendingSession,
 // oauthParamsFromPending / resumeMFAFlow / buildAuthorizeURL in mfa.go), so
 // it stays in httpserver rather than moving to pkg/views. Render call sites
-// build a views.LoginView from it via loginViewFromPageData instead of
+// build a views.LoginView from it via loginViewFromParams instead of
 // rendering it directly.
-type LoginPageData struct {
+type oauthFlowParams struct {
 	Error               string
 	ClientID            string
 	RedirectURI         string
@@ -30,10 +30,10 @@ type LoginPageData struct {
 	CSRFToken           string
 }
 
-// loginViewFromPageData builds the views.LoginView used to render the login
-// page from the LoginPageData carrier plus the error message and CSRF token,
+// loginViewFromParams builds the views.LoginView used to render the login
+// page from the oauthFlowParams carrier plus the error message and CSRF token,
 // which vary by call site.
-func loginViewFromPageData(p LoginPageData, errMsg, csrfToken string) views.LoginView {
+func loginViewFromParams(p oauthFlowParams, errMsg, csrfToken string) views.LoginView {
 	return views.LoginView{
 		Error:               errMsg,
 		ClientID:            p.ClientID,
@@ -73,7 +73,7 @@ func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
 
 	// If code_challenge_method is provided, it must be S256 -- meaning a sha256 hash of the code verifier.
 	if codeChallengeMethod != "" && codeChallengeMethod != "S256" {
-		oauthParams := LoginPageData{
+		oauthParams := oauthFlowParams{
 			ClientID:            clientID,
 			RedirectURI:         redirectURI,
 			State:               state,
@@ -128,7 +128,7 @@ func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
 		errorMsg = "Your account is deactivated. You cannot log in to applications."
 	}
 
-	oauthParams := LoginPageData{
+	oauthParams := oauthFlowParams{
 		ClientID:            clientID,
 		RedirectURI:         redirectURI,
 		State:               state,
@@ -137,7 +137,7 @@ func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
 		CodeChallengeMethod: codeChallengeMethod,
 		Nonce:               nonce,
 	}
-	if err := views.Login(loginViewFromPageData(oauthParams, errorMsg, s.ensureCSRFToken(w, r))).Render(r.Context(), w); err != nil {
+	if err := views.Login(loginViewFromParams(oauthParams, errorMsg, s.ensureCSRFToken(w, r))).Render(r.Context(), w); err != nil {
 		log.Printf("[ERROR] HandleLoginGet: Failed to render login page: %v", err)
 	}
 }
@@ -173,7 +173,7 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 	nonce := r.FormValue("nonce")
 
 	// Extract OAuth parameters into a struct for reuse.
-	oauthParams := LoginPageData{
+	oauthParams := oauthFlowParams{
 		ClientID:            clientID,
 		RedirectURI:         redirectURI,
 		State:               state,
@@ -251,12 +251,12 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 
 // renderLoginError renders the login page with an error message, preserving OAuth parameters.
 // It handles template execution errors gracefully by falling back to the error template.
-func (s *Server) renderLoginError(w http.ResponseWriter, r *http.Request, statusCode int, errorMsg string, oauthParams LoginPageData) {
+func (s *Server) renderLoginError(w http.ResponseWriter, r *http.Request, statusCode int, errorMsg string, oauthParams oauthFlowParams) {
 	// Ensure the CSRF token/cookie before writing the status line, so the re-rendered
 	// login form carries a token the eventual POST can echo back.
 	csrfToken := s.ensureCSRFToken(w, r)
 	w.WriteHeader(statusCode)
-	err := views.Login(loginViewFromPageData(oauthParams, errorMsg, csrfToken)).Render(r.Context(), w)
+	err := views.Login(loginViewFromParams(oauthParams, errorMsg, csrfToken)).Render(r.Context(), w)
 	if err != nil {
 		// Fallback to error template if login template fails
 		err = views.Error(views.ErrorView{
@@ -292,7 +292,7 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, session Session) {
 // once the user is authenticated. It mirrors the parameters originally supplied by the
 // client; the authorize endpoint re-validates client_id, redirect_uri and scope on
 // arrival, so these values are not trusted blindly.
-func buildAuthorizeURL(p LoginPageData) string {
+func buildAuthorizeURL(p oauthFlowParams) string {
 	q := url.Values{
 		"client_id":             {p.ClientID},
 		"redirect_uri":          {p.RedirectURI},
@@ -310,7 +310,7 @@ func buildAuthorizeURL(p LoginPageData) string {
 // initiated the flow (client_id present) the user is routed back through
 // /oauth/authorize to handle consent and authorization-code issuance; otherwise this
 // was a direct login and the user is taken to account settings.
-func (s *Server) redirectAfterAuth(w http.ResponseWriter, r *http.Request, p LoginPageData) {
+func (s *Server) redirectAfterAuth(w http.ResponseWriter, r *http.Request, p oauthFlowParams) {
 	if p.ClientID == "" {
 		http.Redirect(w, r, "/oauth/account-settings", http.StatusFound)
 		return

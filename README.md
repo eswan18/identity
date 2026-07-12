@@ -26,7 +26,17 @@ go install github.com/swaggo/swag/cmd/swag@latest
 go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 # golang-migrate/migrate for migrations
 go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+# a-h/templ for the server-rendered HTML pages (pkg/views/*.templ)
+go install github.com/a-h/templ/cmd/templ@latest
 ```
+
+### Templates (templ)
+
+The browser-facing pages are [templ](https://templ.guide) components in `pkg/views/*.templ`.
+templ compiles each `.templ` into a committed `*_templ.go` file (so `go build`/CI
+don't need the `templ` binary). **After editing any `.templ` file, run `make templ`
+(or `templ generate`) and commit the regenerated `*_templ.go`** — CI fails if the
+committed output is stale. `make build`/`make run` regenerate automatically.
 
 ### Tailwind CSS
 

@@ -28,6 +28,17 @@ jobs:
       - name: Verify dependencies
         run: go mod verify
 
+      # The generated *_templ.go files are committed (go build / the steps below
+      # never run `templ generate`). Regenerate here and fail if anything drifts,
+      # so a .templ edit that wasn't regenerated — or stale committed output —
+      # can't slip through green CI. Pinned to the templ version in go.mod so the
+      # generator output matches what produced the committed files.
+      - name: Verify templ generation is up to date
+        run: |
+          go install github.com/a-h/templ/cmd/templ@v0.3.1020
+          templ generate
+          git diff --exit-code || { echo "::error::templ output is stale — run 'make templ' (or 'templ generate') and commit the result."; exit 1; }
+
       - name: Run go vet
         run: go vet ./...
 

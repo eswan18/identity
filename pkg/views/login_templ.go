@@ -23,7 +23,7 @@ const (
 )
 
 // LoginView holds everything the login page renders. It replaces
-// httpserver.LoginPageData for rendering purposes; the fields are checked at
+// httpserver.oauthFlowParams for rendering purposes; the fields are checked at
 // compile time against their use in the component below. Scope is joined
 // with a single space when rendered into the hidden "scope" input, matching
 // templates/login.html's `{{range $i, $s := .Scope}}{{if $i}} {{end}}{{$s}}{{end}}`.
