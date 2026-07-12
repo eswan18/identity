@@ -1,0 +1,61 @@
+package views
+
+// EditProfileView holds everything the edit-profile page renders. It
+// replaces httpserver.EditProfilePageData; the fields are checked at compile
+// time against their use in the component below.
+type EditProfileView struct {
+	Error      string
+	Success    string
+	GivenName  string
+	FamilyName string
+	CSRFToken  string
+}
+
+// EditProfile renders the edit-profile form. Compare templates/edit-profile.html:
+// the layout, alerts, and footer are composed as typed components rather than
+// referenced by string name, and a typo in a field is a compile error instead
+// of a silently-blank render.
+templ EditProfile(data EditProfileView) {
+	@Layout("Edit Profile") {
+		<div class="text-center mb-8">
+			<h1 class="card-title justify-center text-2xl">Edit Profile</h1>
+			<p class="text-sm text-base-content/60">Update your profile information</p>
+		</div>
+		if data.Error != "" {
+			@alertError(data.Error)
+		}
+		if data.Success != "" {
+			@alertSuccess(data.Success)
+		}
+		<form method="POST" action="/oauth/edit-profile">
+			<input type="hidden" name="csrf_token" value={ data.CSRFToken }/>
+			<fieldset class="fieldset mb-4">
+				<label class="fieldset-label" for="given_name">First Name</label>
+				<input
+					type="text"
+					id="given_name"
+					name="given_name"
+					placeholder="First name"
+					value={ data.GivenName }
+					autocomplete="given-name"
+					class="input input-bordered w-full"
+				/>
+			</fieldset>
+			<fieldset class="fieldset mb-4">
+				<label class="fieldset-label" for="family_name">Last Name</label>
+				<input
+					type="text"
+					id="family_name"
+					name="family_name"
+					placeholder="Last name"
+					value={ data.FamilyName }
+					autocomplete="family-name"
+					class="input input-bordered w-full"
+				/>
+			</fieldset>
+			<button type="submit" class="btn btn-primary w-full">Save Profile</button>
+		</form>
+		<a href="/oauth/account-settings" class="btn btn-ghost w-full mt-3">Back to Account Settings</a>
+		@footer()
+	}
+}

@@ -72,22 +72,6 @@ type AccountSettingsPageData struct {
 	CSRFToken     string
 }
 
-// ChangeUsernamePageData holds the data needed to render the change username page template.
-type ChangeUsernamePageData struct {
-	Error           string
-	Success         string
-	CurrentUsername string
-	CSRFToken       string
-}
-
-// ChangeEmailPageData holds the data needed to render the change email page template.
-type ChangeEmailPageData struct {
-	Error        string
-	Success      string
-	CurrentEmail string
-	CSRFToken    string
-}
-
 // ForgotPasswordPageData holds the data needed to render the forgot password page template.
 type ForgotPasswordPageData struct {
 	Error     string
@@ -100,15 +84,6 @@ type ResetPasswordPageData struct {
 	Error     string
 	Token     string
 	CSRFToken string
-}
-
-// EditProfilePageData holds the data needed to render the edit profile page template.
-type EditProfilePageData struct {
-	Error      string
-	Success    string
-	GivenName  string
-	FamilyName string
-	CSRFToken  string
 }
 
 // ChangeAvatarPageData holds the data needed to render the change avatar page template.

@@ -176,14 +176,21 @@ func TestPageTemplatesRenderChangePassword(t *testing.T) {
 	)
 }
 
+// TestPageTemplatesRenderChangeUsername covers the change-username page, which
+// has been migrated from html/template to a templ component (pkg/views). Instead
+// of parsing an .html file by name, it renders the typed component directly.
 func TestPageTemplatesRenderChangeUsername(t *testing.T) {
-	html := render(t, "change-username.html", ChangeUsernamePageData{
+	var buf bytes.Buffer
+	err := views.ChangeUsername(views.ChangeUsernameView{
 		Success:         "Username updated",
 		CurrentUsername: "olduser",
 		CSRFToken:       "csrf-cu",
-	})
-	requireContainsAll(t, html,
-		"<!DOCTYPE html>",
+	}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering ChangeUsername component: %v", err)
+	}
+	requireContainsAll(t, buf.String(),
+		"<!doctype html>",
 		"<title>Change Username</title>",
 		"Username updated",
 		"olduser",
@@ -191,14 +198,21 @@ func TestPageTemplatesRenderChangeUsername(t *testing.T) {
 	)
 }
 
+// TestPageTemplatesRenderChangeEmail covers the change-email page, which has
+// been migrated from html/template to a templ component (pkg/views). Instead
+// of parsing an .html file by name, it renders the typed component directly.
 func TestPageTemplatesRenderChangeEmail(t *testing.T) {
-	html := render(t, "change-email.html", ChangeEmailPageData{
+	var buf bytes.Buffer
+	err := views.ChangeEmail(views.ChangeEmailView{
 		Error:        "Email already in use",
 		CurrentEmail: "old@example.com",
 		CSRFToken:    "csrf-ce",
-	})
-	requireContainsAll(t, html,
-		"<!DOCTYPE html>",
+	}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering ChangeEmail component: %v", err)
+	}
+	requireContainsAll(t, buf.String(),
+		"<!doctype html>",
 		"<title>Change Email</title>",
 		"Email already in use",
 		"old@example.com",
@@ -289,15 +303,22 @@ func TestPageTemplatesRenderResetPassword(t *testing.T) {
 	)
 }
 
+// TestPageTemplatesRenderEditProfile covers the edit-profile page, which has
+// been migrated from html/template to a templ component (pkg/views). Instead
+// of parsing an .html file by name, it renders the typed component directly.
 func TestPageTemplatesRenderEditProfile(t *testing.T) {
-	html := render(t, "edit-profile.html", EditProfilePageData{
+	var buf bytes.Buffer
+	err := views.EditProfile(views.EditProfileView{
 		Success:    "Profile saved",
 		GivenName:  "Ada",
 		FamilyName: "Lovelace",
 		CSRFToken:  "csrf-ep",
-	})
-	requireContainsAll(t, html,
-		"<!DOCTYPE html>",
+	}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering EditProfile component: %v", err)
+	}
+	requireContainsAll(t, buf.String(),
+		"<!doctype html>",
 		"<title>Edit Profile</title>",
 		"Profile saved",
 		`value="Ada"`,
@@ -363,15 +384,13 @@ func TestPageTemplatesAllHaveFooterAndDoctype(t *testing.T) {
 		{"error.html", ErrorPageData{}},
 		{"success.html", struct{ CSRFToken string }{CSRFToken: "t"}},
 		{"account-settings.html", AccountSettingsPageData{CSRFToken: "t"}},
-		// change-password is a templ component now (see TestPageTemplatesRenderChangePassword).
-		{"change-username.html", ChangeUsernamePageData{CSRFToken: "t"}},
-		{"change-email.html", ChangeEmailPageData{CSRFToken: "t"}},
+		// change-password, change-username, change-email, and edit-profile are
+		// templ components now (see their dedicated TestPageTemplatesRender* tests).
 		{"mfa.html", MFAPageData{CSRFToken: "t"}},
 		{"mfa-setup.html", MFASetupPageData{CSRFToken: "t"}},
 		{"forgot-password.html", ForgotPasswordPageData{CSRFToken: "t"}},
 		{"reset-password.html", ResetPasswordPageData{CSRFToken: "t"}},
 		{"forgot-username.html", ForgotPasswordPageData{CSRFToken: "t"}},
-		{"edit-profile.html", EditProfilePageData{CSRFToken: "t"}},
 		{"change-avatar.html", ChangeAvatarPageData{CSRFToken: "t"}},
 		{"consent.html", ConsentPageData{CSRFToken: "t"}},
 	}
