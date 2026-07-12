@@ -324,6 +324,33 @@ DELETE FROM auth_email_tokens
 WHERE token_type = 'password_reset'
   AND (expires_at <= now() OR used_at IS NOT NULL);
 
+-- name: DeleteExpiredSessions :exec
+-- auth_sessions reads (GetSession) filter on expires_at > now(), so an expired
+-- session can never be used again -- safe to delete outright.
+DELETE FROM auth_sessions
+WHERE expires_at <= now();
+
+-- name: DeleteExpiredAuthorizationCodes :exec
+-- Authorization codes are single-use and short-lived; a consumed OR expired
+-- code can never yield tokens (replay of a consumed code is rejected by the
+-- atomic ConsumeAuthorizationCode update), so both are safe to delete.
+DELETE FROM oauth_authorization_codes
+WHERE expires_at <= now() OR consumed_at IS NOT NULL;
+
+-- name: DeleteDeadTokens :exec
+-- Each row holds both an access token (expires_at) and a refresh token
+-- (refresh_expires_at, which is NULLABLE -- NULL means the refresh token never
+-- expires). A row is only safe to delete once it can never be used again:
+-- either it has been revoked, or the access token is expired AND the refresh
+-- token is also expired (never delete just because expires_at passed -- a
+-- non-revoked row whose refresh token is still valid, or non-expiring, must
+-- be kept since it can still mint new access tokens).
+DELETE FROM oauth_tokens
+WHERE revoked_at IS NOT NULL
+   OR (expires_at <= now()
+       AND refresh_expires_at IS NOT NULL
+       AND refresh_expires_at <= now());
+
 -- Consent queries
 
 -- name: GetUserConsent :one

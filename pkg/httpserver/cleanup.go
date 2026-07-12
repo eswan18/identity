@@ -26,25 +26,29 @@ const cleanupSweepTimeout = 30 * time.Second
 //   - auth_mfa_enrollment_pending (DeleteExpiredMFAEnrollmentPending)
 //   - auth_email_tokens (DeleteExpiredEmailTokens)
 //   - auth_email_tokens, password-reset rows specifically (DeleteExpiredPasswordResetTokens)
+//   - auth_sessions (DeleteExpiredSessions)
+//   - oauth_authorization_codes (DeleteExpiredAuthorizationCodes)
+//   - oauth_tokens (DeleteDeadTokens)
 //
 // These queries already existed but were never called anywhere, so expired
 // rows accumulated in their tables forever (unbounded growth, not a
 // correctness bug -- the read queries all filter on expires_at, so expired
 // rows were never usable).
 //
-// Deliberately NOT covered here: oauth_tokens, auth_sessions, and
-// oauth_authorization_codes also have expires_at and will accumulate rows
-// over time, but there is no DeleteExpired* query for them yet (and, for
-// oauth_tokens, retention may need extra thought, e.g. keeping revoked/expired
-// tokens around briefly for auditing). That's left as a conscious follow-up,
-// not an oversight.
+// oauth_tokens gets the most conservative treatment: each row holds both an
+// access token (expires_at) and a refresh token (refresh_expires_at, which is
+// NULLable -- NULL means the refresh token never expires), so DeleteDeadTokens
+// only removes a row once it can never be used again: it's revoked, or the
+// access token is expired AND the refresh token is also expired. A row whose
+// refresh token is still valid (or non-expiring) is kept even after its
+// access token has expired, since it can still mint new access tokens.
 //
-// Each of the four deletes is independent: if one fails, it is logged and the
-// remaining three still run rather than bailing out early. The sweep is
-// bounded by cleanupSweepTimeout so a hung DB call can't block the worker
-// indefinitely. The return value is the last error encountered (nil if all
-// four succeeded); callers mainly care that the sweep ran; the operational
-// signal is the [ERROR] log line, not this return value.
+// Each of the seven deletes is independent: if one fails, it is logged and
+// the rest still run rather than bailing out early. The sweep is bounded by
+// cleanupSweepTimeout so a hung DB call can't block the worker indefinitely.
+// The return value is the last error encountered (nil if all seven
+// succeeded); callers mainly care that the sweep ran; the operational signal
+// is the [ERROR] log line, not this return value.
 func (s *Server) runExpiryCleanup(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, cleanupSweepTimeout)
 	defer cancel()
@@ -57,6 +61,9 @@ func (s *Server) runExpiryCleanup(ctx context.Context) error {
 		{"auth_mfa_enrollment_pending", s.datastore.Q.DeleteExpiredMFAEnrollmentPending},
 		{"auth_email_tokens", s.datastore.Q.DeleteExpiredEmailTokens},
 		{"auth_email_tokens (password_reset)", s.datastore.Q.DeleteExpiredPasswordResetTokens},
+		{"auth_sessions", s.datastore.Q.DeleteExpiredSessions},
+		{"oauth_authorization_codes", s.datastore.Q.DeleteExpiredAuthorizationCodes},
+		{"oauth_tokens", s.datastore.Q.DeleteDeadTokens},
 	}
 
 	var lastErr error
