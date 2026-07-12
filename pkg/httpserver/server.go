@@ -34,7 +34,6 @@ type Server struct {
 	errorTemplate           *template.Template
 	successTemplate         *template.Template
 	accountSettingsTemplate *template.Template
-	changePasswordTemplate  *template.Template
 	changeUsernameTemplate  *template.Template
 	changeEmailTemplate     *template.Template
 	mfaTemplate             *template.Template
@@ -74,7 +73,6 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 	errorTemplate := mustParsePageTemplate(config.TemplatesDir, "error.html")
 	successTemplate := mustParsePageTemplate(config.TemplatesDir, "success.html")
 	accountSettingsTemplate := mustParsePageTemplate(config.TemplatesDir, "account-settings.html")
-	changePasswordTemplate := mustParsePageTemplate(config.TemplatesDir, "change-password.html")
 	changeUsernameTemplate := mustParsePageTemplate(config.TemplatesDir, "change-username.html")
 	changeEmailTemplate := mustParsePageTemplate(config.TemplatesDir, "change-email.html")
 	mfaTemplate := mustParsePageTemplate(config.TemplatesDir, "mfa.html")
@@ -137,7 +135,6 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 		errorTemplate:           errorTemplate,
 		successTemplate:         successTemplate,
 		accountSettingsTemplate: accountSettingsTemplate,
-		changePasswordTemplate:  changePasswordTemplate,
 		changeUsernameTemplate:  changeUsernameTemplate,
 		changeEmailTemplate:     changeEmailTemplate,
 		mfaTemplate:             mfaTemplate,

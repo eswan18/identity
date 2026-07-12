@@ -72,13 +72,6 @@ type AccountSettingsPageData struct {
 	CSRFToken     string
 }
 
-// ChangePasswordPageData holds the data needed to render the change password page template.
-type ChangePasswordPageData struct {
-	Error     string
-	Success   string
-	CSRFToken string
-}
-
 // ChangeUsernamePageData holds the data needed to render the change username page template.
 type ChangeUsernamePageData struct {
 	Error           string

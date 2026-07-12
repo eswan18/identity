@@ -3,6 +3,7 @@ module github.com/eswan18/identity
 go 1.25.5
 
 require (
+	github.com/a-h/templ v0.3.1020
 	github.com/aws/aws-sdk-go-v2 v1.42.1
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.28
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.105.0
