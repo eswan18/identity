@@ -72,30 +72,52 @@ func TestPageTemplatesRenderLogin(t *testing.T) {
 	requireContainsAll(t, html, "alert-success", "Account created successfully! Please check your email to verify your account.")
 }
 
+// TestPageTemplatesRenderRegister covers the register page, which has been
+// migrated from html/template to a templ component (pkg/views). Instead of
+// parsing an .html file by name, it renders the typed component directly. It
+// also verifies the OAuth hidden fields (joined scope included) and the
+// inline password-match script (with its registerForm/password/
+// confirm_password/passwordError element IDs) render via Layout's new
+// scripts slot.
 func TestPageTemplatesRenderRegister(t *testing.T) {
-	html := render(t, "register.html", RegisterPageData{
+	var buf bytes.Buffer
+	err := views.Register(views.RegisterView{
 		Error:               "Username already taken",
 		Username:            "alice",
 		Email:               "alice@example.com",
 		ClientID:            "client-abc",
 		RedirectURI:         "https://example.com/callback",
 		State:               "state-1",
-		Scope:               []string{"openid"},
+		Scope:               []string{"openid", "profile"},
 		CodeChallenge:       "chal",
 		CodeChallengeMethod: "S256",
 		CSRFToken:           "csrf-register",
-	})
+	}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering Register component: %v", err)
+	}
+	html := buf.String()
 	requireContainsAll(t, html,
-		"<!DOCTYPE html>",
+		"<!doctype html>",
 		"<title>Sign Up</title>",
-		`action="/oauth/register"`,
+		`action="/oauth/register" id="registerForm"`,
 		`name="csrf_token" value="csrf-register"`,
 		"Username already taken",
 		`value="alice"`,
 		`value="alice@example.com"`,
+		`name="client_id" value="client-abc"`,
+		`name="redirect_uri" value="https://example.com/callback"`,
+		`name="state" value="state-1"`,
+		`name="scope" value="openid profile"`,
+		`name="code_challenge" value="chal"`,
+		`name="code_challenge_method" value="S256"`,
+		`id="password"`,
+		`id="confirm_password"`,
+		`id="passwordError"`,
+		"function validatePasswords",
 	)
 	if strings.Contains(html, "function previewImage") {
-		t.Errorf("register.html should not contain change-avatar's script")
+		t.Errorf("register component should not contain change-avatar's script")
 	}
 }
 
@@ -119,10 +141,17 @@ func TestPageTemplatesRenderError(t *testing.T) {
 	)
 }
 
+// TestPageTemplatesRenderSuccess covers the success page, which has been
+// migrated from html/template to a templ component (pkg/views). Instead of
+// parsing an .html file by name, it renders the typed component directly.
 func TestPageTemplatesRenderSuccess(t *testing.T) {
-	html := render(t, "success.html", struct{ CSRFToken string }{CSRFToken: "csrf-success"})
-	requireContainsAll(t, html,
-		"<!DOCTYPE html>",
+	var buf bytes.Buffer
+	err := views.Success(views.SuccessView{CSRFToken: "csrf-success"}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering Success component: %v", err)
+	}
+	requireContainsAll(t, buf.String(),
+		"<!doctype html>",
 		"<title>Login Successful</title>",
 		`action="/oauth/logout"`,
 		`name="csrf_token" value="csrf-success"`,
@@ -366,18 +395,32 @@ func TestPageTemplatesRenderEditProfile(t *testing.T) {
 	)
 }
 
+// TestPageTemplatesRenderChangeAvatar covers the change-avatar page, which
+// has been migrated from html/template to a templ component (pkg/views).
+// Instead of parsing an .html file by name, it renders the typed component
+// directly. It also verifies the onchange="previewImage(this)" handler and
+// the preview-container/preview-image element IDs that the inline script
+// (rendered via Layout's scripts slot) references.
 func TestPageTemplatesRenderChangeAvatar(t *testing.T) {
-	html := render(t, "change-avatar.html", ChangeAvatarPageData{
+	var buf bytes.Buffer
+	err := views.ChangeAvatar(views.ChangeAvatarView{
 		Success:   "Avatar updated",
 		AvatarURL: "https://example.com/avatar.png",
 		CSRFToken: "csrf-ca",
-	})
+	}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering ChangeAvatar component: %v", err)
+	}
+	html := buf.String()
 	requireContainsAll(t, html,
-		"<!DOCTYPE html>",
+		"<!doctype html>",
 		"<title>Change Avatar</title>",
 		"Avatar updated",
 		"https://example.com/avatar.png",
 		`name="csrf_token" value="csrf-ca"`,
+		`onchange="previewImage(this)"`,
+		`id="preview-container"`,
+		`id="preview-image"`,
 		"function previewImage",
 	)
 }
@@ -419,16 +462,14 @@ func TestPageTemplatesAllHaveFooterAndDoctype(t *testing.T) {
 		data any
 	}{
 		{"login.html", LoginPageData{CSRFToken: "t"}},
-		{"register.html", RegisterPageData{CSRFToken: "t"}},
 		{"error.html", ErrorPageData{}},
-		{"success.html", struct{ CSRFToken string }{CSRFToken: "t"}},
 		{"account-settings.html", AccountSettingsPageData{CSRFToken: "t"}},
 		// change-password, change-username, change-email, edit-profile,
-		// forgot-password, forgot-username, and reset-password are templ
-		// components now (see their dedicated TestPageTemplatesRender* tests).
+		// forgot-password, forgot-username, reset-password, register,
+		// change-avatar, and success are templ components now (see their
+		// dedicated TestPageTemplatesRender* tests).
 		{"mfa.html", MFAPageData{CSRFToken: "t"}},
 		{"mfa-setup.html", MFASetupPageData{CSRFToken: "t"}},
-		{"change-avatar.html", ChangeAvatarPageData{CSRFToken: "t"}},
 		{"consent.html", ConsentPageData{CSRFToken: "t"}},
 	}
 	for _, p := range pages {

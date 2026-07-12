@@ -9,6 +9,7 @@ import (
 
 	"github.com/eswan18/identity/pkg/auth"
 	"github.com/eswan18/identity/pkg/db"
+	"github.com/eswan18/identity/pkg/views"
 )
 
 // handleRegisterGet godoc
@@ -26,7 +27,7 @@ import (
 // @Router       /register [get]
 func (s *Server) HandleRegisterGet(w http.ResponseWriter, r *http.Request) {
 	// Extract OAuth parameters from query string to preserve them
-	oauthParams := RegisterPageData{
+	oauthParams := views.RegisterView{
 		ClientID:            r.URL.Query().Get("client_id"),
 		RedirectURI:         r.URL.Query().Get("redirect_uri"),
 		State:               r.URL.Query().Get("state"),
@@ -35,7 +36,7 @@ func (s *Server) HandleRegisterGet(w http.ResponseWriter, r *http.Request) {
 		CodeChallengeMethod: r.URL.Query().Get("code_challenge_method"),
 		CSRFToken:           s.ensureCSRFToken(w, r),
 	}
-	if err := s.registerTemplate.Execute(w, oauthParams); err != nil {
+	if err := views.Register(oauthParams).Render(r.Context(), w); err != nil {
 		http.Error(w, "An error occurred while rendering the registration page", http.StatusInternalServerError)
 	}
 }
@@ -62,7 +63,7 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 
 	// Validate required fields
 	if username == "" || email == "" || password == "" {
-		s.renderRegisterError(w, r, http.StatusBadRequest, "All fields are required", RegisterPageData{
+		s.renderRegisterError(w, r, http.StatusBadRequest, "All fields are required", views.RegisterView{
 			Username: username,
 			Email:    email,
 		})
@@ -71,7 +72,7 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 
 	// Validate password match
 	if password != confirmPassword {
-		s.renderRegisterError(w, r, http.StatusBadRequest, "Passwords do not match", RegisterPageData{
+		s.renderRegisterError(w, r, http.StatusBadRequest, "Passwords do not match", views.RegisterView{
 			Username: username,
 			Email:    email,
 		})
@@ -80,7 +81,7 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 
 	// Validate password requirements
 	if err := auth.ValidatePassword(password, username); err != nil {
-		s.renderRegisterError(w, r, http.StatusBadRequest, err.Error(), RegisterPageData{
+		s.renderRegisterError(w, r, http.StatusBadRequest, err.Error(), views.RegisterView{
 			Username: username,
 			Email:    email,
 		})
@@ -90,7 +91,7 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 	// Hash password
 	hash, err := auth.HashPassword(password)
 	if err != nil {
-		s.renderRegisterError(w, r, http.StatusInternalServerError, "An error occurred while creating your account", RegisterPageData{
+		s.renderRegisterError(w, r, http.StatusInternalServerError, "An error occurred while creating your account", views.RegisterView{
 			Username: username,
 			Email:    email,
 		})
@@ -113,7 +114,7 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Println("Error creating user:", err)
-		s.renderRegisterError(w, r, http.StatusInternalServerError, "An error occurred while creating your account", RegisterPageData{
+		s.renderRegisterError(w, r, http.StatusInternalServerError, "An error occurred while creating your account", views.RegisterView{
 			Username:            username,
 			Email:               email,
 			ClientID:            clientID,
@@ -153,10 +154,10 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 
 // renderRegisterError renders the registration page with an error message, preserving user input and OAuth parameters.
 // It handles template execution errors gracefully by falling back to the error template.
-func (s *Server) renderRegisterError(w http.ResponseWriter, r *http.Request, statusCode int, errorMsg string, data RegisterPageData) {
+func (s *Server) renderRegisterError(w http.ResponseWriter, r *http.Request, statusCode int, errorMsg string, data views.RegisterView) {
 	csrfToken := s.ensureCSRFToken(w, r)
 	w.WriteHeader(statusCode)
-	err := s.registerTemplate.Execute(w, RegisterPageData{
+	err := views.Register(views.RegisterView{
 		Error:               errorMsg,
 		Username:            data.Username,
 		Email:               data.Email,
@@ -167,7 +168,7 @@ func (s *Server) renderRegisterError(w http.ResponseWriter, r *http.Request, sta
 		CodeChallenge:       data.CodeChallenge,
 		CodeChallengeMethod: data.CodeChallengeMethod,
 		CSRFToken:           csrfToken,
-	})
+	}).Render(r.Context(), w)
 	if err != nil {
 		// Fallback to error template if register template fails
 		err = s.errorTemplate.Execute(w, ErrorPageData{

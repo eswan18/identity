@@ -1,0 +1,39 @@
+package views
+
+// SuccessView holds everything the success page renders. It replaces the
+// anonymous struct{ CSRFToken string } previously passed to successTemplate.
+type SuccessView struct {
+	CSRFToken string
+}
+
+// Success renders the post-login success page. Compare templates/success.html:
+// this page has no dynamic content beyond the CSRF token on its logout form -
+// it just explains that this is an identity provider and clients should
+// authenticate via /oauth/authorize.
+templ Success(data SuccessView) {
+	@Layout("Login Successful") {
+		<div class="w-14 h-14 mx-auto mb-6 bg-success/10 rounded-full flex items-center justify-center">
+			<svg class="text-success" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<polyline points="20 6 9 17 4 12"></polyline>
+			</svg>
+		</div>
+		<div class="text-center mb-6">
+			<h1 class="card-title justify-center text-xl">Login Successful</h1>
+			<p class="text-sm text-base-content/60">You are now authenticated</p>
+		</div>
+		<div class="bg-base-200 rounded-lg p-4 mb-6">
+			<h2 class="text-sm font-semibold mb-2">What's next?</h2>
+			<p class="text-sm text-base-content/60">
+				This is an identity provider service. To access applications, log in through a client that uses OAuth2/OIDC. Clients redirect to <code class="bg-base-300 px-1.5 py-0.5 rounded text-sm font-mono">/oauth/authorize</code> to complete authentication.
+			</p>
+		</div>
+		<div class="flex flex-col gap-3">
+			<form method="POST" action="/oauth/logout" class="m-0">
+				<input type="hidden" name="csrf_token" value={ data.CSRFToken }/>
+				<button type="submit" class="btn btn-primary w-full">Log Out</button>
+			</form>
+			<a href="/oauth/login" class="btn btn-ghost w-full">Back to Login</a>
+		</div>
+		@footer()
+	}
+}

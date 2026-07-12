@@ -4,7 +4,15 @@ package views
 // server-rendered page composes. It mirrors templates/base.html so templ pages
 // and the remaining html/template pages render an identical shell. The page's
 // body is supplied as templ children via `@Layout(title) { ... }`.
-templ Layout(title string) {
+//
+// scripts is variadic (rather than a single templ.Component) so every
+// existing `@Layout("Title") { ... }` call site keeps compiling unchanged -
+// with no scripts passed, the variadic is simply empty and the loop below is
+// a no-op. Pages that need an inline <script> (register, change-avatar) pass
+// one or more script components: `@Layout("Title", pageScript())`. This
+// mirrors templates/base.html's `{{block "scripts" .}}{{end}}` slot, which
+// sits in <body> after the card div.
+templ Layout(title string, scripts ...templ.Component) {
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>
@@ -19,6 +27,9 @@ templ Layout(title string) {
 					{ children... }
 				</div>
 			</div>
+			for _, s := range scripts {
+				@s
+			}
 		</body>
 	</html>
 }

@@ -13,20 +13,6 @@ type LoginPageData struct {
 	CSRFToken           string
 }
 
-// RegisterPageData holds the data needed to render the registration page template.
-type RegisterPageData struct {
-	Error               string
-	Username            string
-	Email               string
-	ClientID            string
-	RedirectURI         string
-	State               string
-	Scope               []string
-	CodeChallenge       string
-	CodeChallengeMethod string
-	CSRFToken           string
-}
-
 // ScopeDescription maps a scope string to a human-readable description.
 type ScopeDescription struct {
 	Scope       string
@@ -70,12 +56,4 @@ type AccountSettingsPageData struct {
 	MfaEnabled    bool
 	EmailVerified bool
 	CSRFToken     string
-}
-
-// ChangeAvatarPageData holds the data needed to render the change avatar page template.
-type ChangeAvatarPageData struct {
-	Error     string
-	Success   string
-	AvatarURL string
-	CSRFToken string
 }
