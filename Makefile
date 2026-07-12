@@ -2,6 +2,7 @@ SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 GO_SOURCES := $(shell find . -name '*.go' -not -path './docs/*' -not -path './vendor/*')
 TEMPLATES := $(wildcard templates/*.html)
+TEMPL_SOURCES := $(wildcard pkg/views/*.templ)
 MIGRATIONS := $(wildcard db/migrations/*.up.sql)
 ENV ?= local
 
@@ -12,19 +13,26 @@ docs: docs/docs.go docs/swagger.json docs/swagger.yaml
 docs/docs.go docs/swagger.json docs/swagger.yaml: $(GO_SOURCES)
 	swag init -g cmd/auth-service/main.go
 
+# templ compiles pkg/views/*.templ into committed *_templ.go files. The generated
+# files ARE committed so `go build`/CI don't need the templ binary; run this after
+# editing a .templ file. Install with: go install github.com/a-h/templ/cmd/templ@latest
+.PHONY: templ
+templ:
+	templ generate
+
 css: static/style.css
 
-static/style.css: static/input.css $(TEMPLATES)
+static/style.css: static/input.css $(TEMPLATES) $(TEMPL_SOURCES)
 	npx @tailwindcss/cli -i static/input.css -o static/style.css --minify
 
 css-watch:
 	npx @tailwindcss/cli -i static/input.css -o static/style.css --watch
 
-run: docs css
+run: templ docs css
 	@echo "Running with ENV=$(ENV)"
 	go run cmd/auth-service/main.go
 
-build: docs css
+build: templ docs css
 	go build -o identity-cli ./cmd/identity-cli
 	go build -o identity cmd/auth-service/main.go
 

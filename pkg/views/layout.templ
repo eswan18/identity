@@ -1,0 +1,24 @@
+package views
+
+// Layout is the shared page skeleton (doctype, head, centered card) that every
+// server-rendered page composes. It mirrors templates/base.html so templ pages
+// and the remaining html/template pages render an identical shell. The page's
+// body is supplied as templ children via `@Layout(title) { ... }`.
+templ Layout(title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>{ title }</title>
+			<link rel="stylesheet" href="/static/style.css"/>
+		</head>
+		<body>
+			<div class="card bg-base-100 shadow-xl w-full max-w-md">
+				<div class="card-body">
+					{ children... }
+				</div>
+			</div>
+		</body>
+	</html>
+}

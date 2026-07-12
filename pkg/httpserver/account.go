@@ -10,6 +10,7 @@ import (
 	"github.com/eswan18/identity/pkg/auth"
 	"github.com/eswan18/identity/pkg/avatar"
 	"github.com/eswan18/identity/pkg/db"
+	"github.com/eswan18/identity/pkg/views"
 	"github.com/google/uuid"
 )
 
@@ -100,7 +101,7 @@ func (s *Server) HandleAccountSettingsGet(w http.ResponseWriter, r *http.Request
 // @Router       /change-password [get]
 func (s *Server) HandleChangePasswordGet(w http.ResponseWriter, r *http.Request) {
 	// Authentication is enforced by the requireActiveUser middleware.
-	s.changePasswordTemplate.Execute(w, ChangePasswordPageData{CSRFToken: s.ensureCSRFToken(w, r)})
+	_ = views.ChangePassword(views.ChangePasswordView{CSRFToken: s.ensureCSRFToken(w, r)}).Render(r.Context(), w)
 }
 
 // HandleChangePasswordPost godoc
@@ -487,7 +488,7 @@ func toNullString(s string) sql.NullString {
 func (s *Server) renderChangePasswordError(w http.ResponseWriter, r *http.Request, statusCode int, errorMsg string) {
 	csrfToken := s.ensureCSRFToken(w, r)
 	w.WriteHeader(statusCode)
-	s.changePasswordTemplate.Execute(w, ChangePasswordPageData{Error: errorMsg, CSRFToken: csrfToken})
+	_ = views.ChangePassword(views.ChangePasswordView{Error: errorMsg, CSRFToken: csrfToken}).Render(r.Context(), w)
 }
 
 // renderAccountSettings renders the account settings page, injecting the CSRF token

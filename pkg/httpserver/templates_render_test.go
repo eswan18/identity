@@ -2,8 +2,11 @@ package httpserver
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/eswan18/identity/pkg/views"
 )
 
 // testTemplatesDir mirrors the relative path used by other package tests
@@ -152,13 +155,20 @@ func TestPageTemplatesRenderAccountSettings(t *testing.T) {
 	)
 }
 
+// TestPageTemplatesRenderChangePassword covers the change-password page, which
+// has been migrated from html/template to a templ component (pkg/views). Instead
+// of parsing an .html file by name, it renders the typed component directly.
 func TestPageTemplatesRenderChangePassword(t *testing.T) {
-	html := render(t, "change-password.html", ChangePasswordPageData{
+	var buf bytes.Buffer
+	err := views.ChangePassword(views.ChangePasswordView{
 		Error:     "Current password is incorrect",
 		CSRFToken: "csrf-cp",
-	})
-	requireContainsAll(t, html,
-		"<!DOCTYPE html>",
+	}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering ChangePassword component: %v", err)
+	}
+	requireContainsAll(t, buf.String(),
+		"<!doctype html>",
 		"<title>Change Password</title>",
 		`action="/oauth/change-password"`,
 		`name="csrf_token" value="csrf-cp"`,
@@ -353,7 +363,7 @@ func TestPageTemplatesAllHaveFooterAndDoctype(t *testing.T) {
 		{"error.html", ErrorPageData{}},
 		{"success.html", struct{ CSRFToken string }{CSRFToken: "t"}},
 		{"account-settings.html", AccountSettingsPageData{CSRFToken: "t"}},
-		{"change-password.html", ChangePasswordPageData{CSRFToken: "t"}},
+		// change-password is a templ component now (see TestPageTemplatesRenderChangePassword).
 		{"change-username.html", ChangeUsernamePageData{CSRFToken: "t"}},
 		{"change-email.html", ChangeEmailPageData{CSRFToken: "t"}},
 		{"mfa.html", MFAPageData{CSRFToken: "t"}},

@@ -4,6 +4,7 @@
 }
 
 @source "../templates";
+@source "../pkg/views";
 
 @layer base {
     body {
