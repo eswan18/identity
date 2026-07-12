@@ -1,0 +1,71 @@
+package views
+
+import "strings"
+
+// MFAView holds everything the login-time MFA challenge page renders. It
+// replaces httpserver.MFAPageData; the fields are checked at compile time
+// against their use in the component below.
+//
+// The OAuth authorization parameters travel through the page as hidden form
+// fields so the originating authorization request survives even if the
+// server-side pending row is gone by the time the code is submitted. Scope is
+// joined with a single space when rendered into the hidden "scope" input,
+// matching templates/mfa.html's
+// `{{range $i, $s := .Scope}}{{if $i}} {{end}}{{$s}}{{end}}`.
+type MFAView struct {
+	Error               string
+	PendingID           string
+	ClientID            string
+	RedirectURI         string
+	State               string
+	Scope               []string
+	CodeChallenge       string
+	CodeChallengeMethod string
+	Nonce               string
+	CSRFToken           string
+}
+
+// MFA renders the login-time MFA code-entry form. Compare templates/mfa.html.
+templ MFA(data MFAView) {
+	@Layout("Two-Factor Authentication") {
+		<div class="text-center mb-8">
+			<h1 class="card-title justify-center text-2xl">Two-Factor Authentication</h1>
+			<p class="text-sm text-base-content/60">Enter the code from your authenticator app</p>
+		</div>
+		if data.Error != "" {
+			@alertError(data.Error)
+		}
+		<form method="POST" action="/oauth/mfa">
+			<input type="hidden" name="csrf_token" value={ data.CSRFToken }/>
+			<fieldset class="fieldset mb-4">
+				<label class="fieldset-label" for="code">Verification Code</label>
+				<input
+					type="text"
+					id="code"
+					name="code"
+					placeholder="Enter 6-digit code"
+					required
+					autofocus
+					autocomplete="one-time-code"
+					inputmode="numeric"
+					pattern="[0-9]{6}"
+					maxlength="6"
+					class="input input-bordered w-full text-center text-2xl tracking-widest"
+				/>
+			</fieldset>
+			<input type="hidden" name="pending_id" value={ data.PendingID }/>
+			<input type="hidden" name="client_id" value={ data.ClientID }/>
+			<input type="hidden" name="redirect_uri" value={ data.RedirectURI }/>
+			<input type="hidden" name="state" value={ data.State }/>
+			<input type="hidden" name="scope" value={ strings.Join(data.Scope, " ") }/>
+			<input type="hidden" name="code_challenge" value={ data.CodeChallenge }/>
+			<input type="hidden" name="code_challenge_method" value={ data.CodeChallengeMethod }/>
+			<input type="hidden" name="nonce" value={ data.Nonce }/>
+			<button type="submit" class="btn btn-primary w-full">Verify</button>
+		</form>
+		<div class="text-center mt-6 text-sm text-base-content/60">
+			<a href="/oauth/login" class="link link-primary">Back to login</a>
+		</div>
+		@footer()
+	}
+}

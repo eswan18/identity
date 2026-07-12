@@ -34,26 +34,3 @@ type ConsentPageData struct {
 	ResponseType        string
 	CSRFToken           string
 }
-
-// ErrorPageData holds the data needed to render the error page template.
-type ErrorPageData struct {
-	Title       string
-	Message     string
-	Details     string
-	ErrorCode   string
-	RedirectURI string
-}
-
-// AccountSettingsPageData holds the data needed to render the account settings page template.
-type AccountSettingsPageData struct {
-	Error         string
-	Success       string
-	Username      string
-	Email         string
-	Name          string
-	AvatarURL     string
-	IsInactive    bool
-	MfaEnabled    bool
-	EmailVerified bool
-	CSRFToken     string
-}

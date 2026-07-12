@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/eswan18/identity/pkg/views"
 )
 
 // handleLoginGet godoc
@@ -229,13 +231,13 @@ func (s *Server) renderLoginError(w http.ResponseWriter, r *http.Request, status
 	})
 	if err != nil {
 		// Fallback to error template if login template fails
-		err = s.errorTemplate.Execute(w, ErrorPageData{
+		err = views.Error(views.ErrorView{
 			Title:       "Internal Server Error",
 			Message:     "An error occurred while rendering the login page",
 			Details:     err.Error(),
 			ErrorCode:   "500",
 			RedirectURI: oauthParams.RedirectURI,
-		})
+		}).Render(r.Context(), w)
 		if err != nil {
 			// Last resort: plain text error
 			http.Error(w, "An error occurred while rendering the error page", http.StatusInternalServerError)

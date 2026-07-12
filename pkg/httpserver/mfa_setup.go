@@ -9,24 +9,15 @@ import (
 	"github.com/eswan18/identity/pkg/auth"
 	"github.com/eswan18/identity/pkg/db"
 	"github.com/eswan18/identity/pkg/mfa"
+	"github.com/eswan18/identity/pkg/views"
 )
-
-// MFASetupPageData holds the data needed to render the MFA setup page template.
-type MFASetupPageData struct {
-	Error           string
-	Success         string
-	QRCode          string // Base64-encoded PNG
-	Secret          string // For manual entry
-	ProvisioningURI string
-	CSRFToken       string
-}
 
 // mfaEnrollmentExpiresIn is how long a pending enrollment secret remains valid.
 const mfaEnrollmentExpiresIn = 10 * time.Minute
 
 // renderMFASetupError renders the setup page with only an error message (no QR).
 func (s *Server) renderMFASetupError(w http.ResponseWriter, r *http.Request, msg string) {
-	if err := s.mfaSetupTemplate.Execute(w, MFASetupPageData{Error: msg, CSRFToken: s.ensureCSRFToken(w, r)}); err != nil {
+	if err := views.MFASetup(views.MFASetupView{Error: msg, CSRFToken: s.ensureCSRFToken(w, r)}).Render(r.Context(), w); err != nil {
 		log.Printf("[ERROR] renderMFASetupError: Failed to render MFA setup page: %v", err)
 	}
 }
@@ -49,13 +40,13 @@ func (s *Server) renderMFASetupPage(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 
-	if err := s.mfaSetupTemplate.Execute(w, MFASetupPageData{
+	if err := views.MFASetup(views.MFASetupView{
 		Error:           errMsg,
 		QRCode:          qrCode,
 		Secret:          secret,
 		ProvisioningURI: mfa.GetProvisioningURI(key),
 		CSRFToken:       s.ensureCSRFToken(w, r),
-	}); err != nil {
+	}).Render(r.Context(), w); err != nil {
 		log.Printf("[ERROR] renderMFASetupPage: Failed to render MFA setup page: %v", err)
 	}
 }
@@ -180,7 +171,7 @@ func (s *Server) HandleMFADisablePost(w http.ResponseWriter, r *http.Request) {
 
 	// Validate password
 	if password == "" {
-		s.renderAccountSettings(w, r, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, views.AccountSettingsView{
 			Username:   user.Username,
 			Email:      user.Email,
 			MfaEnabled: user.MfaEnabled,
@@ -192,7 +183,7 @@ func (s *Server) HandleMFADisablePost(w http.ResponseWriter, r *http.Request) {
 	valid, err := auth.VerifyPassword(password, user.PasswordHash)
 	if err != nil {
 		log.Printf("[ERROR] HandleMFADisablePost: Failed to verify password: %v", err)
-		s.renderAccountSettings(w, r, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, views.AccountSettingsView{
 			Username:   user.Username,
 			Email:      user.Email,
 			MfaEnabled: user.MfaEnabled,
@@ -202,7 +193,7 @@ func (s *Server) HandleMFADisablePost(w http.ResponseWriter, r *http.Request) {
 	}
 	if !valid {
 		w.WriteHeader(http.StatusUnauthorized)
-		s.renderAccountSettings(w, r, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, views.AccountSettingsView{
 			Username:   user.Username,
 			Email:      user.Email,
 			MfaEnabled: user.MfaEnabled,
@@ -213,7 +204,7 @@ func (s *Server) HandleMFADisablePost(w http.ResponseWriter, r *http.Request) {
 
 	// Validate MFA code
 	if code == "" || !user.MfaSecret.Valid {
-		s.renderAccountSettings(w, r, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, views.AccountSettingsView{
 			Username:   user.Username,
 			Email:      user.Email,
 			MfaEnabled: user.MfaEnabled,
@@ -224,7 +215,7 @@ func (s *Server) HandleMFADisablePost(w http.ResponseWriter, r *http.Request) {
 
 	if !mfa.ValidateCode(user.MfaSecret.String, code) {
 		w.WriteHeader(http.StatusUnauthorized)
-		s.renderAccountSettings(w, r, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, views.AccountSettingsView{
 			Username:   user.Username,
 			Email:      user.Email,
 			MfaEnabled: user.MfaEnabled,
@@ -237,7 +228,7 @@ func (s *Server) HandleMFADisablePost(w http.ResponseWriter, r *http.Request) {
 	err = s.datastore.Q.DisableMFA(r.Context(), user.ID)
 	if err != nil {
 		log.Printf("[ERROR] HandleMFADisablePost: Failed to disable MFA: %v", err)
-		s.renderAccountSettings(w, r, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, views.AccountSettingsView{
 			Username:   user.Username,
 			Email:      user.Email,
 			MfaEnabled: user.MfaEnabled,
