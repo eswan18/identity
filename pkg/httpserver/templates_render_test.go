@@ -37,9 +37,17 @@ func render(t *testing.T, page string, data any) string {
 	return buf.String()
 }
 
+// TestPageTemplatesRenderLogin covers the login page, which has been
+// migrated from html/template to a templ component (pkg/views). It exercises
+// login's custom Error branching: three specific "notice" messages render
+// with success-alert styling (login.html's original
+// `{{if or (eq .Error "...") ...}}`), while any other non-empty Error value
+// renders with the normal error-alert styling. It also verifies the seven
+// hidden OAuth fields (including the joined scope).
 func TestPageTemplatesRenderLogin(t *testing.T) {
 	// Plain error branch.
-	html := render(t, "login.html", LoginPageData{
+	var buf bytes.Buffer
+	err := views.Login(views.LoginView{
 		Error:               "Invalid username or password",
 		ClientID:            "client-abc",
 		RedirectURI:         "https://example.com/callback",
@@ -49,27 +57,48 @@ func TestPageTemplatesRenderLogin(t *testing.T) {
 		CodeChallengeMethod: "S256",
 		Nonce:               "nonce-1",
 		CSRFToken:           "csrf-token-value",
-	})
+	}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering Login component: %v", err)
+	}
+	html := buf.String()
 	requireContainsAll(t, html,
-		"<!DOCTYPE html>",
+		"<!doctype html>",
 		"<title>Sign In</title>",
 		`action="/oauth/login"`,
 		`name="csrf_token" value="csrf-token-value"`,
 		"Invalid username or password",
-		`alert-error`,
-		"client-abc",
-		"nonce-1",
+		`class="alert alert-error mb-6"`,
+		`name="client_id" value="client-abc"`,
+		`name="redirect_uri" value="https://example.com/callback"`,
+		`name="state" value="state-123"`,
+		`name="scope" value="openid profile"`,
+		`name="code_challenge" value="challenge-xyz"`,
+		`name="code_challenge_method" value="S256"`,
+		`name="nonce" value="nonce-1"`,
 	)
-	if strings.Contains(html, "alert-success") {
+	if strings.Contains(html, `class="alert alert-success mb-6"`) {
 		t.Errorf("plain error should not render the success alert styling")
 	}
 
-	// Special-cased success-styled message (uses .Error, not .Success).
-	html = render(t, "login.html", LoginPageData{
+	// Special-cased success-styled message (uses .Error, not a separate
+	// .Success field).
+	buf.Reset()
+	err = views.Login(views.LoginView{
 		Error:     "Account created successfully! Please check your email to verify your account.",
 		CSRFToken: "csrf-2",
-	})
-	requireContainsAll(t, html, "alert-success", "Account created successfully! Please check your email to verify your account.")
+	}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering Login component: %v", err)
+	}
+	html = buf.String()
+	requireContainsAll(t, html,
+		`class="alert alert-success mb-6"`,
+		"Account created successfully! Please check your email to verify your account.",
+	)
+	if strings.Contains(html, `class="alert alert-error mb-6"`) {
+		t.Errorf("success-styled notice should not also render the error alert styling")
+	}
 }
 
 // TestPageTemplatesRenderRegister covers the register page, which has been
@@ -545,14 +574,20 @@ func TestPageTemplatesRenderChangeAvatar(t *testing.T) {
 	)
 }
 
+// TestPageTemplatesRenderConsent covers the consent page, which has been
+// migrated from html/template to a templ component (pkg/views). It verifies
+// a views.ScopeDescription renders in the permission list and that all eight
+// hidden OAuth fields (including the joined scope) are present.
 func TestPageTemplatesRenderConsent(t *testing.T) {
-	html := render(t, "consent.html", ConsentPageData{
+	var buf bytes.Buffer
+	err := views.Consent(views.ConsentView{
+		Error:       "Access denied",
 		ClientName:  "Example App",
 		ClientID:    "client-abc",
 		RedirectURI: "https://example.com/cb",
 		State:       "state-5",
 		Scope:       []string{"openid", "email"},
-		ScopeDescriptions: []ScopeDescription{
+		ScopeDescriptions: []views.ScopeDescription{
 			{Scope: "openid", Description: "Verify your identity"},
 			{Scope: "email", Description: "View your email address"},
 		},
@@ -561,34 +596,51 @@ func TestPageTemplatesRenderConsent(t *testing.T) {
 		Nonce:               "nonce-5",
 		ResponseType:        "code",
 		CSRFToken:           "csrf-consent",
-	})
+	}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering Consent component: %v", err)
+	}
+	html := buf.String()
 	requireContainsAll(t, html,
-		"<!DOCTYPE html>",
+		"<!doctype html>",
 		"<title>Authorize Application</title>",
 		"Example App",
+		"Access denied",
 		"Verify your identity",
 		"View your email address",
 		`name="csrf_token" value="csrf-consent"`,
+		`name="client_id" value="client-abc"`,
+		`name="redirect_uri" value="https://example.com/cb"`,
+		`name="response_type" value="code"`,
+		`name="state" value="state-5"`,
+		`name="scope" value="openid email"`,
+		`name="code_challenge" value="chal"`,
+		`name="code_challenge_method" value="S256"`,
+		`name="nonce" value="nonce-5"`,
 		`action="/oauth/consent"`,
+		`name="decision" value="allow"`,
+		`name="decision" value="deny"`,
 	)
 }
 
 // TestPageTemplatesAllHaveFooterAndDoctype is a lightweight smoke test that
-// every page template composes cleanly with base.html + partials.html and
-// renders the shared skeleton once.
+// every remaining html/template page composes cleanly with base.html +
+// partials.html and renders the shared skeleton once.
+//
+// As of this batch every server-rendered page (including login and consent,
+// the last two) has moved to a templ component in pkg/views - see their
+// dedicated TestPageTemplatesRender* tests above, which assert the same
+// doctype/footer/hidden-field properties directly against the rendered
+// component output. That leaves this table intentionally empty: base.html
+// and partials.html themselves are still used (Layout/footer/alert* in
+// pkg/views mirror them), but no .html *page* templates remain to exercise
+// here. A later cleanup batch removes base.html/partials.html, the
+// render()/mustParsePageTemplate test helpers, and this now-vestigial test.
 func TestPageTemplatesAllHaveFooterAndDoctype(t *testing.T) {
 	pages := []struct {
 		name string
 		data any
-	}{
-		{"login.html", LoginPageData{CSRFToken: "t"}},
-		// change-password, change-username, change-email, edit-profile,
-		// forgot-password, forgot-username, reset-password, register,
-		// change-avatar, success, error, account-settings, mfa, and
-		// mfa-setup are templ components now (see their dedicated
-		// TestPageTemplatesRender* tests).
-		{"consent.html", ConsentPageData{CSRFToken: "t"}},
-	}
+	}{}
 	for _, p := range pages {
 		t.Run(p.name, func(t *testing.T) {
 			html := render(t, p.name, p.data)

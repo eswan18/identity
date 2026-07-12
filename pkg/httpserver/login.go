@@ -10,6 +10,43 @@ import (
 	"github.com/eswan18/identity/pkg/views"
 )
 
+// LoginPageData carries the OAuth authorization parameters through the login
+// (and, via mfa.go, MFA) flow. Unlike pkg/views' *View types, it is not only
+// a rendering type: it doubles as the internal carrier passed between
+// handlers (e.g. HandleLoginPost -> createMFAPendingSession,
+// oauthParamsFromPending / resumeMFAFlow / buildAuthorizeURL in mfa.go), so
+// it stays in httpserver rather than moving to pkg/views. Render call sites
+// build a views.LoginView from it via loginViewFromPageData instead of
+// rendering it directly.
+type LoginPageData struct {
+	Error               string
+	ClientID            string
+	RedirectURI         string
+	State               string
+	Scope               []string
+	CodeChallenge       string
+	CodeChallengeMethod string
+	Nonce               string
+	CSRFToken           string
+}
+
+// loginViewFromPageData builds the views.LoginView used to render the login
+// page from the LoginPageData carrier plus the error message and CSRF token,
+// which vary by call site.
+func loginViewFromPageData(p LoginPageData, errMsg, csrfToken string) views.LoginView {
+	return views.LoginView{
+		Error:               errMsg,
+		ClientID:            p.ClientID,
+		RedirectURI:         p.RedirectURI,
+		State:               p.State,
+		Scope:               p.Scope,
+		CodeChallenge:       p.CodeChallenge,
+		CodeChallengeMethod: p.CodeChallengeMethod,
+		Nonce:               p.Nonce,
+		CSRFToken:           csrfToken,
+	}
+}
+
 // handleLoginGet godoc
 // @Summary      Show login page
 // @Description  Displays the login form with OAuth parameters preserved in hidden fields
@@ -91,8 +128,7 @@ func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
 		errorMsg = "Your account is deactivated. You cannot log in to applications."
 	}
 
-	s.loginTemplate.Execute(w, LoginPageData{
-		Error:               errorMsg,
+	oauthParams := LoginPageData{
 		ClientID:            clientID,
 		RedirectURI:         redirectURI,
 		State:               state,
@@ -100,8 +136,10 @@ func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
 		CodeChallenge:       codeChallenge,
 		CodeChallengeMethod: codeChallengeMethod,
 		Nonce:               nonce,
-		CSRFToken:           s.ensureCSRFToken(w, r),
-	})
+	}
+	if err := views.Login(loginViewFromPageData(oauthParams, errorMsg, s.ensureCSRFToken(w, r))).Render(r.Context(), w); err != nil {
+		log.Printf("[ERROR] HandleLoginGet: Failed to render login page: %v", err)
+	}
 }
 
 // handleLoginPost godoc
@@ -218,17 +256,7 @@ func (s *Server) renderLoginError(w http.ResponseWriter, r *http.Request, status
 	// login form carries a token the eventual POST can echo back.
 	csrfToken := s.ensureCSRFToken(w, r)
 	w.WriteHeader(statusCode)
-	err := s.loginTemplate.Execute(w, LoginPageData{
-		Error:               errorMsg,
-		ClientID:            oauthParams.ClientID,
-		RedirectURI:         oauthParams.RedirectURI,
-		State:               oauthParams.State,
-		Scope:               oauthParams.Scope,
-		CodeChallenge:       oauthParams.CodeChallenge,
-		CodeChallengeMethod: oauthParams.CodeChallengeMethod,
-		Nonce:               oauthParams.Nonce,
-		CSRFToken:           csrfToken,
-	})
+	err := views.Login(loginViewFromPageData(oauthParams, errorMsg, csrfToken)).Render(r.Context(), w)
 	if err != nil {
 		// Fallback to error template if login template fails
 		err = views.Error(views.ErrorView{

@@ -1,0 +1,82 @@
+package views
+
+import "strings"
+
+// ScopeDescription maps a scope string to a human-readable description shown
+// in the consent screen's permission list. Moved here from
+// httpserver.ScopeDescription (previously in pkg/httpserver/templates.go):
+// pkg/views cannot import pkg/httpserver (the dependency runs the other way,
+// httpserver -> views), so the type that ConsentView.ScopeDescriptions needs
+// has to live in this package. pkg/httpserver/oauth.go now builds
+// []views.ScopeDescription directly.
+type ScopeDescription struct {
+	Scope       string
+	Description string
+}
+
+// ConsentView holds everything the consent page renders. It replaces
+// httpserver.ConsentPageData for rendering purposes; the fields are checked
+// at compile time against their use in the component below. Scope is joined
+// with a single space when rendered into the hidden "scope" input, matching
+// templates/consent.html's `{{range $i, $s := .Scope}}{{if $i}} {{end}}{{$s}}{{end}}`.
+type ConsentView struct {
+	Error               string
+	ClientName          string
+	ClientID            string
+	RedirectURI         string
+	State               string
+	Scope               []string
+	ScopeDescriptions   []ScopeDescription
+	CodeChallenge       string
+	CodeChallengeMethod string
+	Nonce               string
+	ResponseType        string
+	CSRFToken           string
+}
+
+// Consent renders the OAuth authorization/consent screen. Compare
+// templates/consent.html: the OAuth parameters travel as hidden inputs so
+// the "allow"/"deny" decision posted back to /oauth/consent carries the full
+// original authorization request. The scope-item SVG below is a checkmark
+// glyph distinct from partials' iconSuccess (different classes/attributes,
+// no aria-hidden), so it is inlined here rather than reused.
+templ Consent(data ConsentView) {
+	@Layout("Authorize Application") {
+		<div class="text-center mb-6">
+			<h1 class="card-title justify-center text-2xl">Authorize Application</h1>
+			<p class="text-sm text-base-content/60 mt-2">
+				<strong>{ data.ClientName }</strong> is requesting access to your account
+			</p>
+		</div>
+		if data.Error != "" {
+			@alertError(data.Error)
+		}
+		<div class="mb-6">
+			<p class="text-sm font-medium mb-3">This application will be able to:</p>
+			<ul class="space-y-2">
+				for _, sd := range data.ScopeDescriptions {
+					<li class="flex items-start gap-2 text-sm">
+						<svg class="shrink-0 mt-0.5 text-primary" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+							<path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.78 5.28-4.5 6a.75.75 0 0 1-1.18.02l-2.25-2.5a.75.75 0 1 1 1.12-1l1.63 1.81 3.92-5.23a.75.75 0 1 1 1.26.9z"></path>
+						</svg>
+						<span>{ sd.Description }</span>
+					</li>
+				}
+			</ul>
+		</div>
+		<form method="POST" action="/oauth/consent" class="space-y-3">
+			<input type="hidden" name="csrf_token" value={ data.CSRFToken }/>
+			<input type="hidden" name="client_id" value={ data.ClientID }/>
+			<input type="hidden" name="redirect_uri" value={ data.RedirectURI }/>
+			<input type="hidden" name="response_type" value={ data.ResponseType }/>
+			<input type="hidden" name="state" value={ data.State }/>
+			<input type="hidden" name="scope" value={ strings.Join(data.Scope, " ") }/>
+			<input type="hidden" name="code_challenge" value={ data.CodeChallenge }/>
+			<input type="hidden" name="code_challenge_method" value={ data.CodeChallengeMethod }/>
+			<input type="hidden" name="nonce" value={ data.Nonce }/>
+			<button type="submit" name="decision" value="allow" class="btn btn-primary w-full">Allow</button>
+			<button type="submit" name="decision" value="deny" class="btn btn-outline w-full">Deny</button>
+		</form>
+		@footer()
+	}
+}
