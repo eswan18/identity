@@ -34,14 +34,11 @@ type Server struct {
 	errorTemplate           *template.Template
 	successTemplate         *template.Template
 	accountSettingsTemplate *template.Template
-	changeUsernameTemplate  *template.Template
-	changeEmailTemplate     *template.Template
 	mfaTemplate             *template.Template
 	mfaSetupTemplate        *template.Template
 	forgotPasswordTemplate  *template.Template
 	resetPasswordTemplate   *template.Template
 	forgotUsernameTemplate  *template.Template
-	editProfileTemplate     *template.Template
 	changeAvatarTemplate    *template.Template
 	consentTemplate         *template.Template
 }
@@ -73,14 +70,11 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 	errorTemplate := mustParsePageTemplate(config.TemplatesDir, "error.html")
 	successTemplate := mustParsePageTemplate(config.TemplatesDir, "success.html")
 	accountSettingsTemplate := mustParsePageTemplate(config.TemplatesDir, "account-settings.html")
-	changeUsernameTemplate := mustParsePageTemplate(config.TemplatesDir, "change-username.html")
-	changeEmailTemplate := mustParsePageTemplate(config.TemplatesDir, "change-email.html")
 	mfaTemplate := mustParsePageTemplate(config.TemplatesDir, "mfa.html")
 	mfaSetupTemplate := mustParsePageTemplate(config.TemplatesDir, "mfa-setup.html")
 	forgotPasswordTemplate := mustParsePageTemplate(config.TemplatesDir, "forgot-password.html")
 	resetPasswordTemplate := mustParsePageTemplate(config.TemplatesDir, "reset-password.html")
 	forgotUsernameTemplate := mustParsePageTemplate(config.TemplatesDir, "forgot-username.html")
-	editProfileTemplate := mustParsePageTemplate(config.TemplatesDir, "edit-profile.html")
 	changeAvatarTemplate := mustParsePageTemplate(config.TemplatesDir, "change-avatar.html")
 	consentTemplate := mustParsePageTemplate(config.TemplatesDir, "consent.html")
 
@@ -135,14 +129,11 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 		errorTemplate:           errorTemplate,
 		successTemplate:         successTemplate,
 		accountSettingsTemplate: accountSettingsTemplate,
-		changeUsernameTemplate:  changeUsernameTemplate,
-		changeEmailTemplate:     changeEmailTemplate,
 		mfaTemplate:             mfaTemplate,
 		mfaSetupTemplate:        mfaSetupTemplate,
 		forgotPasswordTemplate:  forgotPasswordTemplate,
 		resetPasswordTemplate:   resetPasswordTemplate,
 		forgotUsernameTemplate:  forgotUsernameTemplate,
-		editProfileTemplate:     editProfileTemplate,
 		changeAvatarTemplate:    changeAvatarTemplate,
 		consentTemplate:         consentTemplate,
 	}

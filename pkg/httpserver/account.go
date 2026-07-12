@@ -223,7 +223,7 @@ func (s *Server) HandleChangeUsernameGet(w http.ResponseWriter, r *http.Request)
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
-	s.changeUsernameTemplate.Execute(w, ChangeUsernamePageData{CurrentUsername: user.Username, CSRFToken: s.ensureCSRFToken(w, r)})
+	_ = views.ChangeUsername(views.ChangeUsernameView{CurrentUsername: user.Username, CSRFToken: s.ensureCSRFToken(w, r)}).Render(r.Context(), w)
 }
 
 // HandleChangeUsernamePost godoc
@@ -248,13 +248,13 @@ func (s *Server) HandleChangeUsernamePost(w http.ResponseWriter, r *http.Request
 	newUsername := r.FormValue("new_username")
 	password := r.FormValue("password")
 
-	pageData := ChangeUsernamePageData{CurrentUsername: user.Username, CSRFToken: s.ensureCSRFToken(w, r)}
+	pageData := views.ChangeUsernameView{CurrentUsername: user.Username, CSRFToken: s.ensureCSRFToken(w, r)}
 
 	// Validate that all fields are provided
 	if newUsername == "" || password == "" {
 		pageData.Error = "All fields are required"
 		w.WriteHeader(http.StatusBadRequest)
-		s.changeUsernameTemplate.Execute(w, pageData)
+		_ = views.ChangeUsername(pageData).Render(r.Context(), w)
 		return
 	}
 
@@ -264,13 +264,13 @@ func (s *Server) HandleChangeUsernamePost(w http.ResponseWriter, r *http.Request
 		log.Printf("[ERROR] HandleChangeUsernamePost: Failed to verify password: %v", err)
 		pageData.Error = "An error occurred"
 		w.WriteHeader(http.StatusInternalServerError)
-		s.changeUsernameTemplate.Execute(w, pageData)
+		_ = views.ChangeUsername(pageData).Render(r.Context(), w)
 		return
 	}
 	if !valid {
 		pageData.Error = "Password is incorrect"
 		w.WriteHeader(http.StatusUnauthorized)
-		s.changeUsernameTemplate.Execute(w, pageData)
+		_ = views.ChangeUsername(pageData).Render(r.Context(), w)
 		return
 	}
 
@@ -279,7 +279,7 @@ func (s *Server) HandleChangeUsernamePost(w http.ResponseWriter, r *http.Request
 	if err == nil {
 		pageData.Error = "Username is already taken"
 		w.WriteHeader(http.StatusBadRequest)
-		s.changeUsernameTemplate.Execute(w, pageData)
+		_ = views.ChangeUsername(pageData).Render(r.Context(), w)
 		return
 	}
 
@@ -292,16 +292,16 @@ func (s *Server) HandleChangeUsernamePost(w http.ResponseWriter, r *http.Request
 		log.Printf("[ERROR] HandleChangeUsernamePost: Failed to update username: %v", err)
 		pageData.Error = "An error occurred"
 		w.WriteHeader(http.StatusInternalServerError)
-		s.changeUsernameTemplate.Execute(w, pageData)
+		_ = views.ChangeUsername(pageData).Render(r.Context(), w)
 		return
 	}
 
 	s.debugf("HandleChangeUsernamePost: Username updated successfully from %s to %s", user.Username, newUsername)
-	s.changeUsernameTemplate.Execute(w, ChangeUsernamePageData{
+	_ = views.ChangeUsername(views.ChangeUsernameView{
 		Success:         "Username updated successfully",
 		CurrentUsername: newUsername,
 		CSRFToken:       s.ensureCSRFToken(w, r),
-	})
+	}).Render(r.Context(), w)
 }
 
 // HandleChangeEmailGet godoc
@@ -318,7 +318,7 @@ func (s *Server) HandleChangeEmailGet(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
-	s.changeEmailTemplate.Execute(w, ChangeEmailPageData{CurrentEmail: user.Email, CSRFToken: s.ensureCSRFToken(w, r)})
+	_ = views.ChangeEmail(views.ChangeEmailView{CurrentEmail: user.Email, CSRFToken: s.ensureCSRFToken(w, r)}).Render(r.Context(), w)
 }
 
 // HandleChangeEmailPost godoc
@@ -343,13 +343,13 @@ func (s *Server) HandleChangeEmailPost(w http.ResponseWriter, r *http.Request) {
 	newEmail := r.FormValue("new_email")
 	password := r.FormValue("password")
 
-	pageData := ChangeEmailPageData{CurrentEmail: user.Email, CSRFToken: s.ensureCSRFToken(w, r)}
+	pageData := views.ChangeEmailView{CurrentEmail: user.Email, CSRFToken: s.ensureCSRFToken(w, r)}
 
 	// Validate that all fields are provided
 	if newEmail == "" || password == "" {
 		pageData.Error = "All fields are required"
 		w.WriteHeader(http.StatusBadRequest)
-		s.changeEmailTemplate.Execute(w, pageData)
+		_ = views.ChangeEmail(pageData).Render(r.Context(), w)
 		return
 	}
 
@@ -359,13 +359,13 @@ func (s *Server) HandleChangeEmailPost(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[ERROR] HandleChangeEmailPost: Failed to verify password: %v", err)
 		pageData.Error = "An error occurred"
 		w.WriteHeader(http.StatusInternalServerError)
-		s.changeEmailTemplate.Execute(w, pageData)
+		_ = views.ChangeEmail(pageData).Render(r.Context(), w)
 		return
 	}
 	if !valid {
 		pageData.Error = "Password is incorrect"
 		w.WriteHeader(http.StatusUnauthorized)
-		s.changeEmailTemplate.Execute(w, pageData)
+		_ = views.ChangeEmail(pageData).Render(r.Context(), w)
 		return
 	}
 
@@ -374,7 +374,7 @@ func (s *Server) HandleChangeEmailPost(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		pageData.Error = "Email is already taken"
 		w.WriteHeader(http.StatusBadRequest)
-		s.changeEmailTemplate.Execute(w, pageData)
+		_ = views.ChangeEmail(pageData).Render(r.Context(), w)
 		return
 	}
 
@@ -387,7 +387,7 @@ func (s *Server) HandleChangeEmailPost(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[ERROR] HandleChangeEmailPost: Failed to update email: %v", err)
 		pageData.Error = "An error occurred"
 		w.WriteHeader(http.StatusInternalServerError)
-		s.changeEmailTemplate.Execute(w, pageData)
+		_ = views.ChangeEmail(pageData).Render(r.Context(), w)
 		return
 	}
 
@@ -401,11 +401,11 @@ func (s *Server) HandleChangeEmailPost(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[ERROR] HandleChangeEmailPost: Failed to send verification email: %v", err)
 	}
 
-	s.changeEmailTemplate.Execute(w, ChangeEmailPageData{
+	_ = views.ChangeEmail(views.ChangeEmailView{
 		Success:      "Email updated successfully. Please check your new email address for a verification link.",
 		CurrentEmail: newEmail,
 		CSRFToken:    s.ensureCSRFToken(w, r),
-	})
+	}).Render(r.Context(), w)
 }
 
 // HandleEditProfileGet godoc
@@ -422,11 +422,11 @@ func (s *Server) HandleEditProfileGet(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/oauth/login", http.StatusFound)
 		return
 	}
-	s.editProfileTemplate.Execute(w, EditProfilePageData{
+	_ = views.EditProfile(views.EditProfileView{
 		GivenName:  user.GivenName.String,
 		FamilyName: user.FamilyName.String,
 		CSRFToken:  s.ensureCSRFToken(w, r),
-	})
+	}).Render(r.Context(), w)
 }
 
 // HandleEditProfilePost godoc
@@ -458,22 +458,22 @@ func (s *Server) HandleEditProfilePost(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Printf("[ERROR] HandleEditProfilePost: Failed to update profile: %v", err)
-		s.editProfileTemplate.Execute(w, EditProfilePageData{
+		_ = views.EditProfile(views.EditProfileView{
 			Error:      "An error occurred",
 			GivenName:  givenName,
 			FamilyName: familyName,
 			CSRFToken:  s.ensureCSRFToken(w, r),
-		})
+		}).Render(r.Context(), w)
 		return
 	}
 
 	s.debugf("HandleEditProfilePost: Profile updated successfully for user: %s", user.Username)
-	s.editProfileTemplate.Execute(w, EditProfilePageData{
+	_ = views.EditProfile(views.EditProfileView{
 		Success:    "Profile updated successfully",
 		GivenName:  givenName,
 		FamilyName: familyName,
 		CSRFToken:  s.ensureCSRFToken(w, r),
-	})
+	}).Render(r.Context(), w)
 }
 
 // toNullString converts a string to sql.NullString

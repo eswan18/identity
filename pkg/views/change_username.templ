@@ -1,0 +1,64 @@
+package views
+
+// ChangeUsernameView holds everything the change-username page renders. It
+// replaces httpserver.ChangeUsernamePageData; the fields are checked at compile
+// time against their use in the component below.
+type ChangeUsernameView struct {
+	Error           string
+	Success         string
+	CurrentUsername string
+	CSRFToken       string
+}
+
+// ChangeUsername renders the change-username form. Compare templates/change-username.html:
+// the layout, alerts, and footer are composed as typed components rather than
+// referenced by string name, and a typo in a field is a compile error instead
+// of a silently-blank render.
+templ ChangeUsername(data ChangeUsernameView) {
+	@Layout("Change Username") {
+		<div class="text-center mb-8">
+			<h1 class="card-title justify-center text-2xl">Change Username</h1>
+			<p class="text-sm text-base-content/60">Update your account username</p>
+		</div>
+		if data.Error != "" {
+			@alertError(data.Error)
+		}
+		if data.Success != "" {
+			@alertSuccess(data.Success)
+		}
+		<div class="bg-base-200 rounded-lg p-4 mb-6">
+			<div class="text-xs font-medium text-base-content/60 uppercase tracking-wide mb-1">Current Username</div>
+			<div class="text-base font-medium">{ data.CurrentUsername }</div>
+		</div>
+		<form method="POST" action="/oauth/change-username">
+			<input type="hidden" name="csrf_token" value={ data.CSRFToken }/>
+			<fieldset class="fieldset mb-4">
+				<label class="fieldset-label" for="new_username">New Username</label>
+				<input
+					type="text"
+					id="new_username"
+					name="new_username"
+					placeholder="Enter your new username"
+					required
+					autocomplete="username"
+					class="input input-bordered w-full"
+				/>
+			</fieldset>
+			<fieldset class="fieldset mb-4">
+				<label class="fieldset-label" for="password">Password</label>
+				<input
+					type="password"
+					id="password"
+					name="password"
+					placeholder="Enter your password to confirm"
+					required
+					autocomplete="current-password"
+					class="input input-bordered w-full"
+				/>
+			</fieldset>
+			<button type="submit" class="btn btn-primary w-full">Update Username</button>
+		</form>
+		<a href="/oauth/account-settings" class="btn btn-ghost w-full mt-3">Back to Account Settings</a>
+		@footer()
+	}
+}
