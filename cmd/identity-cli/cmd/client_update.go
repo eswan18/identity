@@ -3,8 +3,8 @@ package cmd
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/eswan18/identity/cmd/identity-cli/internal"
@@ -57,16 +57,13 @@ func runClientUpdate(cmd *cobra.Command, args []string) error {
 	clientID := args[0]
 
 	datastore := getDatastore()
-	if datastore == nil {
-		log.Fatal("Failed to get database connection")
-	}
 
 	ctx := context.Background()
 
 	// Get current client to preserve values
 	currentClient, err := datastore.Q.GetOAuthClientByClientID(ctx, clientID)
 	if err != nil {
-		log.Fatalf("Failed to get OAuth client: %v", err)
+		return fmt.Errorf("failed to get OAuth client: %w", err)
 	}
 
 	// Build update params - only include fields that were provided
@@ -121,12 +118,12 @@ func runClientUpdate(cmd *cobra.Command, args []string) error {
 	if params.IsConfidential.Bool && !currentClient.ClientSecret.Valid {
 		// Note: We can't update the secret with the current UpdateOAuthClient query
 		// This would require a separate query or updating the SQL
-		log.Fatalf("Cannot make a public client confidential - secret generation not yet supported in update")
+		return errors.New("cannot make a public client confidential - secret generation not yet supported in update")
 	}
 
 	updatedClient, err := datastore.Q.UpdateOAuthClient(ctx, params)
 	if err != nil {
-		log.Fatalf("Failed to update OAuth client: %v", err)
+		return fmt.Errorf("failed to update OAuth client: %w", err)
 	}
 
 	fmt.Println("\n✅ OAuth client updated successfully!")

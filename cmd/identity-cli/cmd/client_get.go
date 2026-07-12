@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -21,14 +20,11 @@ func runClientGet(cmd *cobra.Command, args []string) error {
 	clientID := args[0]
 
 	datastore := getDatastore()
-	if datastore == nil {
-		log.Fatal("Failed to get database connection")
-	}
 
 	ctx := context.Background()
 	client, err := datastore.Q.GetOAuthClientByClientID(ctx, clientID)
 	if err != nil {
-		log.Fatalf("Failed to get OAuth client: %v", err)
+		return fmt.Errorf("failed to get OAuth client: %w", err)
 	}
 
 	fmt.Println("\nClient Details:")

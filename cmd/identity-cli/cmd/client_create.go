@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/eswan18/identity/cmd/identity-cli/internal"
@@ -53,14 +52,11 @@ func runClientCreate(cmd *cobra.Command, args []string) error {
 
 	// Get shared datastore
 	datastore := getDatastore()
-	if datastore == nil {
-		log.Fatal("Failed to get database connection")
-	}
 
 	// Generate client_id (random 32-byte string, base64 encoded = 44 chars)
 	clientID, err := internal.GenerateRandomString(32)
 	if err != nil {
-		log.Fatalf("Failed to generate client_id: %v", err)
+		return fmt.Errorf("failed to generate client_id: %w", err)
 	}
 
 	// Generate client_secret if confidential. The plaintext is shown to the
@@ -71,7 +67,7 @@ func runClientCreate(cmd *cobra.Command, args []string) error {
 	if createIsConfidential {
 		secret, err := internal.GenerateRandomString(32)
 		if err != nil {
-			log.Fatalf("Failed to generate client_secret: %v", err)
+			return fmt.Errorf("failed to generate client_secret: %w", err)
 		}
 		plaintextSecret = secret
 		clientSecret = sql.NullString{String: auth.HashClientSecret(secret), Valid: true}
@@ -89,7 +85,7 @@ func runClientCreate(cmd *cobra.Command, args []string) error {
 		Audience:       createAudience,
 	})
 	if err != nil {
-		log.Fatalf("Failed to create OAuth client: %v", err)
+		return fmt.Errorf("failed to create OAuth client: %w", err)
 	}
 
 	// Output credentials
