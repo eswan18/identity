@@ -1,0 +1,63 @@
+package views
+
+// ErrorView holds everything the error page renders. It replaces
+// httpserver.ErrorPageData; the fields are checked at compile time against
+// their use in the component below.
+type ErrorView struct {
+	Title       string
+	Message     string
+	Details     string
+	ErrorCode   string
+	RedirectURI string
+}
+
+// Error renders the generic error page. Compare templates/error.html: that
+// template overrides the shared "card-body-class" block to
+// "card-body text-center", centering the whole card body. Layout's card-body
+// class is not parameterized (and stays that way - this is the only page
+// that wants centering), so the same visual effect is reproduced here by
+// wrapping the page content in its own `text-center` div instead. The one
+// element that must stay left-aligned, the .Details alert, carries its own
+// `text-left` class, which still wins nested inside the wrapper.
+templ Error(data ErrorView) {
+	@Layout("Error") {
+		<div class="text-center">
+			<div class="w-14 h-14 mx-auto mb-6 bg-error/10 rounded-full flex items-center justify-center">
+				<svg class="text-error" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<circle cx="12" cy="12" r="10"></circle>
+					<line x1="12" y1="8" x2="12" y2="12"></line>
+					<line x1="12" y1="16" x2="12.01" y2="16"></line>
+				</svg>
+			</div>
+			<div class="mb-6">
+				<h1 class="card-title justify-center text-xl">
+					if data.Title != "" {
+						{ data.Title }
+					} else {
+						Something went wrong
+					}
+				</h1>
+				if data.Message != "" {
+					<p class="text-sm text-base-content/60">{ data.Message }</p>
+				}
+			</div>
+			if data.Details != "" {
+				<div class="alert alert-error text-left mb-6">
+					<div class="w-full">
+						<div class="text-xs font-semibold uppercase tracking-tight mb-1.5">Details</div>
+						<div class="text-sm break-words">{ data.Details }</div>
+						if data.ErrorCode != "" {
+							<div class="text-xs text-base-content/60 font-mono mt-3 pt-3 border-t border-error/25">Error code: { data.ErrorCode }</div>
+						}
+					</div>
+				</div>
+			}
+			if data.RedirectURI != "" {
+				<a href={ templ.URL(data.RedirectURI) } class="btn btn-primary">Go Back</a>
+			} else {
+				<a href="/oauth/login" class="btn btn-primary">Return to Login</a>
+			}
+			@footer()
+		</div>
+	}
+}

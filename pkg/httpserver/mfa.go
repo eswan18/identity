@@ -9,31 +9,11 @@ import (
 
 	"github.com/eswan18/identity/pkg/db"
 	"github.com/eswan18/identity/pkg/mfa"
+	"github.com/eswan18/identity/pkg/views"
 	"github.com/google/uuid"
 )
 
 const mfaPendingExpiresIn = 5 * time.Minute
-
-// MFAPageData holds the data needed to render the MFA verification page template.
-//
-// The OAuth authorization parameters are carried through the page as hidden form
-// fields so the originating authorization request survives even if the server-side
-// pending row is gone by the time the code is submitted — because it expired during
-// code entry, or a duplicate/replayed submit already consumed it. Without this, a lost
-// pending row strips the OAuth context and the user is bounced to a context-free login
-// (and, after re-authenticating, dumped on the account page instead of the app).
-type MFAPageData struct {
-	Error               string
-	PendingID           string
-	ClientID            string
-	RedirectURI         string
-	State               string
-	Scope               []string
-	CodeChallenge       string
-	CodeChallengeMethod string
-	Nonce               string
-	CSRFToken           string
-}
 
 // oauthParamsFromPending lifts the OAuth authorization parameters stored on a pending
 // MFA row into the common LoginPageData carrier.
@@ -49,10 +29,17 @@ func oauthParamsFromPending(p db.AuthMfaPending) LoginPageData {
 	}
 }
 
-// mfaPageData assembles the MFA template data from the pending ID, the OAuth context,
+// mfaPageData assembles the MFA view from the pending ID, the OAuth context,
 // and an optional error message.
-func mfaPageData(pendingID string, p LoginPageData, errMsg, csrfToken string) MFAPageData {
-	return MFAPageData{
+//
+// The OAuth authorization parameters are carried through the page as hidden form
+// fields so the originating authorization request survives even if the server-side
+// pending row is gone by the time the code is submitted — because it expired during
+// code entry, or a duplicate/replayed submit already consumed it. Without this, a lost
+// pending row strips the OAuth context and the user is bounced to a context-free login
+// (and, after re-authenticating, dumped on the account page instead of the app).
+func mfaPageData(pendingID string, p LoginPageData, errMsg, csrfToken string) views.MFAView {
+	return views.MFAView{
 		Error:               errMsg,
 		PendingID:           pendingID,
 		ClientID:            p.ClientID,
@@ -83,7 +70,9 @@ func (s *Server) HandleMFAGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mfaTemplate.Execute(w, mfaPageData(pendingID, oauthParamsFromPending(pending), "", s.ensureCSRFToken(w, r)))
+	if err := views.MFA(mfaPageData(pendingID, oauthParamsFromPending(pending), "", s.ensureCSRFToken(w, r))).Render(r.Context(), w); err != nil {
+		log.Printf("[ERROR] HandleMFAGet: Failed to render MFA page: %v", err)
+	}
 }
 
 // HandleMFAPost validates the MFA code and completes the login flow.
@@ -227,5 +216,7 @@ func (s *Server) createMFAPendingSession(r *http.Request, userID uuid.UUID, oaut
 func (s *Server) renderMFAError(w http.ResponseWriter, r *http.Request, statusCode int, errorMsg string, pendingID string, p LoginPageData) {
 	csrfToken := s.ensureCSRFToken(w, r)
 	w.WriteHeader(statusCode)
-	s.mfaTemplate.Execute(w, mfaPageData(pendingID, p, errorMsg, csrfToken))
+	if err := views.MFA(mfaPageData(pendingID, p, errorMsg, csrfToken)).Render(r.Context(), w); err != nil {
+		log.Printf("[ERROR] renderMFAError: Failed to render MFA page: %v", err)
+	}
 }

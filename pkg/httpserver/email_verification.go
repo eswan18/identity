@@ -12,6 +12,7 @@ import (
 
 	"github.com/eswan18/identity/pkg/db"
 	"github.com/eswan18/identity/pkg/email"
+	"github.com/eswan18/identity/pkg/views"
 	"github.com/google/uuid"
 )
 
@@ -196,11 +197,11 @@ func (s *Server) HandleResendVerification(w http.ResponseWriter, r *http.Request
 // renderError renders the error page with the given parameters.
 func (s *Server) renderError(w http.ResponseWriter, statusCode int, title, message, redirectURI string) {
 	w.WriteHeader(statusCode)
-	if err := s.errorTemplate.Execute(w, ErrorPageData{
+	if err := views.Error(views.ErrorView{
 		Title:       title,
 		Message:     message,
 		RedirectURI: redirectURI,
-	}); err != nil {
+	}).Render(context.Background(), w); err != nil {
 		http.Error(w, "An error occurred", http.StatusInternalServerError)
 	}
 }

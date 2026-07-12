@@ -121,24 +121,53 @@ func TestPageTemplatesRenderRegister(t *testing.T) {
 	}
 }
 
+// TestPageTemplatesRenderError covers the error page, which has been migrated
+// from html/template to a templ component (pkg/views). It also verifies the
+// error page's centering: templates/error.html overrode the shared
+// "card-body-class" block to "card-body text-center"; the templ Layout
+// doesn't support that override, so the component instead wraps its content
+// in its own `text-center` div, which renders identically.
 func TestPageTemplatesRenderError(t *testing.T) {
-	html := render(t, "error.html", ErrorPageData{
+	var buf bytes.Buffer
+	err := views.Error(views.ErrorView{
 		Title:       "Invalid Request",
 		Message:     "The request could not be completed.",
 		Details:     "missing redirect_uri",
 		ErrorCode:   "E123",
 		RedirectURI: "https://example.com/back",
-	})
+	}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering Error component: %v", err)
+	}
+	html := buf.String()
 	requireContainsAll(t, html,
-		"<!DOCTYPE html>",
+		"<!doctype html>",
 		"<title>Error</title>",
+		`<div class="text-center">`,
 		"Invalid Request",
 		"The request could not be completed.",
 		"missing redirect_uri",
 		"Error code: E123",
 		`href="https://example.com/back"`,
-		"card-body text-center",
+		`class="alert alert-error text-left mb-6"`,
 	)
+
+	// Default title and no details/redirect: falls back to "Something went
+	// wrong" and the "Return to Login" link.
+	buf.Reset()
+	err = views.Error(views.ErrorView{}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering Error component: %v", err)
+	}
+	html = buf.String()
+	requireContainsAll(t, html,
+		"Something went wrong",
+		`href="/oauth/login"`,
+		"Return to Login",
+	)
+	if strings.Contains(html, "alert-error text-left") {
+		t.Errorf("expected no Details alert when .Details is empty")
+	}
 }
 
 // TestPageTemplatesRenderSuccess covers the success page, which has been
@@ -158,8 +187,14 @@ func TestPageTemplatesRenderSuccess(t *testing.T) {
 	)
 }
 
+// TestPageTemplatesRenderAccountSettings covers the account settings page,
+// which has been migrated from html/template to a templ component
+// (pkg/views). It exercises both branches of several independent
+// conditionals: MFA enabled/disabled, active/inactive account, and
+// verified/unverified email.
 func TestPageTemplatesRenderAccountSettings(t *testing.T) {
-	html := render(t, "account-settings.html", AccountSettingsPageData{
+	var buf bytes.Buffer
+	err := views.AccountSettings(views.AccountSettingsView{
 		Error:         "",
 		Success:       "Password updated",
 		Username:      "bob",
@@ -170,9 +205,13 @@ func TestPageTemplatesRenderAccountSettings(t *testing.T) {
 		MfaEnabled:    true,
 		EmailVerified: true,
 		CSRFToken:     "csrf-acct",
-	})
+	}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering AccountSettings component: %v", err)
+	}
+	html := buf.String()
 	requireContainsAll(t, html,
-		"<!DOCTYPE html>",
+		"<!doctype html>",
 		"<title>Account Settings</title>",
 		"Password updated",
 		"bob",
@@ -180,8 +219,49 @@ func TestPageTemplatesRenderAccountSettings(t *testing.T) {
 		"Bob Bobson",
 		`name="csrf_token" value="csrf-acct"`,
 		"Enabled", // MFA enabled badge
+		`action="/oauth/mfa-disable"`,
 		"Danger Zone",
+		`action="/oauth/deactivate-account"`,
 	)
+	if strings.Contains(html, "Account Deactivated") {
+		t.Errorf("active account should not render the deactivated section")
+	}
+	if strings.Contains(html, "Enable Two-Factor Authentication") {
+		t.Errorf("MFA-enabled account should not render the enable-MFA link")
+	}
+	if strings.Contains(html, "not verified") {
+		t.Errorf("verified email should not render the verification prompt")
+	}
+
+	// Opposite branches: MFA disabled, account inactive, email unverified.
+	buf.Reset()
+	err = views.AccountSettings(views.AccountSettingsView{
+		Username:      "carol",
+		Email:         "carol@example.com",
+		IsInactive:    true,
+		MfaEnabled:    false,
+		EmailVerified: false,
+		CSRFToken:     "csrf-acct-2",
+	}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering AccountSettings component: %v", err)
+	}
+	html = buf.String()
+	requireContainsAll(t, html,
+		"Unverified",
+		"Your email address is not verified",
+		`action="/oauth/resend-verification"`,
+		"Enable Two-Factor Authentication",
+		"Account Deactivated",
+		`action="/oauth/reactivate-account"`,
+		"Not set", // no Name set
+	)
+	if strings.Contains(html, "Danger Zone") {
+		t.Errorf("inactive account should not render the danger-zone/deactivate section")
+	}
+	if strings.Contains(html, `action="/oauth/mfa-disable"`) {
+		t.Errorf("MFA-disabled account should not render the disable-MFA form")
+	}
 }
 
 // TestPageTemplatesRenderChangePassword covers the change-password page, which
@@ -249,43 +329,83 @@ func TestPageTemplatesRenderChangeEmail(t *testing.T) {
 	)
 }
 
+// TestPageTemplatesRenderMFA covers the login-time MFA challenge page, which
+// has been migrated from html/template to a templ component (pkg/views). It
+// verifies the OAuth hidden fields (including the joined scope) and the
+// pending_id hidden field carry through unchanged.
 func TestPageTemplatesRenderMFA(t *testing.T) {
-	html := render(t, "mfa.html", MFAPageData{
+	var buf bytes.Buffer
+	err := views.MFA(views.MFAView{
 		Error:               "Invalid code",
 		PendingID:           "pending-123",
 		ClientID:            "client-abc",
 		RedirectURI:         "https://example.com/cb",
 		State:               "state-9",
-		Scope:               []string{"openid"},
+		Scope:               []string{"openid", "profile"},
 		CodeChallenge:       "chal",
 		CodeChallengeMethod: "S256",
 		Nonce:               "nonce-9",
 		CSRFToken:           "csrf-mfa",
-	})
+	}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering MFA component: %v", err)
+	}
+	html := buf.String()
 	requireContainsAll(t, html,
-		"<!DOCTYPE html>",
+		"<!doctype html>",
 		"<title>Two-Factor Authentication</title>",
 		`action="/oauth/mfa"`,
 		`name="csrf_token" value="csrf-mfa"`,
 		"Invalid code",
-		"pending-123",
+		`name="pending_id" value="pending-123"`,
+		`name="client_id" value="client-abc"`,
+		`name="redirect_uri" value="https://example.com/cb"`,
+		`name="state" value="state-9"`,
+		`name="scope" value="openid profile"`,
+		`name="code_challenge" value="chal"`,
+		`name="code_challenge_method" value="S256"`,
+		`name="nonce" value="nonce-9"`,
 	)
 }
 
+// TestPageTemplatesRenderMFASetup covers the MFA enrollment page, which has
+// been migrated from html/template to a templ component (pkg/views). The
+// critical assertion is that the QR code's data: URI src renders intact -
+// templ's default URL sanitizer (templ.URL) rejects the "data:" scheme and
+// would otherwise replace it with "about:invalid#TemplFailedSanitizationURL";
+// the component works around this with templ.SafeURL.
 func TestPageTemplatesRenderMFASetup(t *testing.T) {
-	html := render(t, "mfa-setup.html", MFASetupPageData{
+	var buf bytes.Buffer
+	err := views.MFASetup(views.MFASetupView{
 		QRCode:    "ZmFrZS1xci1kYXRh",
 		Secret:    "JBSWY3DPEHPK3PXP",
 		CSRFToken: "csrf-mfasetup",
-	})
+	}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering MFASetup component: %v", err)
+	}
+	html := buf.String()
 	requireContainsAll(t, html,
-		"<!DOCTYPE html>",
+		"<!doctype html>",
 		"<title>Set Up Two-Factor Authentication</title>",
 		`action="/oauth/mfa-setup"`,
 		`name="csrf_token" value="csrf-mfasetup"`,
-		"data:image/png;base64,ZmFrZS1xci1kYXRh",
+		`src="data:image/png;base64,ZmFrZS1xci1kYXRh"`,
 		"JBSWY3DPEHPK3PXP",
 	)
+	if strings.Contains(html, "about:invalid") {
+		t.Errorf("QR code data URI was sanitized away; expected the raw data: URI, got:\n%s", html)
+	}
+
+	// No QR code: the QR/secret block should not render at all.
+	buf.Reset()
+	err = views.MFASetup(views.MFASetupView{CSRFToken: "csrf-mfasetup-2"}).Render(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("rendering MFASetup component: %v", err)
+	}
+	if strings.Contains(buf.String(), "data:image/png;base64,") {
+		t.Errorf("expected no QR image when .QRCode is empty")
+	}
 }
 
 // TestPageTemplatesRenderForgotPassword covers the forgot-password page, which
@@ -462,14 +582,11 @@ func TestPageTemplatesAllHaveFooterAndDoctype(t *testing.T) {
 		data any
 	}{
 		{"login.html", LoginPageData{CSRFToken: "t"}},
-		{"error.html", ErrorPageData{}},
-		{"account-settings.html", AccountSettingsPageData{CSRFToken: "t"}},
 		// change-password, change-username, change-email, edit-profile,
 		// forgot-password, forgot-username, reset-password, register,
-		// change-avatar, and success are templ components now (see their
-		// dedicated TestPageTemplatesRender* tests).
-		{"mfa.html", MFAPageData{CSRFToken: "t"}},
-		{"mfa-setup.html", MFASetupPageData{CSRFToken: "t"}},
+		// change-avatar, success, error, account-settings, mfa, and
+		// mfa-setup are templ components now (see their dedicated
+		// TestPageTemplatesRender* tests).
 		{"consent.html", ConsentPageData{CSRFToken: "t"}},
 	}
 	for _, p := range pages {

@@ -20,21 +20,17 @@ import (
 )
 
 type Server struct {
-	config                  *config.Config
-	datastore               *store.Store
-	router                  chi.Router
-	httpServer              *http.Server
-	cleanupCancel           context.CancelFunc
-	rateLimitStore          *rateLimitStore
-	jwtGenerator            *jwt.Generator
-	emailSender             email.Sender
-	avatarService           *avatar.Service
-	loginTemplate           *template.Template
-	errorTemplate           *template.Template
-	accountSettingsTemplate *template.Template
-	mfaTemplate             *template.Template
-	mfaSetupTemplate        *template.Template
-	consentTemplate         *template.Template
+	config          *config.Config
+	datastore       *store.Store
+	router          chi.Router
+	httpServer      *http.Server
+	cleanupCancel   context.CancelFunc
+	rateLimitStore  *rateLimitStore
+	jwtGenerator    *jwt.Generator
+	emailSender     email.Sender
+	avatarService   *avatar.Service
+	loginTemplate   *template.Template
+	consentTemplate *template.Template
 }
 
 // mustParsePageTemplate parses a page template together with the shared
@@ -60,10 +56,6 @@ func mustParsePageTemplate(templatesDir, page string) *template.Template {
 func New(config *config.Config, datastore *store.Store, emailSender email.Sender, storageProvider storage.Storage) *Server {
 	r := chi.NewRouter()
 	loginTemplate := mustParsePageTemplate(config.TemplatesDir, "login.html")
-	errorTemplate := mustParsePageTemplate(config.TemplatesDir, "error.html")
-	accountSettingsTemplate := mustParsePageTemplate(config.TemplatesDir, "account-settings.html")
-	mfaTemplate := mustParsePageTemplate(config.TemplatesDir, "mfa.html")
-	mfaSetupTemplate := mustParsePageTemplate(config.TemplatesDir, "mfa-setup.html")
 	consentTemplate := mustParsePageTemplate(config.TemplatesDir, "consent.html")
 
 	r.Use(middleware.RequestID)
@@ -105,19 +97,15 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 	}
 
 	s := &Server{
-		config:                  config,
-		datastore:               datastore,
-		router:                  r,
-		rateLimitStore:          rateLimitStore,
-		jwtGenerator:            jwtGen,
-		emailSender:             emailSender,
-		avatarService:           avatar.NewService(storageProvider),
-		loginTemplate:           loginTemplate,
-		errorTemplate:           errorTemplate,
-		accountSettingsTemplate: accountSettingsTemplate,
-		mfaTemplate:             mfaTemplate,
-		mfaSetupTemplate:        mfaSetupTemplate,
-		consentTemplate:         consentTemplate,
+		config:          config,
+		datastore:       datastore,
+		router:          r,
+		rateLimitStore:  rateLimitStore,
+		jwtGenerator:    jwtGen,
+		emailSender:     emailSender,
+		avatarService:   avatar.NewService(storageProvider),
+		loginTemplate:   loginTemplate,
+		consentTemplate: consentTemplate,
 	}
 	s.registerRoutes()
 

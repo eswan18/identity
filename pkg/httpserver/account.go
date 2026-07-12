@@ -78,7 +78,7 @@ func (s *Server) HandleAccountSettingsGet(w http.ResponseWriter, r *http.Request
 	}
 	displayName := strings.Join(nameParts, " ")
 
-	s.renderAccountSettings(w, r, AccountSettingsPageData{
+	s.renderAccountSettings(w, r, views.AccountSettingsView{
 		Username:      user.Username,
 		Email:         user.Email,
 		Name:          displayName,
@@ -495,9 +495,9 @@ func (s *Server) renderChangePasswordError(w http.ResponseWriter, r *http.Reques
 // into the page data so every form on it (deactivate/reactivate/logout/mfa-disable/
 // resend-verification) submits a valid token. Centralizing this keeps the token
 // consistent across the many render sites in the account handlers.
-func (s *Server) renderAccountSettings(w http.ResponseWriter, r *http.Request, data AccountSettingsPageData) {
+func (s *Server) renderAccountSettings(w http.ResponseWriter, r *http.Request, data views.AccountSettingsView) {
 	data.CSRFToken = s.ensureCSRFToken(w, r)
-	if err := s.accountSettingsTemplate.Execute(w, data); err != nil {
+	if err := views.AccountSettings(data).Render(r.Context(), w); err != nil {
 		log.Printf("[ERROR] renderAccountSettings: Failed to render account settings page: %v", err)
 	}
 }
@@ -564,7 +564,7 @@ func (s *Server) HandleDeactivateAccountPost(w http.ResponseWriter, r *http.Requ
 
 	// Validate that password is provided
 	if password == "" {
-		s.renderAccountSettings(w, r, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, views.AccountSettingsView{
 			Username: user.Username,
 			Email:    user.Email,
 			Error:    "Password is required to deactivate your account",
@@ -576,7 +576,7 @@ func (s *Server) HandleDeactivateAccountPost(w http.ResponseWriter, r *http.Requ
 	valid, err := auth.VerifyPassword(password, user.PasswordHash)
 	if err != nil {
 		log.Printf("[ERROR] HandleDeactivateAccountPost: Failed to verify password: %v", err)
-		s.renderAccountSettings(w, r, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, views.AccountSettingsView{
 			Username: user.Username,
 			Email:    user.Email,
 			Error:    "An error occurred",
@@ -585,7 +585,7 @@ func (s *Server) HandleDeactivateAccountPost(w http.ResponseWriter, r *http.Requ
 	}
 	if !valid {
 		w.WriteHeader(http.StatusUnauthorized)
-		s.renderAccountSettings(w, r, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, views.AccountSettingsView{
 			Username: user.Username,
 			Email:    user.Email,
 			Error:    "Password is incorrect",
@@ -597,7 +597,7 @@ func (s *Server) HandleDeactivateAccountPost(w http.ResponseWriter, r *http.Requ
 	err = s.datastore.Q.DeactivateUser(r.Context(), user.ID)
 	if err != nil {
 		log.Printf("[ERROR] HandleDeactivateAccountPost: Failed to deactivate user: %v", err)
-		s.renderAccountSettings(w, r, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, views.AccountSettingsView{
 			Username: user.Username,
 			Email:    user.Email,
 			Error:    "An error occurred while deactivating your account",
@@ -658,7 +658,7 @@ func (s *Server) HandleReactivateAccountPost(w http.ResponseWriter, r *http.Requ
 
 	// Validate that password is provided
 	if password == "" {
-		s.renderAccountSettings(w, r, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, views.AccountSettingsView{
 			Username:   user.Username,
 			Email:      user.Email,
 			IsInactive: !user.IsActive,
@@ -671,7 +671,7 @@ func (s *Server) HandleReactivateAccountPost(w http.ResponseWriter, r *http.Requ
 	valid, err := auth.VerifyPassword(password, user.PasswordHash)
 	if err != nil {
 		log.Printf("[ERROR] HandleReactivateAccountPost: Failed to verify password: %v", err)
-		s.renderAccountSettings(w, r, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, views.AccountSettingsView{
 			Username:   user.Username,
 			Email:      user.Email,
 			IsInactive: !user.IsActive,
@@ -681,7 +681,7 @@ func (s *Server) HandleReactivateAccountPost(w http.ResponseWriter, r *http.Requ
 	}
 	if !valid {
 		w.WriteHeader(http.StatusUnauthorized)
-		s.renderAccountSettings(w, r, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, views.AccountSettingsView{
 			Username:   user.Username,
 			Email:      user.Email,
 			IsInactive: !user.IsActive,
@@ -694,7 +694,7 @@ func (s *Server) HandleReactivateAccountPost(w http.ResponseWriter, r *http.Requ
 	err = s.datastore.Q.ReactivateUser(r.Context(), user.ID)
 	if err != nil {
 		log.Printf("[ERROR] HandleReactivateAccountPost: Failed to reactivate user: %v", err)
-		s.renderAccountSettings(w, r, AccountSettingsPageData{
+		s.renderAccountSettings(w, r, views.AccountSettingsView{
 			Username:   user.Username,
 			Email:      user.Email,
 			IsInactive: !user.IsActive,

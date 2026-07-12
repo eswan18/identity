@@ -171,12 +171,12 @@ func (s *Server) renderRegisterError(w http.ResponseWriter, r *http.Request, sta
 	}).Render(r.Context(), w)
 	if err != nil {
 		// Fallback to error template if register template fails
-		err = s.errorTemplate.Execute(w, ErrorPageData{
+		err = views.Error(views.ErrorView{
 			Title:     "Internal Server Error",
 			Message:   "An error occurred while rendering the registration page",
 			Details:   err.Error(),
 			ErrorCode: "500",
-		})
+		}).Render(r.Context(), w)
 		if err != nil {
 			// Last resort: plain text error
 			http.Error(w, "An error occurred while rendering the error page", http.StatusInternalServerError)
