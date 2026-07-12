@@ -77,6 +77,18 @@ func (s *Server) registerRoutes() {
 		// GET is a safe method anyway. The POST form variant lives in the CSRF group.
 		r.Get("/logout", s.HandleLogout)
 
+		// Change avatar upload (POST only). Registered here, ahead of the CSRF
+		// group below, with its own explicit middleware chain - maxAvatarUploadBytes,
+		// THEN csrfMiddleware, THEN requireActiveUser - specifically so the
+		// request-body size cap in maxAvatarUploadBytes takes effect before
+		// csrfMiddleware's r.FormValue call, which would otherwise trigger an
+		// unbounded multipart parse of this route's multipart/form-data body
+		// first. See maxAvatarUploadBytes in middleware.go for the full
+		// explanation. The GET variant has no body to bound, so it stays in the
+		// CSRF group below like every other account route.
+		r.With(s.maxAvatarUploadBytes, s.csrfMiddleware, s.requireActiveUser).
+			Post("/change-avatar", s.HandleChangeAvatarPost)
+
 		// --- Browser, session-cookie form endpoints (CSRF protected) ---
 		// Every state-changing POST here is driven by a server-rendered HTML form
 		// authenticated by the session_id cookie, so it is vulnerable to CSRF and is
@@ -132,9 +144,10 @@ func (s *Server) registerRoutes() {
 				// Edit profile
 				r.Get("/edit-profile", s.HandleEditProfileGet)
 				r.Post("/edit-profile", s.HandleEditProfilePost)
-				// Change avatar
+				// Change avatar (GET only here; the POST upload is registered
+				// separately above, ahead of this CSRF group - see the comment
+				// by that registration for why).
 				r.Get("/change-avatar", s.HandleChangeAvatarGet)
-				r.Post("/change-avatar", s.HandleChangeAvatarPost)
 				r.Post("/delete-avatar", s.HandleDeleteAvatarPost)
 				// MFA setup / disable (post-auth account operations)
 				r.Get("/mfa-setup", s.HandleMFASetupGet)

@@ -19,8 +19,25 @@ import (
 )
 
 const (
-	// MaxAvatarSize is the maximum file size for avatar uploads (5MB).
+	// MaxAvatarSize is the maximum file size for avatar uploads (5MB). This is
+	// the application-level image size cap, enforced by Upload below.
 	MaxAvatarSize = 5 * 1024 * 1024
+	// MaxAvatarRequestBodySize is the hard ceiling placed on the raw HTTP
+	// request body of an avatar upload (multipart/form-data), via
+	// http.MaxBytesReader, BEFORE any multipart parsing happens. It is
+	// intentionally larger than MaxAvatarSize so that:
+	//   - legitimate uploads (a ~5MB image, plus multipart boundaries/headers
+	//     and the small csrf_token form field) are never rejected by the
+	//     network-level cap, and
+	//   - uploads that are moderately over MaxAvatarSize still reach the
+	//     friendlier, more specific "File size exceeds the maximum of 5MB"
+	//     validation error from Upload below (a 200 response with an inline
+	//     error) instead of being hard-rejected by the network layer.
+	// Only requests that are drastically oversized (the actual DoS scenario
+	// this constant guards against: multi-megabyte-to-gigabyte bodies that
+	// would otherwise be spooled to memory/disk in full before any size check
+	// runs) are stopped here.
+	MaxAvatarRequestBodySize = 10 * 1024 * 1024
 	// AvatarSize is the target dimension for resized avatars.
 	AvatarSize = 256
 	// MaxImageDimension is the maximum width/height allowed to prevent decompression bombs.
