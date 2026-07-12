@@ -68,7 +68,15 @@ func (s *Server) registerRoutes() {
 		r.Post("/token", s.HandleOauthToken)
 		r.Post("/introspect", s.HandleIntrospect)
 		r.Post("/revoke", s.HandleOauthRevoke)
+		// OIDC Core §5.3 requires the UserInfo endpoint to accept both GET and
+		// POST. Both share HandleOauthUserInfo (the header/form token
+		// resolution lives in the handler); POST stays in this
+		// machine-endpoints section, NOT the CSRF group below, because it is
+		// Bearer-authenticated (or, for POST, a form-encoded access_token per
+		// RFC 6750 §2.2) rather than session-cookie authenticated - putting it
+		// in the CSRF group would wrongly demand a csrf_token from API clients.
 		r.Get("/userinfo", s.HandleOauthUserInfo)
+		r.Post("/userinfo", s.HandleOauthUserInfo)
 		r.Get("/success", s.HandleSuccess)
 		// Email verification link (GET, single-use token in the query string).
 		r.Get("/verify-email", s.HandleVerifyEmail)
