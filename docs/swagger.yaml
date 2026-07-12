@@ -39,21 +39,6 @@ definitions:
           $ref: '#/definitions/httpserver.UserResponse'
         type: array
     type: object
-  httpserver.TokenResponse:
-    properties:
-      access_token:
-        type: string
-      expires_in:
-        type: integer
-      id_token:
-        type: string
-      refresh_token:
-        type: string
-      scope:
-        type: string
-      token_type:
-        type: string
-    type: object
   httpserver.UserResponse:
     properties:
       created_at:
@@ -293,6 +278,10 @@ paths:
             type: string
         "401":
           description: Unauthorized - no valid session
+          schema:
+            type: string
+        "413":
+          description: Request body too large
           schema:
             type: string
       summary: Upload new avatar
@@ -863,44 +852,6 @@ paths:
       summary: Token introspection endpoint
       tags:
       - oauth2
-  /oauth/refresh:
-    post:
-      consumes:
-      - application/x-www-form-urlencoded
-      description: Exchanges a refresh token for new access and refresh tokens
-      parameters:
-      - description: Refresh token to exchange
-        in: formData
-        name: refresh_token
-        required: true
-        type: string
-      - description: OAuth client ID
-        in: formData
-        name: client_id
-        required: true
-        type: string
-      - description: OAuth client secret (required for confidential clients)
-        in: formData
-        name: client_secret
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Token response with access_token, token_type, expires_in, refresh_token,
-            and scope
-          schema:
-            $ref: '#/definitions/httpserver.TokenResponse'
-        "400":
-          description: OAuth2 error response (invalid_request, invalid_grant, invalid_client,
-            etc.)
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: OAuth2 refresh token endpoint
-      tags:
-      - oauth2
   /oauth/revoke:
     post:
       consumes:
@@ -998,8 +949,14 @@ paths:
             additionalProperties: true
             type: object
         "400":
-          description: OAuth2 error response (invalid_request, invalid_grant, invalid_client,
+          description: OAuth2 error response (invalid_request, invalid_grant, unsupported_grant_type,
             etc.)
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: OAuth2 error response (invalid_client)
           schema:
             additionalProperties:
               type: string
@@ -1012,12 +969,56 @@ paths:
       description: 'Returns user identity claims for the authenticated user. Claims
         are gated by scope per OIDC Core Section 5.4: "sub" is always returned; "email"
         and "email_verified" require the "email" scope; "username", "given_name",
-        "family_name", and "picture" require the "profile" scope.'
+        "family_name", and "picture" require the "profile" scope. Supports both GET
+        and POST per OIDC Core Section 5.3; on POST, the access token may alternatively
+        be sent as a form-encoded "access_token" parameter (RFC 6750 Section 2.2)
+        instead of the Authorization header.'
       parameters:
       - description: Bearer access token
         in: header
         name: Authorization
-        required: true
+        type: string
+      - description: Access token (POST form-encoded alternative to the Authorization
+          header)
+        in: formData
+        name: access_token
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: User identity claims (scope-dependent)
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized - invalid or missing access token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: OIDC UserInfo endpoint
+      tags:
+      - oidc
+    post:
+      description: 'Returns user identity claims for the authenticated user. Claims
+        are gated by scope per OIDC Core Section 5.4: "sub" is always returned; "email"
+        and "email_verified" require the "email" scope; "username", "given_name",
+        "family_name", and "picture" require the "profile" scope. Supports both GET
+        and POST per OIDC Core Section 5.3; on POST, the access token may alternatively
+        be sent as a form-encoded "access_token" parameter (RFC 6750 Section 2.2)
+        instead of the Authorization header.'
+      parameters:
+      - description: Bearer access token
+        in: header
+        name: Authorization
+        type: string
+      - description: Access token (POST form-encoded alternative to the Authorization
+          header)
+        in: formData
+        name: access_token
         type: string
       produces:
       - application/json
