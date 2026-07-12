@@ -34,7 +34,45 @@ func TestHandleOauthUserInfo_NoTokenReturns401(t *testing.T) {
 			if body["error"] != "invalid_token" {
 				t.Errorf("expected error invalid_token, got %q", body["error"])
 			}
+			// RFC 6750 §3: a Bearer-protected resource returning 401 SHOULD include
+			// a WWW-Authenticate header, using the Bearer scheme (not the Basic
+			// scheme used by the token/introspect/revoke client-auth endpoints),
+			// and it should agree with the JSON body's error/error_description.
+			wantAuth := `Bearer error="invalid_token", error_description="Missing or invalid Authorization header"`
+			if got := rec.Header().Get("WWW-Authenticate"); got != wantAuth {
+				t.Errorf("WWW-Authenticate = %q, want %q", got, wantAuth)
+			}
 		})
+	}
+}
+
+// TestHandleOauthUserInfo_InvalidTokenReturns401WithBearerChallenge verifies that
+// a syntactically-invalid/unparseable bearer token (which fails JWT validation
+// before any database lookup, so this is hermetically testable without a real
+// Postgres connection) also gets the RFC 6750 §3 WWW-Authenticate header, with
+// the Bearer scheme and an error/error_description matching the JSON body.
+func TestHandleOauthUserInfo_InvalidTokenReturns401WithBearerChallenge(t *testing.T) {
+	s := newHermeticTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/oauth/userinfo", nil)
+	req.Header.Set("Authorization", "Bearer not-a-valid-jwt")
+	rec := httptest.NewRecorder()
+
+	s.HandleOauthUserInfo(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to unmarshal response body: %v", err)
+	}
+	if body["error"] != "invalid_token" {
+		t.Errorf("expected error invalid_token, got %q", body["error"])
+	}
+	wantAuth := `Bearer error="invalid_token", error_description="Invalid or expired access token"`
+	if got := rec.Header().Get("WWW-Authenticate"); got != wantAuth {
+		t.Errorf("WWW-Authenticate = %q, want %q", got, wantAuth)
 	}
 }
 

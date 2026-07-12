@@ -105,6 +105,44 @@ func (s *OAuthFlowSuite) TestAuthorizeInvalidScopeRedirectsErrorToClient() {
 	s.Equal(scv.State, location.Query().Get("state"))
 }
 
+// TestAuthorizeErrorRedirectOmitsStateWhenNotSupplied is a regression test for
+// RFC 6749 §4.1.2.1: state is only returned to the client if it was present in
+// the authorization request. Previously the authorize error redirect always set
+// "state" (even to an empty string) via q.Set("state", state), which produced a
+// bogus "state=" in the redirect URL when the client never sent one.
+func (s *OAuthFlowSuite) TestAuthorizeErrorRedirectOmitsStateWhenNotSupplied() {
+	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
+		ClientID:       "authz-error-no-state-client",
+		Name:           "Authz Error No State Client",
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid"},
+		IsConfidential: false,
+		Audience:       "test-audience",
+	})
+	scv := s.mustCreateStateAndCodeVerifier()
+
+	// Request a scope the client doesn't support, without sending "state" at all.
+	query := url.Values{
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {"http://localhost:8080/callback"},
+		"response_type":         {"code"},
+		"scope":                 {"openid admin:users:read"},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	}
+	resp, err := httpClient.Get("http://localhost:8080/oauth/authorize?" + query.Encode())
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	s.Equal(http.StatusFound, resp.StatusCode)
+	location, err := url.Parse(resp.Header.Get("Location"))
+	s.Require().NoError(err)
+	s.Equal("/callback", location.Path)
+	s.Equal("invalid_scope", location.Query().Get("error"))
+	_, hasState := location.Query()["state"]
+	s.False(hasState, "state must be omitted from the redirect when the client did not supply it, got query %q", location.RawQuery)
+}
+
 func (s *OAuthFlowSuite) TestAuthorizeMissingPKCERedirectsErrorToClient() {
 	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
 		ClientID:       "authz-error-pkce-client",
@@ -290,6 +328,44 @@ func (s *OAuthFlowSuite) TestConsentApproveGeneratesCode() {
 	s.Equal("/callback", location.Path)
 	s.NotEmpty(location.Query().Get("code"), "should have authorization code")
 	s.Equal(scv.State, location.Query().Get("state"))
+}
+
+// TestConsentApproveOmitsStateWhenNotSupplied is a regression test for RFC 6749
+// §4.1.2: the successful authorization-code redirect must only include "state"
+// if the client's original request included it. Previously the consent-approve
+// redirect always set "state" (even to an empty string) via
+// q.Set("state", state), producing a bogus "state=" when the client never sent one.
+func (s *OAuthFlowSuite) TestConsentApproveOmitsStateWhenNotSupplied() {
+	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
+		ClientID:       "consent-approve-no-state-client",
+		Name:           "Consent Approve No State App",
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "test-audience",
+	})
+	scv := s.mustCreateStateAndCodeVerifier()
+
+	// POST consent approval without a "state" field at all.
+	resp, err := csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/consent", url.Values{
+		"decision":              {"allow"},
+		"client_id":             {client.ClientID},
+		"redirect_uri":          {"http://localhost:8080/callback"},
+		"response_type":         {"code"},
+		"scope":                 {"openid profile email"},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	})
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	s.Equal(http.StatusFound, resp.StatusCode)
+	location, err := url.Parse(resp.Header.Get("Location"))
+	s.Require().NoError(err)
+	s.Equal("/callback", location.Path)
+	s.NotEmpty(location.Query().Get("code"), "should have authorization code")
+	_, hasState := location.Query()["state"]
+	s.False(hasState, "state must be omitted from the redirect when the client did not supply it, got query %q", location.RawQuery)
 }
 
 func (s *OAuthFlowSuite) TestConsentDenyRedirectsWithError() {

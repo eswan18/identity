@@ -9,8 +9,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/eswan18/identity/pkg/db"
+	"github.com/google/uuid"
 )
 
 func (s *OAuthFlowSuite) TestTokenIntrospectionAccessToken() {
@@ -171,6 +173,67 @@ func (s *OAuthFlowSuite) TestTokenIntrospectionRefreshToken() {
 	s.Equal(user.ID.String(), introspectResponse["sub"])
 	s.Equal("openid profile email", introspectResponse["scope"])
 	s.Equal("refresh_token", introspectResponse["token_type"])
+}
+
+// TestTokenIntrospectionRefreshTokenNonExpiringOmitsExp is a regression test for
+// RFC 7662: "exp" should only be present in an introspection response when the
+// token actually has an expiration. RefreshExpiresAt is a nullable DB column —
+// NULL represents a non-expiring refresh token — so introspecting one must not
+// synthesize a bogus "exp" from the zero-value time. The normal token-issuance
+// flow (via /oauth/token) always populates RefreshExpiresAt, so this test
+// inserts a token row directly to exercise the non-expiring case.
+func (s *OAuthFlowSuite) TestTokenIntrospectionRefreshTokenNonExpiringOmitsExp() {
+	clientSecret := s.mustGenerateRandomString(32)
+	introspectClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid"},
+		IsConfidential: true,
+		Audience:       "http://localhost:8000",
+	})
+
+	user := s.mustRegisterUser(
+		s.mustGenerateRandomString(8),
+		s.mustGenerateRandomString(8),
+		fmt.Sprintf("%s@example.com", s.mustGenerateRandomString(8)),
+	)
+
+	refreshToken := s.mustGenerateRandomString(32)
+	_, err := s.datastore.Q.InsertToken(s.T().Context(), db.InsertTokenParams{
+		AccessToken:      sql.NullString{String: s.mustGenerateRandomString(32), Valid: true},
+		RefreshToken:     sql.NullString{String: refreshToken, Valid: true},
+		UserID:           uuid.NullUUID{UUID: user.ID, Valid: true},
+		ClientID:         introspectClient.ID,
+		Scope:            []string{"openid"},
+		TokenType:        sql.NullString{String: "Bearer", Valid: true},
+		ExpiresAt:        time.Now().Add(time.Hour),
+		RefreshExpiresAt: sql.NullTime{Valid: false}, // non-expiring refresh token
+	})
+	s.Require().NoError(err)
+
+	introspectValues := url.Values{
+		"token":           {refreshToken},
+		"token_type_hint": {"refresh_token"},
+		"client_id":       {introspectClient.ClientID},
+		"client_secret":   {clientSecret},
+	}
+	resp, err := s.httpClient.PostForm("http://localhost:8080/oauth/introspect", introspectValues)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+
+	var introspectResponse map[string]interface{}
+	err = json.Unmarshal(body, &introspectResponse)
+	s.Require().NoError(err)
+
+	s.True(introspectResponse["active"].(bool), "non-expiring refresh token should be active")
+	_, hasExp := introspectResponse["exp"]
+	s.False(hasExp, "exp must be omitted for a non-expiring refresh token, got %v", introspectResponse["exp"])
 }
 
 func (s *OAuthFlowSuite) TestTokenIntrospectionInvalidToken() {
