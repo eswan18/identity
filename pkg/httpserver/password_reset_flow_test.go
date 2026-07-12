@@ -93,17 +93,23 @@ func (s *OAuthFlowSuite) TestPasswordResetFlow() {
 	defer resp.Body.Close()
 	s.Equal(http.StatusOK, resp.StatusCode)
 
-	// Get the token from the database (in real scenario, user would get it from email)
-	tokens, err := s.datastore.DB.QueryContext(s.T().Context(),
-		"SELECT token_hash FROM auth_email_tokens WHERE user_id = $1 AND token_type = 'password_reset' ORDER BY created_at DESC LIMIT 1",
-		user.ID)
-	s.Require().NoError(err)
-	defer tokens.Close()
-
-	s.True(tokens.Next(), "should have a password reset token")
+	// HandleForgotPasswordPost now dispatches token generation, storage, and
+	// email-send to a background goroutine so that the HTTP response (above)
+	// returns at the same latency regardless of whether the account exists -
+	// this closes a timing side-channel that used to leak account existence.
+	// That means the token row is not guaranteed to exist the instant the
+	// response comes back, so poll for it briefly instead of asserting it's
+	// there on the first read. In steady state the goroutine finishes in
+	// microseconds (local Postgres, no real network call in tests), so this
+	// polls a handful of times at most; the 5s ceiling is just a generous
+	// backstop against CI slowness, not the expected wait.
 	var storedHash string
-	err = tokens.Scan(&storedHash)
-	s.Require().NoError(err)
+	s.Require().Eventually(func() bool {
+		row := s.datastore.DB.QueryRowContext(s.T().Context(),
+			"SELECT token_hash FROM auth_email_tokens WHERE user_id = $1 AND token_type = 'password_reset' ORDER BY created_at DESC LIMIT 1",
+			user.ID)
+		return row.Scan(&storedHash) == nil
+	}, 5*time.Second, 20*time.Millisecond, "password reset token should eventually be created by the background goroutine")
 
 	// Generate a token that hashes to the stored hash (we need the raw token)
 	// Since we can't reverse the hash, we'll create a new token for testing
