@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/eswan18/identity/pkg/avatar"
 	"github.com/eswan18/identity/pkg/db"
 )
 
@@ -53,5 +54,48 @@ func (s *Server) requireUserWith(next http.Handler, lookup func(*http.Request) (
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(contextWithUser(r.Context(), user)))
+	})
+}
+
+// maxAvatarUploadBytes bounds the raw HTTP request body of a change-avatar
+// upload to avatar.MaxAvatarRequestBodySize BEFORE any form parsing occurs, and
+// eagerly parses the multipart form so that bound is actually enforced at this
+// point in the middleware chain rather than later.
+//
+// Why this has to run here, ahead of csrfMiddleware:
+//
+// POST /oauth/change-avatar sits behind csrfMiddleware (see routes.go), which
+// calls r.FormValue(csrfFormField) to read the csrf_token field. Because this
+// route's content type is multipart/form-data, that FormValue call triggers
+// r.ParseMultipartForm(32<<20) internally (Go's default). The "maxMemory"
+// argument to ParseMultipartForm is NOT an overall body-size limit - it only
+// controls how much of the body is buffered in memory before the rest is
+// spooled to a temporary file on disk. Without a cap on r.Body itself, a
+// client can POST a multi-gigabyte body to this route and csrfMiddleware's
+// implicit parse (or, previously, the handler's own ParseMultipartForm call)
+// will read and spool the entire thing to disk before any size check - the
+// handler's 5MB avatar.MaxAvatarSize check included - ever runs. That is the
+// DoS this middleware closes.
+//
+// Wrapping r.Body in http.MaxBytesReader and forcing the parse here, ahead of
+// csrfMiddleware in the chain (see the r.With(...) registration in
+// routes.go), makes the limit bind on the very first parse of the body,
+// whoever triggers it. If the body is within bounds, ParseMultipartForm
+// succeeds and caches the result on the request (r.MultipartForm), so both
+// csrfMiddleware's later FormValue call and the handler's own
+// ParseMultipartForm call are cheap no-ops against the already-parsed form -
+// including the csrf_token field, which parses normally since the bound
+// leaves it comfortably room (see avatar.MaxAvatarRequestBodySize). If the
+// body exceeds the limit, ParseMultipartForm returns an error and we respond
+// immediately with 413, before the CSRF check or the handler ever run.
+func (s *Server) maxAvatarUploadBytes(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, avatar.MaxAvatarRequestBodySize)
+		if err := r.ParseMultipartForm(avatar.MaxAvatarRequestBodySize); err != nil {
+			s.renderError(w, http.StatusRequestEntityTooLarge, "File Too Large",
+				"The file you uploaded is too large. Maximum upload size is 5MB.", "")
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }

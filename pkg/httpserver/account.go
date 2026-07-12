@@ -744,6 +744,7 @@ func (s *Server) HandleChangeAvatarGet(w http.ResponseWriter, r *http.Request) {
 // @Success      200 {string} string "HTML change avatar page with success message"
 // @Failure      400 {string} string "Invalid request - invalid file"
 // @Failure      401 {string} string "Unauthorized - no valid session"
+// @Failure      413 {string} string "Request body too large"
 // @Router       /change-avatar [post]
 func (s *Server) HandleChangeAvatarPost(w http.ResponseWriter, r *http.Request) {
 	user, ok := userFromContext(r.Context())
@@ -752,8 +753,15 @@ func (s *Server) HandleChangeAvatarPost(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Parse multipart form with max file size
-	if err := r.ParseMultipartForm(avatar.MaxAvatarSize); err != nil {
+	// Parse multipart form with max file size. In normal operation the
+	// request body has already been bounded and parsed by maxAvatarUploadBytes
+	// (see middleware.go and routes.go), which runs earlier in the chain -
+	// before csrfMiddleware, even - specifically so an oversized body never
+	// reaches this handler (or csrfMiddleware's own implicit parse) unbounded.
+	// This call is therefore normally a cheap no-op against the
+	// already-parsed form; it's kept as defense in depth in case this handler
+	// is ever reached without going through that middleware.
+	if err := r.ParseMultipartForm(avatar.MaxAvatarRequestBodySize); err != nil {
 		s.renderChangeAvatar(w, r, ChangeAvatarPageData{
 			Error:     "File too large. Maximum size is 5MB.",
 			AvatarURL: user.Picture.String,
