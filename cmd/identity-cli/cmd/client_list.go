@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"text/tabwriter"
 
@@ -19,14 +18,11 @@ var clientListCmd = &cobra.Command{
 
 func runClientList(cmd *cobra.Command, args []string) error {
 	datastore := getDatastore()
-	if datastore == nil {
-		log.Fatal("Failed to get database connection")
-	}
 
 	ctx := context.Background()
 	clients, err := datastore.Q.ListOAuthClients(ctx)
 	if err != nil {
-		log.Fatalf("Failed to list OAuth clients: %v", err)
+		return fmt.Errorf("failed to list OAuth clients: %w", err)
 	}
 
 	if len(clients) == 0 {

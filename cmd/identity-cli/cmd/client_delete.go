@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 
@@ -36,16 +35,13 @@ func runClientDelete(cmd *cobra.Command, args []string) error {
 	clientID := args[0]
 
 	datastore := getDatastore()
-	if datastore == nil {
-		log.Fatal("Failed to get database connection")
-	}
 
 	ctx := context.Background()
 
 	// Get client to show what we're deleting
 	client, err := datastore.Q.GetOAuthClientByClientID(ctx, clientID)
 	if err != nil {
-		log.Fatalf("Failed to get OAuth client: %v", err)
+		return fmt.Errorf("failed to get OAuth client: %w", err)
 	}
 
 	// Confirm deletion unless --force
@@ -54,7 +50,7 @@ func runClientDelete(cmd *cobra.Command, args []string) error {
 		reader := bufio.NewReader(os.Stdin)
 		response, err := reader.ReadString('\n')
 		if err != nil {
-			log.Fatalf("Failed to read input: %v", err)
+			return fmt.Errorf("failed to read input: %w", err)
 		}
 		response = strings.TrimSpace(strings.ToLower(response))
 		if response != "y" && response != "yes" {
@@ -66,7 +62,7 @@ func runClientDelete(cmd *cobra.Command, args []string) error {
 	// Delete the client
 	err = datastore.Q.DeleteOAuthClient(ctx, clientID)
 	if err != nil {
-		log.Fatalf("Failed to delete OAuth client: %v", err)
+		return fmt.Errorf("failed to delete OAuth client: %w", err)
 	}
 
 	fmt.Printf("\n✅ OAuth client '%s' (%s) deleted successfully!\n\n", client.Name, clientID)
