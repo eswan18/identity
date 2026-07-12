@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
@@ -17,6 +18,12 @@ import (
 const (
 	passwordResetTokenTTL = 1 * time.Hour
 	passwordResetTokenLen = 32 // bytes
+
+	// asyncMailWorkTimeout bounds the background token-generation/store/email-send
+	// work kicked off by HandleForgotPasswordPost and HandleForgotUsernamePost. It
+	// must be independent of the request context, which is cancelled the moment the
+	// handler returns the unified response to the client.
+	asyncMailWorkTimeout = 30 * time.Second
 )
 
 // generateResetToken generates a cryptographically secure random token
@@ -81,7 +88,11 @@ func (s *Server) HandleForgotPasswordPost(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Always show success message to prevent email enumeration
+	// Always show success message to prevent email enumeration. This response
+	// must be returned identically (same status, same body, roughly the same
+	// latency) whether or not an account exists for emailAddr - see the
+	// goroutine dispatch below for why the account-exists case doesn't do any
+	// of its work inline.
 	successMsg := "If an account with that email exists, we've sent a password reset link."
 
 	// Look up user by email
@@ -95,34 +106,59 @@ func (s *Server) HandleForgotPasswordPost(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// The account exists. Generating the token, storing its hash, and sending
+	// the email are all deferred to a background goroutine so that this
+	// request returns the same unified response at the same latency as the
+	// "account not found" branch above - doing this work inline would let an
+	// attacker distinguish existing from non-existing accounts purely by
+	// response time, and any failure here would otherwise have to surface as
+	// a distinct error response, leaking existence a second way.
+	//
+	// The goroutine must not use r.Context(): that context is cancelled as
+	// soon as this handler returns, which happens immediately after this
+	// point, and would abort the DB write / email send mid-flight. Instead it
+	// gets its own detached context with a bounded timeout. Only plain values
+	// (userID, username, emailAddr, issuer) are captured, not any
+	// request-scoped mutable state.
+	go s.sendPasswordResetEmailAsync(user.ID, emailAddr)
+
+	s.renderForgotPassword(w, r, ForgotPasswordPageData{
+		Success: successMsg,
+	})
+}
+
+// sendPasswordResetEmailAsync generates a password reset token, stores its
+// hash, and emails the reset link. It runs in a background goroutine kicked
+// off by HandleForgotPasswordPost after the HTTP response has already been
+// sent, so it uses its own detached, timeout-bounded context rather than the
+// (by-then-cancelled) request context. Any failure is logged server-side
+// only: by design, nothing here can change what the client already saw.
+func (s *Server) sendPasswordResetEmailAsync(userID uuid.UUID, emailAddr string) {
+	ctx, cancel := context.WithTimeout(context.Background(), asyncMailWorkTimeout)
+	defer cancel()
+
 	// Generate token
 	rawToken, tokenHash, err := generateResetToken()
 	if err != nil {
-		log.Printf("[ERROR] HandleForgotPasswordPost: Failed to generate token: %v", err)
-		s.renderForgotPassword(w, r, ForgotPasswordPageData{
-			Error: "An error occurred. Please try again.",
-		})
+		log.Printf("[ERROR] HandleForgotPasswordPost: Failed to generate token for %s: %v", emailAddr, err)
 		return
 	}
 
 	// Store token hash in database
 	expiresAt := time.Now().Add(passwordResetTokenTTL)
-	err = s.datastore.Q.CreatePasswordResetToken(r.Context(), db.CreatePasswordResetTokenParams{
-		UserID:    user.ID,
+	err = s.datastore.Q.CreatePasswordResetToken(ctx, db.CreatePasswordResetTokenParams{
+		UserID:    userID,
 		TokenHash: tokenHash,
 		ExpiresAt: expiresAt,
 	})
 	if err != nil {
-		log.Printf("[ERROR] HandleForgotPasswordPost: Failed to store token: %v", err)
-		s.renderForgotPassword(w, r, ForgotPasswordPageData{
-			Error: "An error occurred. Please try again.",
-		})
+		log.Printf("[ERROR] HandleForgotPasswordPost: Failed to store token for %s: %v", emailAddr, err)
 		return
 	}
 
 	// Send password reset email
 	resetURL := fmt.Sprintf("%s/oauth/reset-password?token=%s", s.config.JWTIssuer, rawToken)
-	err = s.emailSender.Send(r.Context(), email.Message{
+	err = s.emailSender.Send(ctx, email.Message{
 		To:      emailAddr,
 		Subject: "Reset Your Password",
 		HTML: fmt.Sprintf(`
@@ -145,14 +181,11 @@ If you didn't request this, you can safely ignore this email.
 		`, resetURL),
 	})
 	if err != nil {
-		log.Printf("[ERROR] HandleForgotPasswordPost: Failed to send email: %v", err)
-		// Still show success to prevent enumeration, but log the error
+		log.Printf("[ERROR] HandleForgotPasswordPost: Failed to send email to %s: %v", emailAddr, err)
+		return
 	}
 
 	s.debugf("HandleForgotPasswordPost: Password reset email sent to %s", emailAddr)
-	s.renderForgotPassword(w, r, ForgotPasswordPageData{
-		Success: successMsg,
-	})
 }
 
 // HandleResetPasswordGet godoc
@@ -362,7 +395,9 @@ func (s *Server) HandleForgotUsernamePost(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Always show success message to prevent email enumeration
+	// Always show success message to prevent email enumeration. As with
+	// HandleForgotPasswordPost, this response must look and take the same
+	// time whether or not the account exists.
 	successMsg := "If an account with that email exists, we've sent your username."
 
 	// Look up user by email
@@ -376,8 +411,29 @@ func (s *Server) HandleForgotUsernamePost(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Send username reminder email
-	err = s.emailSender.Send(r.Context(), email.Message{
+	// Send the username reminder in the background for the same reason
+	// HandleForgotPasswordPost defers its email send: keep the response
+	// timing and content identical to the account-not-found case, and never
+	// let an email-send failure surface as a different HTTP response. Uses a
+	// detached context since r.Context() is cancelled once this handler
+	// returns (which happens right after this call).
+	go s.sendUsernameReminderEmailAsync(user.Username, emailAddr)
+
+	s.renderForgotUsername(w, r, ForgotPasswordPageData{
+		Success: successMsg,
+	})
+}
+
+// sendUsernameReminderEmailAsync emails the username reminder. It runs in a
+// background goroutine kicked off by HandleForgotUsernamePost after the HTTP
+// response has already been sent, so it uses its own detached,
+// timeout-bounded context rather than the (by-then-cancelled) request
+// context. Failures are logged server-side only.
+func (s *Server) sendUsernameReminderEmailAsync(username, emailAddr string) {
+	ctx, cancel := context.WithTimeout(context.Background(), asyncMailWorkTimeout)
+	defer cancel()
+
+	err := s.emailSender.Send(ctx, email.Message{
 		To:      emailAddr,
 		Subject: "Your Username Reminder",
 		HTML: fmt.Sprintf(`
@@ -385,7 +441,7 @@ func (s *Server) HandleForgotUsernamePost(w http.ResponseWriter, r *http.Request
 			<p>You requested a reminder of your username for your account.</p>
 			<p>Your username is: <strong>%s</strong></p>
 			<p>If you didn't request this, you can safely ignore this email.</p>
-		`, user.Username),
+		`, username),
 		Text: fmt.Sprintf(`
 Username Reminder
 
@@ -394,15 +450,12 @@ You requested a reminder of your username for your account.
 Your username is: %s
 
 If you didn't request this, you can safely ignore this email.
-		`, user.Username),
+		`, username),
 	})
 	if err != nil {
-		log.Printf("[ERROR] HandleForgotUsernamePost: Failed to send email: %v", err)
-		// Still show success to prevent enumeration, but log the error
+		log.Printf("[ERROR] HandleForgotUsernamePost: Failed to send email to %s: %v", emailAddr, err)
+		return
 	}
 
 	s.debugf("HandleForgotUsernamePost: Username reminder email sent to %s", emailAddr)
-	s.renderForgotUsername(w, r, ForgotPasswordPageData{
-		Success: successMsg,
-	})
 }
