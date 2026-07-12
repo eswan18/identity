@@ -345,6 +345,12 @@ const docTemplate = `{
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    "413": {
+                        "description": "Request body too large",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 }
             }
@@ -1180,60 +1186,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/oauth/refresh": {
-            "post": {
-                "description": "Exchanges a refresh token for new access and refresh tokens",
-                "consumes": [
-                    "application/x-www-form-urlencoded"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "oauth2"
-                ],
-                "summary": "OAuth2 refresh token endpoint",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Refresh token to exchange",
-                        "name": "refresh_token",
-                        "in": "formData",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "OAuth client ID",
-                        "name": "client_id",
-                        "in": "formData",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "OAuth client secret (required for confidential clients)",
-                        "name": "client_secret",
-                        "in": "formData"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Token response with access_token, token_type, expires_in, refresh_token, and scope",
-                        "schema": {
-                            "$ref": "#/definitions/httpserver.TokenResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "OAuth2 error response (invalid_request, invalid_grant, invalid_client, etc.)",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/oauth/revoke": {
             "post": {
                 "description": "Revokes a specific access token or refresh token per RFC 7009. This is more granular than /logout which invalidates all user tokens - revoke can invalidate individual tokens.",
@@ -1373,7 +1325,16 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "OAuth2 error response (invalid_request, invalid_grant, invalid_client, etc.)",
+                        "description": "OAuth2 error response (invalid_request, invalid_grant, unsupported_grant_type, etc.)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "OAuth2 error response (invalid_client)",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1391,7 +1352,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns user identity claims for the authenticated user. Claims are gated by scope per OIDC Core Section 5.4: \"sub\" is always returned; \"email\" and \"email_verified\" require the \"email\" scope; \"username\", \"given_name\", \"family_name\", and \"picture\" require the \"profile\" scope.",
+                "description": "Returns user identity claims for the authenticated user. Claims are gated by scope per OIDC Core Section 5.4: \"sub\" is always returned; \"email\" and \"email_verified\" require the \"email\" scope; \"username\", \"given_name\", \"family_name\", and \"picture\" require the \"profile\" scope. Supports both GET and POST per OIDC Core Section 5.3; on POST, the access token may alternatively be sent as a form-encoded \"access_token\" parameter (RFC 6750 Section 2.2) instead of the Authorization header.",
                 "produces": [
                     "application/json"
                 ],
@@ -1404,8 +1365,60 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Bearer access token",
                         "name": "Authorization",
-                        "in": "header",
-                        "required": true
+                        "in": "header"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Access token (POST form-encoded alternative to the Authorization header)",
+                        "name": "access_token",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "User identity claims (scope-dependent)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized - invalid or missing access token",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns user identity claims for the authenticated user. Claims are gated by scope per OIDC Core Section 5.4: \"sub\" is always returned; \"email\" and \"email_verified\" require the \"email\" scope; \"username\", \"given_name\", \"family_name\", and \"picture\" require the \"profile\" scope. Supports both GET and POST per OIDC Core Section 5.3; on POST, the access token may alternatively be sent as a form-encoded \"access_token\" parameter (RFC 6750 Section 2.2) instead of the Authorization header.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "oidc"
+                ],
+                "summary": "OIDC UserInfo endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bearer access token",
+                        "name": "Authorization",
+                        "in": "header"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Access token (POST form-encoded alternative to the Authorization header)",
+                        "name": "access_token",
+                        "in": "formData"
                     }
                 ],
                 "responses": {
@@ -1757,29 +1770,6 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/httpserver.UserResponse"
                     }
-                }
-            }
-        },
-        "httpserver.TokenResponse": {
-            "type": "object",
-            "properties": {
-                "access_token": {
-                    "type": "string"
-                },
-                "expires_in": {
-                    "type": "integer"
-                },
-                "id_token": {
-                    "type": "string"
-                },
-                "refresh_token": {
-                    "type": "string"
-                },
-                "scope": {
-                    "type": "string"
-                },
-                "token_type": {
-                    "type": "string"
                 }
             }
         },
