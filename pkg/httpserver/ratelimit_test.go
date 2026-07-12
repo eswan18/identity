@@ -145,6 +145,54 @@ func TestRateLimitMiddleware_SpoofedXFFSharesLimiter(t *testing.T) {
 	}
 }
 
+// TestRateLimitMiddleware_StaticAssetsExempt verifies that requests under
+// staticPathPrefix ("/static/...") bypass the limiter entirely - a burst of
+// requests to a static asset path must all succeed - while a request to a
+// normal route sharing the same limiter (requestsPerMinute=1) is still
+// throttled on the second attempt. This is the regression test for a single
+// page load (HTML + CSS/JS from /static) burning through the whole per-IP
+// budget and getting legitimate navigation 429'd.
+func TestRateLimitMiddleware_StaticAssetsExempt(t *testing.T) {
+	store := newRateLimitStore()
+	t.Cleanup(store.Stop)
+	handler := rateLimitMiddleware(store, 1)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	doStaticRequest := func(path string) int {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.RemoteAddr = "203.0.113.20:33333"
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	// A burst of requests to static asset paths must all succeed, even
+	// though requestsPerMinute is 1 and they share a RemoteAddr/IP.
+	for i, path := range []string{"/static/css/main.css", "/static/js/app.js", "/static/img/logo.png"} {
+		if code := doStaticRequest(path); code != http.StatusOK {
+			t.Fatalf("static request %d (%s): got status %d, want %d", i, path, code, http.StatusOK)
+		}
+	}
+
+	// The same IP hitting a normal (non-static) route is still limited:
+	// first request succeeds, second is rejected.
+	if code := doRateLimitedRequest(handler, "203.0.113.20:33333", nil); code != http.StatusOK {
+		t.Fatalf("first non-static request: got status %d, want %d", code, http.StatusOK)
+	}
+	if code := doRateLimitedRequest(handler, "203.0.113.20:33333", nil); code != http.StatusTooManyRequests {
+		t.Fatalf("second non-static request: got status %d, want %d", code, http.StatusTooManyRequests)
+	}
+
+	// Only the non-static route should have consumed a limiter bucket.
+	store.mu.RLock()
+	numLimiters := len(store.limiters)
+	store.mu.RUnlock()
+	if numLimiters != 1 {
+		t.Errorf("expected exactly 1 rate limiter bucket (static requests shouldn't create one), got %d", numLimiters)
+	}
+}
+
 // TestRateLimitMiddleware_CFConnectingIPIsTheKey verifies that behind the
 // Cloudflare Tunnel (where all requests share the cloudflared connector's
 // RemoteAddr) the limiter is keyed on CF-Connecting-IP: requests with the
