@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/eswan18/identity/pkg/db"
+	"github.com/eswan18/identity/pkg/views"
 	"github.com/google/uuid"
 )
 
@@ -999,17 +1000,17 @@ func (s *Server) HandleConsentGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build scope descriptions
-	var descriptions []ScopeDescription
+	var descriptions []views.ScopeDescription
 	for _, sc := range scope {
 		desc, ok := scopeDescriptionMap[sc]
 		if ok {
-			descriptions = append(descriptions, ScopeDescription{Scope: sc, Description: desc})
+			descriptions = append(descriptions, views.ScopeDescription{Scope: sc, Description: desc})
 		} else {
-			descriptions = append(descriptions, ScopeDescription{Scope: sc, Description: sc})
+			descriptions = append(descriptions, views.ScopeDescription{Scope: sc, Description: sc})
 		}
 	}
 
-	data := ConsentPageData{
+	data := views.ConsentView{
 		ClientName:          client.Name,
 		ClientID:            clientID,
 		RedirectURI:         r.URL.Query().Get("redirect_uri"),
@@ -1023,7 +1024,7 @@ func (s *Server) HandleConsentGet(w http.ResponseWriter, r *http.Request) {
 		CSRFToken:           s.ensureCSRFToken(w, r),
 	}
 
-	if err := s.consentTemplate.Execute(w, data); err != nil {
+	if err := views.Consent(data).Render(r.Context(), w); err != nil {
 		http.Error(w, "An error occurred", http.StatusInternalServerError)
 	}
 }

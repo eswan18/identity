@@ -20,17 +20,15 @@ import (
 )
 
 type Server struct {
-	config          *config.Config
-	datastore       *store.Store
-	router          chi.Router
-	httpServer      *http.Server
-	cleanupCancel   context.CancelFunc
-	rateLimitStore  *rateLimitStore
-	jwtGenerator    *jwt.Generator
-	emailSender     email.Sender
-	avatarService   *avatar.Service
-	loginTemplate   *template.Template
-	consentTemplate *template.Template
+	config         *config.Config
+	datastore      *store.Store
+	router         chi.Router
+	httpServer     *http.Server
+	cleanupCancel  context.CancelFunc
+	rateLimitStore *rateLimitStore
+	jwtGenerator   *jwt.Generator
+	emailSender    email.Sender
+	avatarService  *avatar.Service
 }
 
 // mustParsePageTemplate parses a page template together with the shared
@@ -55,8 +53,6 @@ func mustParsePageTemplate(templatesDir, page string) *template.Template {
 
 func New(config *config.Config, datastore *store.Store, emailSender email.Sender, storageProvider storage.Storage) *Server {
 	r := chi.NewRouter()
-	loginTemplate := mustParsePageTemplate(config.TemplatesDir, "login.html")
-	consentTemplate := mustParsePageTemplate(config.TemplatesDir, "consent.html")
 
 	r.Use(middleware.RequestID)
 	// NOTE: chi's middleware.RealIP is intentionally NOT used here. It
@@ -97,15 +93,13 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 	}
 
 	s := &Server{
-		config:          config,
-		datastore:       datastore,
-		router:          r,
-		rateLimitStore:  rateLimitStore,
-		jwtGenerator:    jwtGen,
-		emailSender:     emailSender,
-		avatarService:   avatar.NewService(storageProvider),
-		loginTemplate:   loginTemplate,
-		consentTemplate: consentTemplate,
+		config:         config,
+		datastore:      datastore,
+		router:         r,
+		rateLimitStore: rateLimitStore,
+		jwtGenerator:   jwtGen,
+		emailSender:    emailSender,
+		avatarService:  avatar.NewService(storageProvider),
 	}
 	s.registerRoutes()
 
