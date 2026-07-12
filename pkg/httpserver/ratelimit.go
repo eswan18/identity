@@ -3,6 +3,7 @@ package httpserver
 import (
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -123,10 +124,24 @@ func getClientIP(r *http.Request) string {
 	return host
 }
 
-// rateLimitMiddleware creates a middleware that enforces rate limiting
+// rateLimitMiddleware creates a middleware that enforces rate limiting.
+//
+// Requests under staticPathPrefix (see routes.go, which mounts the static
+// file server on that same constant) are exempt: a single page load pulls
+// the HTML plus several static assets (CSS, JS, images), so applying the
+// same per-IP budget meant to limit abuse of auth/API endpoints to static
+// assets too caused ordinary navigation to burn through the whole budget
+// and start getting 429'd. Static asset serving doesn't need per-IP abuse
+// protection the way endpoints like login/token do, so it simply bypasses
+// the limiter rather than consuming a request from it.
 func rateLimitMiddleware(store *rateLimitStore, requestsPerMinute int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, staticPathPrefix) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			ip := getClientIP(r)
 			limiter := store.getLimiter(ip, requestsPerMinute)
 

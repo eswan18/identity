@@ -35,14 +35,26 @@ var corsMiddleware = newCorsMiddleware("GET, OPTIONS", "Content-Type")
 // oauthCorsMiddleware allows GET/POST requests with Authorization headers from any origin.
 var oauthCorsMiddleware = newCorsMiddleware("GET, POST, OPTIONS", "Content-Type, Authorization")
 
+// staticPathPrefix is the URL path prefix under which static assets (CSS,
+// JS, images) are served. It's a package-level constant, rather than a
+// literal duplicated in two places, so that rateLimitMiddleware (see
+// ratelimit.go) can exempt static-asset requests from per-IP rate limiting
+// using the exact same prefix the static file server is mounted on below -
+// keeping the mount point and the exemption from silently drifting apart.
+const staticPathPrefix = "/static/"
+
 // registerRoutes registers all routes on the given router.
 func (s *Server) registerRoutes() {
 	// Root redirect - sends to login or account settings based on auth status
 	s.router.Get("/", s.HandleRoot)
 
-	// Static files (CSS, JS, images)
+	// Static files (CSS, JS, images). Exempt from rateLimitMiddleware (see
+	// staticPathPrefix above and the exemption check in ratelimit.go): a
+	// single page load pulls the HTML plus several static assets, and the
+	// per-IP budget is meant to limit abuse of auth/API endpoints, not
+	// ordinary asset fetches.
 	fileServer := http.FileServer(http.Dir("static"))
-	s.router.Handle("/static/*", http.StripPrefix("/static/", fileServer))
+	s.router.Handle(staticPathPrefix+"*", http.StripPrefix(staticPathPrefix, fileServer))
 
 	// Health check with CORS enabled for all origins (safe - no sensitive data)
 	s.router.With(corsMiddleware).Get("/health", s.HandleHealthCheck)
