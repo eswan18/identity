@@ -43,6 +43,25 @@ func VerifyPassword(password, encodedHash string) (bool, error) {
 		return false, fmt.Errorf("invalid hash format")
 	}
 
+	// Parse and validate the version field, e.g. "v=19"
+	var version int
+	if _, err := fmt.Sscanf(parts[2], "v=%d", &version); err != nil {
+		return false, fmt.Errorf("invalid hash format")
+	}
+	if version != argon2.Version {
+		return false, fmt.Errorf("incompatible argon2 version")
+	}
+
+	// Parse the parameters embedded in the hash, e.g. "m=65536,t=3,p=2".
+	// These reflect whatever memory/iterations/parallelism were in effect
+	// when this particular hash was created, which may differ from the
+	// package's current constants.
+	var hashMemory, hashIterations uint32
+	var hashParallelism uint8
+	if n, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &hashMemory, &hashIterations, &hashParallelism); err != nil || n != 3 {
+		return false, fmt.Errorf("invalid hash format")
+	}
+
 	// Decode salt and hash
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
 	if err != nil {
@@ -54,7 +73,10 @@ func VerifyPassword(password, encodedHash string) (bool, error) {
 		return false, err
 	}
 
-	// Verify
-	otherHash := argon2.IDKey([]byte(password), salt, iterations, memory, parallelism, uint32(len(hash)))
+	// Verify using the parameters parsed from the stored hash, not the
+	// package's current constants, so that changing the current
+	// memory/iterations/parallelism defaults doesn't break verification
+	// of existing hashes.
+	otherHash := argon2.IDKey([]byte(password), salt, hashIterations, hashMemory, hashParallelism, uint32(len(hash)))
 	return subtle.ConstantTimeCompare(hash, otherHash) == 1, nil
 }
