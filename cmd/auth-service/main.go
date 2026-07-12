@@ -10,10 +10,12 @@
 package main
 
 import (
+	"context"
 	"log"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/eswan18/identity/db/migrations"
 	"github.com/eswan18/identity/pkg/config"
 	"github.com/eswan18/identity/pkg/email"
 	"github.com/eswan18/identity/pkg/httpserver"
@@ -28,6 +30,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create datastore: %v", err)
 	}
+
+	// Refuse to start if the database schema isn't at the migration version
+	// this binary was built for. This is a check, not an auto-migration: a
+	// forgotten `make migrate-up` fails fast with a clear message instead of
+	// silently serving against an unexpected schema.
+	if err := migrations.Verify(context.Background(), datastore.DB); err != nil {
+		log.Fatalf("Database schema check failed: %v", err)
+	}
+	log.Println("Database schema is up to date")
 
 	// Create email sender based on configuration
 	var emailSender email.Sender
