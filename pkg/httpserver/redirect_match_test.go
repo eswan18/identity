@@ -30,6 +30,12 @@ func TestRedirectURIAllowed(t *testing.T) {
 		{"mid-label wildcard entry matches nothing", []string{"https://api-*.stacks.footstrike.run/auth/callback"}, "https://api-x.stacks.footstrike.run/auth/callback", false},
 		{"literal wildcard candidate passes only via the exact branch", []string{wild}, "https://*.stacks.footstrike.run/auth/callback", true},
 		{"empty registered list rejects", nil, exact, false},
+		{"wildcard rejects fullwidth-dot host", []string{wild}, "https://a\uFF0Eb.stacks.footstrike.run/auth/callback", false},
+		{"wildcard rejects Kelvin-sign host", []string{wild}, "https://evil.stacks.footstri\u212Ae.run/auth/callback", false},
+		{"wildcard rejects userinfo candidate", []string{wild}, "https://evil.com@x.stacks.footstrike.run/auth/callback", false},
+		{"wildcard rejects percent-encoded path", []string{wild}, "https://x.stacks.footstrike.run/auth%2Fcallback", false},
+		{"wildcard rejects trailing-dot FQDN", []string{wild}, "https://x.stacks.footstrike.run./auth/callback", false},
+		{"wildcard rejects explicit port vs portless pattern", []string{wild}, "https://x.stacks.footstrike.run:443/auth/callback", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
