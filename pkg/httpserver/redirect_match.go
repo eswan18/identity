@@ -14,9 +14,9 @@ import (
 // refuse candidates carrying a query string or fragment. The wildcard
 // pattern's path must equal the candidate's path exactly, so register the
 // pattern with the full callback path (a pattern with no path only matches a
-// candidate with no trailing slash). This exists so ephemeral stack
-// environments (https://<app>-<tag>.stacks.footstrike.run) can complete
-// OAuth without per-stack registration.
+// candidate with no trailing slash). This exists so ephemeral preview
+// environments (https://<app>-<tag>.preview.footstrike.run) can complete
+// OAuth without per-preview registration.
 func redirectURIAllowed(registered []string, candidate string) bool {
 	if slices.Contains(registered, candidate) {
 		return true
