@@ -119,7 +119,7 @@ func (s *Server) validateOAuthClientRedirect(ctx context.Context, clientID, redi
 		log.Printf("validateOAuthClientRedirect: error getting client by client ID: %s\n", err)
 		return db.OauthClient{}, ErrInvalidClient
 	}
-	if !slices.Contains(client.RedirectUris, redirectURI) {
+	if !redirectURIAllowed(client.RedirectUris, redirectURI) {
 		log.Printf("validateOAuthClientRedirect: redirect URI %s not in allowlist for client: %s\n", redirectURI, clientID)
 		return db.OauthClient{}, ErrInvalidRedirectURI
 	}
