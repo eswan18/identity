@@ -121,6 +121,13 @@ func runClientUpdate(cmd *cobra.Command, args []string) error {
 		return errors.New("cannot make a public client confidential - secret generation not yet supported in update")
 	}
 
+	// Validate redirect URIs if they were modified
+	if redirectURIsSet || addRedirectURIsSet {
+		if err := internal.ValidateRedirectURIs(params.RedirectUris); err != nil {
+			return err
+		}
+	}
+
 	updatedClient, err := datastore.Q.UpdateOAuthClient(ctx, params)
 	if err != nil {
 		return fmt.Errorf("failed to update OAuth client: %w", err)

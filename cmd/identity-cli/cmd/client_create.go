@@ -50,6 +50,11 @@ func runClientCreate(cmd *cobra.Command, args []string) error {
 	redirectURIList := internal.ParseList(createRedirectURIs)
 	scopeList := internal.ParseList(createAllowedScopes)
 
+	// Validate redirect URIs
+	if err := internal.ValidateRedirectURIs(redirectURIList); err != nil {
+		return err
+	}
+
 	// Get shared datastore
 	datastore := getDatastore()
 
