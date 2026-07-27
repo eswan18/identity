@@ -1,0 +1,20 @@
+steps:
+  # Same buildx pattern as cloudbuild.yaml, but read-only on the shared
+  # registry cache: --cache-from without --cache-to, so preview branches get
+  # warm layers without polluting the cache mainline builds rely on. The
+  # preview-{sha} tag fails the ImageUpdater allowTags regexp
+  # (^[a-f0-9]{7,}$), so preview builds never auto-deploy to staging.
+  - name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        docker buildx create --use --driver docker-container
+        docker buildx build \
+          --cache-from type=registry,ref=us-central1-docker.pkg.dev/ethans-services/containers/identity:buildcache \
+          -t us-central1-docker.pkg.dev/ethans-services/containers/identity:preview-$SHORT_SHA \
+          --push \
+          .
+
+options:
+  logging: CLOUD_LOGGING_ONLY
