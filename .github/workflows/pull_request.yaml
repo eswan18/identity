@@ -50,8 +50,8 @@ jobs:
 
       # Integration tests are gated behind the `integration` build tag. They use
       # testcontainers to spin up Postgres/MinIO, which relies on the Docker
-      # daemon available on GitHub-hosted ubuntu runners. Scoped to the package
-      # that holds them and to the suite entrypoints so the untagged unit tests
-      # (already run above) aren't rebuilt and re-run a second time.
+      # daemon available on GitHub-hosted ubuntu runners. Scoped to the packages
+      # that hold them and to the suite/test entrypoints so the untagged unit
+      # tests (already run above) aren't rebuilt and re-run a second time.
       - name: Run integration tests
-        run: go test -v -tags integration -timeout 600s -run 'TestOAuthFlowSuite|TestAvatarFlowSuite' ./pkg/httpserver/
+        run: go test -v -tags integration -timeout 600s -run 'TestOAuthFlowSuite|TestAvatarFlowSuite|TestUpAgainstPostgres' ./pkg/httpserver/ ./db/migrations/

@@ -150,6 +150,48 @@ Regenerate sqlc queries and types.
 make sqlc
 ```
 
+## Migrations
+
+Migrations live in `db/migrations` as `{version}_{name}.{up,down}.sql` and are applied
+with [golang-migrate](https://github.com/golang-migrate/migrate).
+
+**The server never migrates on startup.** `db/migrations/embed.go` embeds the up
+migrations so the binary knows the schema version it was built for, and startup calls
+`migrations.Verify`, which refuses to start — naming the version mismatch — if the
+database is not at exactly that version. A forgotten `make migrate-up` fails fast
+instead of silently serving against a schema the code doesn't expect. Applying
+migrations is always a deliberate, separate step:
+
+- **By hand**, with the `migrate` CLI via the Makefile — the usual local and
+  staging/prod path:
+  ```shell
+  DATABASE_URL="postgresql://..." make migrate-up
+  ```
+- **From the binary**, with the `migrate` subcommand:
+  ```shell
+  DATABASE_URL="postgresql://..." ./identity migrate   # `auth-service migrate` in the image
+  ```
+  It applies every pending up migration and exits 0; a database already at the latest
+  version is a success, not an error. The migrations are embedded, so this needs no
+  `.sql` files on disk and no `migrate` CLI — just the binary and a database. It reads
+  `DATABASE_URL` and nothing else, so the serving config (`JWT_PRIVATE_KEY` and friends)
+  is irrelevant to it.
+
+Running the binary with **no arguments serves**, exactly as it always has. The prod and
+staging Deployments (`k8s/`) run it bare and never invoke `migrate`, so a missed
+migration still fails closed there.
+
+The subcommand exists for **preview environments**. A preview gets its own Neon database
+branch cut from staging's schema, so a branch that adds a migration would otherwise start
+against a schema that's behind and `Verify` would (correctly) refuse to start. bifrost's
+service registry runs a preview's migrations by injecting a `migrate` initContainer that
+runs the same image with the same env — so `DATABASE_URL` already points at that
+preview's own branch — to completion before the app container starts:
+
+```yaml
+migrate: ["/app/auth-service", "migrate"]
+```
+
 ## OAuth Client Management
 
 ### Adding a New Client
