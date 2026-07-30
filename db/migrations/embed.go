@@ -2,11 +2,19 @@
 // provides a fail-closed startup check (Verify) that the database schema
 // matches the migrations this binary was built with.
 //
-// It deliberately does NOT apply migrations. The goal is to refuse to start —
-// with a clear, actionable error — when code is deployed without running
-// `make migrate-up`, rather than silently serving against a schema the code
-// doesn't expect (which is how a forgotten migration once broke client-secret
-// auth). Applying migrations remains a deliberate, separate step.
+// Startup deliberately does NOT apply migrations. The goal is to refuse to
+// start — with a clear, actionable error — when code is deployed without
+// running `make migrate-up`, rather than silently serving against a schema the
+// code doesn't expect (which is how a forgotten migration once broke
+// client-secret auth). Applying migrations remains a deliberate, separate step.
+//
+// That property is intact. The package does expose Up (see apply.go), but
+// nothing calls it implicitly: it runs only when someone explicitly invokes
+// `auth-service migrate`, which the prod and staging Deployments never do (they
+// run the binary bare, and bare invocation still goes straight to Verify and
+// serve). Up exists so a preview environment, whose database branch is cut from
+// staging's schema, can apply its own branch's migrations from an
+// initContainer before the app container starts.
 package migrations
 
 import (
@@ -30,7 +38,15 @@ var upFiles embed.FS
 // i.e. the numeric prefix of the newest *.up.sql file (e.g. 11 for
 // 000011_add_mfa_enrollment_pending.up.sql).
 func LatestVersion() (int, error) {
-	entries, err := fs.ReadDir(upFiles, ".")
+	return latestVersionIn(upFiles)
+}
+
+// latestVersionIn is LatestVersion's scan, taking the filesystem as a parameter
+// so a test can confirm the result depends only on the version prefixes and not
+// on which files the embed happens to match — widening the embed to include the
+// *.down.sql files would not change the answer.
+func latestVersionIn(fsys fs.FS) (int, error) {
+	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
 		return 0, fmt.Errorf("reading embedded migrations: %w", err)
 	}
