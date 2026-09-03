@@ -13,12 +13,13 @@ import (
 )
 
 var (
-	updateName            string
-	updateRedirectURIs    string
-	updateAddRedirectURIs string
-	updateAllowedScopes   string
-	updateIsConfidential  bool
-	updateAudience        string
+	updateName               string
+	updateRedirectURIs       string
+	updateAddRedirectURIs    string
+	updateRemoveRedirectURIs string
+	updateAllowedScopes      string
+	updateIsConfidential     bool
+	updateAudience           string
 )
 
 var clientUpdateCmd = &cobra.Command{
@@ -27,7 +28,10 @@ var clientUpdateCmd = &cobra.Command{
 	Long: `Update an OAuth client. Only provided fields will be updated.
 Use --confidential=true or --confidential=false to change confidentiality status.
 --redirect-uris REPLACES the client's full redirect-URI list; use
---add-redirect-uris to append to it instead (already-present URIs are skipped).`,
+--add-redirect-uris to append to it instead (already-present URIs are skipped),
+or --remove-redirect-uris to drop entries from it. Removing a URI the client
+does not have is an error and leaves the client unchanged, so a typo can't look
+like a successful revocation.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runClientUpdate,
 	Example: `  # Update client name
@@ -39,6 +43,9 @@ Use --confidential=true or --confidential=false to change confidentiality status
   # Append redirect URIs, keeping the existing ones
   identity-client client update abc123 --add-redirect-uris "https://example.com/"
 
+  # Remove redirect URIs, keeping the rest
+  identity-client client update abc123 --remove-redirect-uris "https://old.example.com/callback"
+
   # Update multiple fields
   identity-client client update abc123 --name "New Name" --scopes "openid,profile"`,
 }
@@ -47,10 +54,11 @@ func init() {
 	clientUpdateCmd.Flags().StringVar(&updateName, "name", "", "Client name")
 	clientUpdateCmd.Flags().StringVar(&updateRedirectURIs, "redirect-uris", "", "Comma-separated list of redirect URIs (replaces the full list)")
 	clientUpdateCmd.Flags().StringVar(&updateAddRedirectURIs, "add-redirect-uris", "", "Comma-separated redirect URIs to append to the existing list")
+	clientUpdateCmd.Flags().StringVar(&updateRemoveRedirectURIs, "remove-redirect-uris", "", "Comma-separated redirect URIs to remove from the existing list")
 	clientUpdateCmd.Flags().StringVar(&updateAllowedScopes, "scopes", "", "Comma-separated list of allowed scopes")
 	clientUpdateCmd.Flags().BoolVar(&updateIsConfidential, "confidential", false, "Whether the client is confidential")
 	clientUpdateCmd.Flags().StringVar(&updateAudience, "audience", "", "JWT audience claim for this client")
-	clientUpdateCmd.MarkFlagsMutuallyExclusive("redirect-uris", "add-redirect-uris")
+	clientUpdateCmd.MarkFlagsMutuallyExclusive("redirect-uris", "add-redirect-uris", "remove-redirect-uris")
 }
 
 func runClientUpdate(cmd *cobra.Command, args []string) error {
@@ -76,6 +84,7 @@ func runClientUpdate(cmd *cobra.Command, args []string) error {
 	nameSet := flags.Changed("name")
 	redirectURIsSet := flags.Changed("redirect-uris")
 	addRedirectURIsSet := flags.Changed("add-redirect-uris")
+	removeRedirectURIsSet := flags.Changed("remove-redirect-uris")
 	scopesSet := flags.Changed("scopes")
 	confidentialSet := flags.Changed("confidential")
 	audienceSet := flags.Changed("audience")
@@ -92,6 +101,17 @@ func runClientUpdate(cmd *cobra.Command, args []string) error {
 		params.RedirectUris = internal.AppendUnique(
 			currentClient.RedirectUris, internal.ParseList(updateAddRedirectURIs),
 		)
+	} else if removeRedirectURIsSet {
+		remaining, notFound := internal.RemoveValues(
+			currentClient.RedirectUris, internal.ParseList(updateRemoveRedirectURIs),
+		)
+		if len(notFound) > 0 {
+			return fmt.Errorf(
+				"client %s has no such redirect URI: %s - nothing was changed",
+				clientID, strings.Join(notFound, ", "),
+			)
+		}
+		params.RedirectUris = remaining
 	} else {
 		params.RedirectUris = currentClient.RedirectUris
 	}
@@ -142,6 +162,9 @@ func runClientUpdate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Audience:       %s\n", updatedClient.Audience)
 	fmt.Printf("  Confidential:   %v\n", updatedClient.IsConfidential)
 	fmt.Printf("  Updated:        %s\n", updatedClient.UpdatedAt.Format("2006-01-02 15:04:05"))
+	if len(updatedClient.RedirectUris) == 0 {
+		fmt.Println("\n⚠️  This client now has no redirect URIs and cannot complete an authorization flow until one is added.")
+	}
 	fmt.Println()
 
 	return nil
