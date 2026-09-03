@@ -42,6 +42,39 @@ func AppendUnique(existing, additions []string) []string {
 	return result
 }
 
+// RemoveValues returns existing with every value in removals dropped, along
+// with the removals that were not present. Comparison is exact string
+// equality — no URI normalization — for the same reason as AppendUnique:
+// consumers match these values exactly. Callers should treat a non-empty
+// notFound as an error rather than a partial success; a redirect URI that
+// quietly fails to be removed reads as revoked while it is still live.
+func RemoveValues(existing, removals []string) (result, notFound []string) {
+	doomed := make(map[string]bool, len(removals))
+	for _, v := range removals {
+		doomed[v] = true
+	}
+
+	result = make([]string, 0, len(existing))
+	found := make(map[string]bool, len(removals))
+	for _, v := range existing {
+		if doomed[v] {
+			found[v] = true
+			continue
+		}
+		result = append(result, v)
+	}
+
+	notFound = make([]string, 0, len(removals))
+	reported := make(map[string]bool, len(removals))
+	for _, v := range removals {
+		if !found[v] && !reported[v] {
+			notFound = append(notFound, v)
+			reported[v] = true
+		}
+	}
+	return result, notFound
+}
+
 // ParseList splits a comma-separated string and trims whitespace
 func ParseList(s string) []string {
 	if s == "" {
