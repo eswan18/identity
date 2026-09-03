@@ -31,7 +31,7 @@ run: templ docs css
 	@echo "Running with ENV=$(ENV)"
 	go run cmd/auth-service/main.go
 
-build: templ docs css
+build: docs css
 	go build -o identity-cli ./cmd/identity-cli
 	go build -o identity cmd/auth-service/main.go
 
