@@ -63,25 +63,71 @@ func TestEmailHTMLBuildersEscapeUsername(t *testing.T) {
 	}
 }
 
-// TestPasswordResetEmailHTMLEscapesURL covers the other interpolated value. The
-// reset URL is built from config.JWTIssuer plus a hex token so it cannot
-// currently carry markup; this pins the escaping so that stays true if the URL
-// ever gains a caller-influenced component.
-func TestPasswordResetEmailHTMLEscapesURL(t *testing.T) {
-	const payload = `https://identity.example.com/oauth/reset-password?token=x"><script>alert(1)</script>`
+// urlBuilders are the two builders that interpolate a URL into an href
+// attribute. Both URLs are built from config.JWTIssuer plus a hex token, so
+// neither can currently carry markup; these tests pin the escaping so that
+// stays true if either URL ever gains a caller-influenced component.
+var urlBuilders = map[string]func(string) string{
+	"buildPasswordResetEmailHTML": buildPasswordResetEmailHTML,
+	"buildVerificationEmailHTML": func(u string) string {
+		return buildVerificationEmailHTML(benignUsername, u)
+	},
+}
 
-	body := buildPasswordResetEmailHTML(payload)
-	baseline := countTags(buildPasswordResetEmailHTML("https://identity.example.com/oauth/reset-password?token=abc"))
+func TestEmailHTMLBuildersEscapeURL(t *testing.T) {
+	const payload = `https://identity.example.com/oauth/x?token=y"><script>alert(1)</script>`
+	const benignURL = "https://identity.example.com/oauth/x?token=abc"
 
-	if strings.Contains(body, payload) {
-		t.Errorf("body contains the payload verbatim — the URL escaped its attribute:\n%s", body)
+	for name, build := range urlBuilders {
+		t.Run(name, func(t *testing.T) {
+			body := build(payload)
+
+			if strings.Contains(body, payload) {
+				t.Errorf("%s: body contains the payload verbatim:\n%s", name, body)
+			}
+			if got, baseline := countTags(body), countTags(build(benignURL)); got != baseline {
+				t.Errorf("%s: body has %d tags, baseline has %d — the URL injected %d tag(s):\n%s",
+					name, got, baseline, got-baseline, body)
+			}
+			if !strings.Contains(body, "&lt;script&gt;") {
+				t.Errorf("%s: body does not contain the escaped URL; got:\n%s", name, body)
+			}
+		})
 	}
-	if got := countTags(body); got != baseline {
-		t.Errorf("body has %d tags, baseline has %d — the URL injected %d tag(s):\n%s",
-			got, baseline, got-baseline, body)
+}
+
+// TestEmailHTMLBuildersEscapeQuotes is the assertion tag counting cannot make.
+//
+// Both URLs land inside href="%s". A partial escaper that handled only < and >
+// would satisfy every check above -- no new tags, payload absent verbatim -- while
+// still allowing an attribute breakout such as
+//
+//	href="https://ok/" onmouseover="alert(1)"
+//
+// so the quote itself has to be pinned separately. The payload here deliberately
+// contains no angle brackets, so this test fails for exactly one reason.
+func TestEmailHTMLBuildersEscapeQuotes(t *testing.T) {
+	const payload = `https://identity.example.com/x?t=1" onmouseover="alert(1)`
+
+	for name, build := range urlBuilders {
+		t.Run(name, func(t *testing.T) {
+			body := build(payload)
+
+			if strings.Contains(body, `" onmouseover="`) {
+				t.Errorf("%s: quote survived unescaped — attribute breakout is possible:\n%s", name, body)
+			}
+			if !strings.Contains(body, "&#34;") {
+				t.Errorf("%s: body has no escaped quote, so quotes are not being escaped:\n%s", name, body)
+			}
+		})
 	}
-	if !strings.Contains(body, "&lt;script&gt;") {
-		t.Errorf("body does not contain the escaped URL; got:\n%s", body)
+
+	// The same for a username, which reaches element text rather than an
+	// attribute today -- but nothing structurally prevents a future template
+	// from placing it in an attribute, and escaping is what makes that safe.
+	body := buildUsernameReminderEmailHTML(`bob" onmouseover="alert(1)`)
+	if strings.Contains(body, `" onmouseover="`) {
+		t.Errorf("buildUsernameReminderEmailHTML: quote survived unescaped:\n%s", body)
 	}
 }
 
