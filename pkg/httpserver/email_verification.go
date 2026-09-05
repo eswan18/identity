@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"html"
 	"log"
 	"net/http"
 	"time"
@@ -91,7 +92,22 @@ func (s *Server) sendVerificationEmail(ctx context.Context, userID uuid.UUID, us
 	return nil
 }
 
+// buildVerificationEmailHTML renders the verification email body.
+//
+// Every interpolated value is HTML-escaped. auth.ValidateUsername already
+// restricts usernames to [A-Za-z0-9_], so nothing reaching %s here should
+// contain markup -- but this is the sink, and a sink that escapes is not
+// dependent on a validator three layers away staying correct. Accounts created
+// before that validator existed can still hold arbitrary usernames, and this is
+// what makes those safe to render.
+//
+// The URL is escaped for the same reason. It is built from config.JWTIssuer
+// plus a hex token so it cannot currently carry markup, and escaping is the
+// correct encoding for an href regardless: a literal "&" inside an attribute
+// belongs there as "&amp;", which mail clients decode back.
 func buildVerificationEmailHTML(username, verifyURL string) string {
+	username = html.EscapeString(username)
+	verifyURL = html.EscapeString(verifyURL)
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>

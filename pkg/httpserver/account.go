@@ -258,6 +258,16 @@ func (s *Server) HandleChangeUsernamePost(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Validate the new username's format before spending an argon2 verification
+	// on it. Same rule as registration and the admin API (auth.ValidateUsername):
+	// the username reaches HTML emails, so it cannot be a free-form string.
+	if err := auth.ValidateUsername(newUsername); err != nil {
+		pageData.Error = err.Error()
+		w.WriteHeader(http.StatusBadRequest)
+		_ = views.ChangeUsername(pageData).Render(r.Context(), w)
+		return
+	}
+
 	// Validate password
 	valid, err := auth.VerifyPassword(password, user.PasswordHash)
 	if err != nil {

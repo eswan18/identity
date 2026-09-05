@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"html"
 	"log"
 	"net/http"
 	"time"
@@ -162,24 +163,8 @@ func (s *Server) sendPasswordResetEmailAsync(userID uuid.UUID, emailAddr string)
 	err = s.emailSender.Send(ctx, email.Message{
 		To:      emailAddr,
 		Subject: "Reset Your Password",
-		HTML: fmt.Sprintf(`
-			<h2>Reset Your Password</h2>
-			<p>You requested a password reset for your account. Click the link below to set a new password:</p>
-			<p><a href="%s">Reset Password</a></p>
-			<p>This link will expire in 1 hour.</p>
-			<p>If you didn't request this, you can safely ignore this email.</p>
-		`, resetURL),
-		Text: fmt.Sprintf(`
-Reset Your Password
-
-You requested a password reset for your account. Visit the link below to set a new password:
-
-%s
-
-This link will expire in 1 hour.
-
-If you didn't request this, you can safely ignore this email.
-		`, resetURL),
+		HTML:    buildPasswordResetEmailHTML(resetURL),
+		Text:    buildPasswordResetEmailText(resetURL),
 	})
 	if err != nil {
 		log.Printf("[ERROR] HandleForgotPasswordPost: Failed to send email to %s: %v", emailAddr, err)
@@ -437,21 +422,8 @@ func (s *Server) sendUsernameReminderEmailAsync(username, emailAddr string) {
 	err := s.emailSender.Send(ctx, email.Message{
 		To:      emailAddr,
 		Subject: "Your Username Reminder",
-		HTML: fmt.Sprintf(`
-			<h2>Username Reminder</h2>
-			<p>You requested a reminder of your username for your account.</p>
-			<p>Your username is: <strong>%s</strong></p>
-			<p>If you didn't request this, you can safely ignore this email.</p>
-		`, username),
-		Text: fmt.Sprintf(`
-Username Reminder
-
-You requested a reminder of your username for your account.
-
-Your username is: %s
-
-If you didn't request this, you can safely ignore this email.
-		`, username),
+		HTML:    buildUsernameReminderEmailHTML(username),
+		Text:    buildUsernameReminderEmailText(username),
 	})
 	if err != nil {
 		log.Printf("[ERROR] HandleForgotUsernamePost: Failed to send email to %s: %v", emailAddr, err)
@@ -459,4 +431,66 @@ If you didn't request this, you can safely ignore this email.
 	}
 
 	s.debugf("HandleForgotUsernamePost: Username reminder email sent to %s", emailAddr)
+}
+
+// The four builders below are pure functions, split out of the Send calls above
+// for the same reason buildVerificationEmailHTML already was: the HTML variants
+// are the escaping sinks, and a sink that can't be called from a unit test
+// can't be shown to escape. See buildVerificationEmailHTML in
+// email_verification.go for why these escape even though auth.ValidateUsername
+// constrains new usernames.
+//
+// Only the HTML variants escape. The text/plain variants must carry the literal
+// value -- "&amp;" in a plain-text body is simply wrong, and there is no markup
+// context there to escape for.
+
+// buildUsernameReminderEmailHTML renders the username-reminder email body.
+func buildUsernameReminderEmailHTML(username string) string {
+	return fmt.Sprintf(`
+			<h2>Username Reminder</h2>
+			<p>You requested a reminder of your username for your account.</p>
+			<p>Your username is: <strong>%s</strong></p>
+			<p>If you didn't request this, you can safely ignore this email.</p>
+		`, html.EscapeString(username))
+}
+
+// buildUsernameReminderEmailText renders the plain-text username reminder.
+func buildUsernameReminderEmailText(username string) string {
+	return fmt.Sprintf(`
+Username Reminder
+
+You requested a reminder of your username for your account.
+
+Your username is: %s
+
+If you didn't request this, you can safely ignore this email.
+		`, username)
+}
+
+// buildPasswordResetEmailHTML renders the password-reset email body. resetURL is
+// escaped because it lands in an href: a literal "&" belongs there as "&amp;",
+// which mail clients decode back.
+func buildPasswordResetEmailHTML(resetURL string) string {
+	return fmt.Sprintf(`
+			<h2>Reset Your Password</h2>
+			<p>You requested a password reset for your account. Click the link below to set a new password:</p>
+			<p><a href="%s">Reset Password</a></p>
+			<p>This link will expire in 1 hour.</p>
+			<p>If you didn't request this, you can safely ignore this email.</p>
+		`, html.EscapeString(resetURL))
+}
+
+// buildPasswordResetEmailText renders the plain-text password reset email.
+func buildPasswordResetEmailText(resetURL string) string {
+	return fmt.Sprintf(`
+Reset Your Password
+
+You requested a password reset for your account. Visit the link below to set a new password:
+
+%s
+
+This link will expire in 1 hour.
+
+If you didn't request this, you can safely ignore this email.
+		`, resetURL)
 }

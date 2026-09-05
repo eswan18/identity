@@ -27,8 +27,12 @@ func (s *OAuthFlowSuite) TestEmailVerificationFlow() {
 	})
 	scv := s.mustCreateStateAndCodeVerifier()
 
-	// Register a new user
-	username := s.mustGenerateRandomString(10)
+	// Register a new user. This is the one integration test that registers
+	// through the public endpoint rather than inserting via the datastore, so
+	// the username has to satisfy auth.ValidateUsername.
+	// mustGenerateRandomString returns base64 (which always carries "=" padding,
+	// and may contain "-"), so it cannot be used here.
+	username := s.mustGenerateAlphanumericString(10)
 	emailAddr := username + "@example.com"
 	password := "securepassword123"
 

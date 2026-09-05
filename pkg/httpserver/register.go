@@ -70,6 +70,18 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate the username format before anything else touches it. Until this
+	// check existed, self-service registration accepted any non-empty string,
+	// including HTML that would later be interpolated into the verification
+	// email sent to this address (see sendVerificationEmail below).
+	if err := auth.ValidateUsername(username); err != nil {
+		s.renderRegisterError(w, r, http.StatusBadRequest, err.Error(), views.RegisterView{
+			Username: username,
+			Email:    email,
+		})
+		return
+	}
+
 	// Validate password match
 	if password != confirmPassword {
 		s.renderRegisterError(w, r, http.StatusBadRequest, "Passwords do not match", views.RegisterView{
