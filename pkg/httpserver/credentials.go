@@ -16,6 +16,7 @@ import (
 	"github.com/eswan18/identity/pkg/auth"
 	"github.com/eswan18/identity/pkg/db"
 	jwtpkg "github.com/eswan18/identity/pkg/jwt"
+	"github.com/eswan18/identity/pkg/redirecturi"
 	"github.com/google/uuid"
 )
 
@@ -27,10 +28,10 @@ const serviceAccountTokenExpiresIn = 15 * time.Minute
 
 // Sentinel errors for credential validation
 var (
-	ErrMissingCredentials    = errors.New("username and password are required")
-	ErrInvalidCredentials    = errors.New("invalid username or password")
-	ErrAccountDeactivated    = errors.New("account deactivated")
-	ErrInternal              = errors.New("an error occurred")
+	ErrMissingCredentials = errors.New("username and password are required")
+	ErrInvalidCredentials = errors.New("invalid username or password")
+	ErrAccountDeactivated = errors.New("account deactivated")
+	ErrInternal           = errors.New("an error occurred")
 )
 
 // Sentinel errors for OAuth client validation
@@ -121,6 +122,14 @@ func (s *Server) validateOAuthClientRedirect(ctx context.Context, clientID, redi
 	}
 	if !redirectURIAllowed(client.RedirectUris, redirectURI) {
 		log.Printf("validateOAuthClientRedirect: redirect URI %s not in allowlist for client: %s\n", redirectURI, clientID)
+		// The breadth guard on wildcard entries binds at request time (see
+		// pkg/redirecturi), so an entry registered before the rules tightened is
+		// refused outright -- which looks exactly like "the candidate didn't
+		// match" in the line above. Name any unusable entry and why, so a preview
+		// environment that stopped working is diagnosable from the logs alone.
+		for _, entryErr := range redirecturi.InvalidWildcardEntries(client.RedirectUris) {
+			log.Printf("validateOAuthClientRedirect: client %s has a registered wildcard entry that can never match: %v", clientID, entryErr)
+		}
 		return db.OauthClient{}, ErrInvalidRedirectURI
 	}
 	return client, nil

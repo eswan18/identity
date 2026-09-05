@@ -56,6 +56,25 @@ func TestValidateWildcardPattern_BreadthGuard(t *testing.T) {
 			wantErr: true, wantErrContains: "public suffix",
 		},
 
+		// PSL *wildcard rules*. These parents are neither public suffixes nor
+		// their own eTLD+1, so "is the suffix registrable" says nothing about
+		// them -- but the list declares every child an independent registrant,
+		// and a child is exactly one label down, which the single-label rule
+		// does not constrain. Anyone with an AWS account gets
+		// ec2-<address>.compute-1.amazonaws.com.
+		{
+			name: "ec2 public DNS namespace rejected", entry: "https://*.compute-1.amazonaws.com/callback",
+			wantErr: true, wantErrContains: "independently registrable",
+		},
+		{
+			name: "ec2 legacy DNS namespace rejected", entry: "https://*.compute.amazonaws.com/callback",
+			wantErr: true, wantErrContains: "independently registrable",
+		},
+		{
+			name: "elb namespace rejected", entry: "https://*.elb.amazonaws.com/callback",
+			wantErr: true, wantErrContains: "independently registrable",
+		},
+
 		// Registrable domains. A wildcard over a whole domain an attacker can
 		// buy is not a bounded namespace.
 		{
@@ -118,9 +137,9 @@ func TestValidateWildcardPattern_BreadthGuard(t *testing.T) {
 // these regardless of how they got into the database.
 func TestAllowed_RejectsOverBroadPatternAtRequestTime(t *testing.T) {
 	tests := []struct {
-		name      string
+		name       string
 		registered string
-		candidate string
+		candidate  string
 	}{
 		{
 			name:       "attacker-owned s3 bucket",
@@ -151,6 +170,23 @@ func TestAllowed_RejectsOverBroadPatternAtRequestTime(t *testing.T) {
 			name:       "wildcard over a registrable domain",
 			registered: "https://*.evil.com/callback",
 			candidate:  "https://x.evil.com/callback",
+		},
+		{
+			name:       "attacker-owned EC2 instance hostname",
+			registered: "https://*.compute-1.amazonaws.com/callback",
+			candidate:  "https://ec2-203-0-113-5.compute-1.amazonaws.com/callback",
+		},
+		{
+			name:       "attacker-owned ELB hostname",
+			registered: "https://*.elb.amazonaws.com/callback",
+			candidate:  "https://attacker-lb.elb.amazonaws.com/callback",
+		},
+		{
+			// An over-broad pattern must not even match itself. Allowed's exact
+			// branch skips wildcard entries precisely so this holds.
+			name:       "over-broad pattern does not match itself verbatim",
+			registered: "https://*.evil.com/callback",
+			candidate:  "https://*.evil.com/callback",
 		},
 	}
 
@@ -239,5 +275,33 @@ func TestValidateWildcardPattern_AgreesWithAllowed(t *testing.T) {
 					pattern, candidate)
 			}
 		})
+	}
+}
+
+// TestInvalidWildcardEntries covers the operator-diagnosis path. Because the
+// guard binds at request time, a rejected entry is refused rather than honoured,
+// which is indistinguishable from a non-matching redirect_uri unless something
+// names it.
+func TestInvalidWildcardEntries(t *testing.T) {
+	registered := []string{
+		"https://staging.footstrike.run/auth/callback", // literal, never reported
+		previewPattern,                               // valid pattern, never reported
+		"https://*.s3.amazonaws.com/callback",        // public suffix
+		"https://*.compute-1.amazonaws.com/callback", // PSL wildcard rule
+		"https://api-*.preview.footstrike.run/cb",    // malformed
+	}
+
+	errs := InvalidWildcardEntries(registered)
+	if len(errs) != 3 {
+		t.Fatalf("InvalidWildcardEntries returned %d errors, want 3: %v", len(errs), errs)
+	}
+	for _, err := range errs {
+		if !strings.Contains(err.Error(), "redirect URI") {
+			t.Errorf("error %q should name the offending entry", err)
+		}
+	}
+
+	if got := InvalidWildcardEntries([]string{previewPattern, "https://a.example.com/cb"}); len(got) != 0 {
+		t.Errorf("InvalidWildcardEntries reported %v for entries that are all usable", got)
 	}
 }

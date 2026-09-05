@@ -39,7 +39,26 @@ import (
 // the candidate's path exactly, so register the pattern with the full callback
 // path.
 func Allowed(registered []string, candidate string) bool {
-	if slices.Contains(registered, candidate) {
+	// Exact match, except for a wildcard entry that fails validation.
+	//
+	// Without that exception the guarantee this package is built on -- an entry
+	// refused at registration is inert -- would be false for exactly one
+	// candidate: the pattern's own text. That is not purely theoretical. "*" is
+	// not a forbidden host code point, and RFC 4592 §2.2 means a DNS query for
+	// the literal name "*.evil.com" is answered by the attacker's own wildcard
+	// record, so an over-broad entry could still be honoured for that one input.
+	//
+	// A *valid* pattern is deliberately left able to match itself, preserving
+	// long-standing behaviour: its suffix is one the operator controls, so the
+	// candidate is not attacker-reachable, and narrowing the exception keeps
+	// this change confined to the defect it fixes.
+	for _, entry := range registered {
+		if entry != candidate {
+			continue
+		}
+		if isWildcardEntry(entry) && ValidateWildcardPattern(entry) != nil {
+			continue
+		}
 		return true
 	}
 	cand, err := url.Parse(candidate)
@@ -51,6 +70,34 @@ func Allowed(registered []string, candidate string) bool {
 	})
 }
 
+// InvalidWildcardEntries returns one error per registered entry that looks like
+// a wildcard pattern but fails validation, and so can never match anything.
+//
+// Because the guard now binds at request time, an entry that was registered
+// before the rules tightened is refused rather than honoured -- which, from the
+// outside, is indistinguishable from a redirect_uri that simply did not match.
+// Callers use this to say which entry is unusable and why, so a preview
+// environment that stopped working is diagnosable from the logs alone.
+func InvalidWildcardEntries(registered []string) []error {
+	var errs []error
+	for _, entry := range registered {
+		if !isWildcardEntry(entry) {
+			continue
+		}
+		if err := ValidateWildcardPattern(entry); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errs
+}
+
+// isWildcardEntry reports whether entry is intended as a wildcard pattern.
+// Anything containing "*" is, whether or not it is well-formed -- a malformed
+// pattern must be refused, not silently reinterpreted as a literal URI.
+func isWildcardEntry(entry string) bool {
+	return strings.Contains(entry, "*")
+}
+
 // wildcardMatch reports whether entry is a valid wildcard pattern that matches
 // cand.
 //
@@ -59,10 +106,18 @@ func Allowed(registered []string, candidate string) bool {
 // too-broad entry that reached the database by some path other than the CLI
 // is inert rather than honoured.
 func wildcardMatch(entry string, cand *url.URL) bool {
-	if ValidateWildcardPattern(entry) != nil {
+	// Entries that are not patterns were already handled by the exact branch in
+	// Allowed. Returning early keeps the common case (a client whose redirect
+	// URIs are all literal) off the parse-and-validate path entirely.
+	if !isWildcardEntry(entry) {
 		return false
 	}
-	pat, err := url.Parse(entry)
+	// parseWildcardPattern is the load-bearing call: a pattern that would be
+	// refused at registration can never match here either, so a too-broad entry
+	// that reached the database by some path other than the CLI is inert rather
+	// than honoured. It returns the parsed URL and folded suffix so neither is
+	// computed twice.
+	pat, patSuffix, err := parseWildcardPattern(entry)
 	if err != nil {
 		return false
 	}
@@ -75,13 +130,8 @@ func wildcardMatch(entry string, cand *url.URL) bool {
 	if cand.RawQuery != "" || cand.Fragment != "" {
 		return false
 	}
-	// The pattern's suffix is already known-good ASCII (ValidateWildcardPattern
-	// checked it), but the candidate host is attacker-supplied and still has to
-	// clear asciiLowerHost before any comparison.
-	patSuffix, ok := asciiLowerHost(strings.TrimPrefix(pat.Hostname(), "*."))
-	if !ok {
-		return false
-	}
+	// patSuffix is already known-good ASCII, but the candidate host is
+	// attacker-supplied and still has to clear asciiLowerHost before comparison.
 	candHost, ok := asciiLowerHost(cand.Hostname())
 	if !ok {
 		return false
@@ -98,30 +148,43 @@ func wildcardMatch(entry string, cand *url.URL) bool {
 // callers that accept both forms (see Allowed, and ValidateRedirectURIs in
 // identity-cli) check for "*" before calling.
 func ValidateWildcardPattern(entry string) error {
+	_, _, err := parseWildcardPattern(entry)
+	return err
+}
+
+// parseWildcardPattern validates entry and returns the parsed URL alongside the
+// ASCII-folded host suffix (the part after "*."). ValidateWildcardPattern and
+// wildcardMatch share it so a pattern is parsed and judged exactly once per
+// call, and so the two can never apply different rules.
+func parseWildcardPattern(entry string) (*url.URL, string, error) {
 	if strings.Count(entry, "*") != 1 {
-		return fmt.Errorf("redirect URI %q: a wildcard entry must contain exactly one %q", entry, "*")
+		return nil, "", fmt.Errorf("redirect URI %q: a wildcard entry must contain exactly one %q", entry, "*")
 	}
 	u, err := url.Parse(entry)
 	if err != nil {
-		return fmt.Errorf("redirect URI %q: %w", entry, err)
+		return nil, "", fmt.Errorf("redirect URI %q: %w", entry, err)
 	}
 	if u.Scheme != "https" {
-		return fmt.Errorf("redirect URI %q: wildcard entries must be https", entry)
+		return nil, "", fmt.Errorf("redirect URI %q: wildcard entries must be https", entry)
 	}
 	if u.User != nil {
-		return fmt.Errorf("redirect URI %q: wildcard entries must not carry userinfo", entry)
+		return nil, "", fmt.Errorf("redirect URI %q: wildcard entries must not carry userinfo", entry)
 	}
 	suffix, ok := strings.CutPrefix(u.Hostname(), "*.")
 	if !ok || strings.Contains(suffix, "*") {
-		return fmt.Errorf("redirect URI %q: wildcard must be the entire leftmost host label (%q)", entry, "*.suffix")
+		return nil, "", fmt.Errorf("redirect URI %q: wildcard must be the entire leftmost host label (%q)", entry, "*.suffix")
 	}
 	if u.Path == "" || u.Path == "/" {
-		return fmt.Errorf("redirect URI %q: wildcard entries must include the full callback path", entry)
+		return nil, "", fmt.Errorf("redirect URI %q: wildcard entries must include the full callback path", entry)
 	}
 	if u.RawQuery != "" || u.Fragment != "" {
-		return fmt.Errorf("redirect URI %q: wildcard entries must not carry a query or fragment", entry)
+		return nil, "", fmt.Errorf("redirect URI %q: wildcard entries must not carry a query or fragment", entry)
 	}
-	return validateWildcardSuffix(entry, suffix)
+	folded, err := validateWildcardSuffix(entry, suffix)
+	if err != nil {
+		return nil, "", err
+	}
+	return u, folded, nil
 }
 
 // validateWildcardSuffix enforces how wide a wildcard is allowed to be.
@@ -145,49 +208,92 @@ func ValidateWildcardPattern(entry string) error {
 // the heuristic rejected; the root label is stripped before the lookup here so
 // the two spellings get the identical answer.
 //
-// Residual risk worth naming: the Public Suffix List is a compiled-in snapshot
-// and is not exhaustive. A domain that hands out subdomains to the public but
-// has not registered itself on the list would still pass. The list is the best
-// available signal, not a proof, so keep wildcard registrations rare and
-// reviewed -- see the follow-up note in the PR description about pinning an
-// explicit operator allowlist on top of this.
-func validateWildcardSuffix(entry, suffix string) error {
+// Residual risk, stated precisely, because this check is easy to overtrust:
+//
+// The Public Suffix List is a compiled-in snapshot and is not exhaustive. It
+// only knows about namespaces whose operators submitted them. A provider that
+// hands out subdomains to the public without a PSL entry passes every check
+// here. "s3.amazonaws.com" is rejected because Amazon submitted an entry;
+// "s3.wasabisys.com" is accepted, and Wasabi buckets are the same sentence.
+// The snapshot is also only as fresh as the pinned golang.org/x/net, so a
+// namespace listed after that release is invisible until the dependency moves.
+//
+// The list also cuts the other way. Tailscale registered "ts.net", which makes
+// this fleet's own "tailc06f30.ts.net" look like a registrable domain and be
+// rejected, even though only tailnet members can obtain a name under it. The
+// same applies to any per-tenant namespace under a private-section entry.
+//
+// So this is a backstop that reliably catches the broad, well-known cases, not
+// a decision procedure. The control that would be exact is an explicit operator
+// allowlist of permitted wildcard parents -- there is exactly one in use
+// ("preview.footstrike.run") -- with this check demoted to a second opinion.
+// Until that exists, keep wildcard registrations rare and reviewed.
+func validateWildcardSuffix(entry, suffix string) (string, error) {
 	// Strip a single trailing dot (the DNS root label) so that "evil.com." and
 	// "evil.com" are judged identically rather than differing by one character.
 	normalized := strings.TrimSuffix(suffix, ".")
 	if normalized == "" {
-		return fmt.Errorf("redirect URI %q: wildcard entries must have a host suffix after %q", entry, "*.")
+		return "", fmt.Errorf("redirect URI %q: wildcard entries must have a host suffix after %q", entry, "*.")
 	}
 	if strings.HasSuffix(normalized, ".") {
 		// More than one trailing dot is not a name at all.
-		return fmt.Errorf("redirect URI %q: wildcard suffix %q is not a valid host", entry, suffix)
+		return "", fmt.Errorf("redirect URI %q: wildcard suffix %q is not a valid host", entry, suffix)
 	}
 	// Reject non-ASCII, uppercase-folding and confusable characters in the
 	// pattern itself, so a registered entry can never rely on Unicode folding to
 	// widen what it matches.
 	folded, ok := asciiLowerHost(normalized)
 	if !ok {
-		return fmt.Errorf("redirect URI %q: wildcard suffix %q must be an ASCII host", entry, suffix)
+		return "", fmt.Errorf("redirect URI %q: wildcard suffix %q must be an ASCII host", entry, suffix)
 	}
 	if strings.HasPrefix(folded, ".") || strings.Contains(folded, "..") {
-		return fmt.Errorf("redirect URI %q: wildcard suffix %q is not a valid host", entry, suffix)
+		return "", fmt.Errorf("redirect URI %q: wildcard suffix %q is not a valid host", entry, suffix)
 	}
 
 	registrable, err := publicsuffix.EffectiveTLDPlusOne(folded)
 	if err != nil {
 		// No eTLD+1 exists, which means folded is itself a public suffix
 		// ("s3.amazonaws.com", "run", "co.uk") -- the broadest possible wildcard.
-		return fmt.Errorf(
+		return "", fmt.Errorf(
 			"redirect URI %q: wildcard suffix %q is a public suffix; anyone can register a host under it",
 			entry, suffix)
 	}
 	if folded == registrable {
-		return fmt.Errorf(
+		return "", fmt.Errorf(
 			"redirect URI %q: wildcard suffix %q is a registrable domain; use a dedicated subdomain such as %q",
 			entry, suffix, "preview."+folded)
 	}
-	return nil
+
+	// The two checks above ask whether the suffix itself is registrable. That is
+	// not quite the question that matters, which is whether every host the
+	// wildcard matches belongs to the suffix's registrant. The Public Suffix
+	// List answers the second question directly through its *wildcard rules*,
+	// and those rules are invisible to the checks above.
+	//
+	// "*.compute-1.amazonaws.com" is such a rule: the parent is neither a public
+	// suffix nor its own eTLD+1, so it passes both checks, yet the rule declares
+	// every child an independent registrant -- and anyone with an AWS account
+	// gets "ec2-<address>.compute-1.amazonaws.com", exactly one label down,
+	// which the single-label restriction does nothing to stop. Same shape for
+	// "*.elb.amazonaws.com".
+	//
+	// Probing one label down asks the right question: if a child of this suffix
+	// resolves to a different registrant than the suffix does, the namespace is
+	// handed out to third parties and a wildcard over it is not bounded.
+	childRegistrable, err := publicsuffix.EffectiveTLDPlusOne(wildcardProbeLabel + "." + folded)
+	if err != nil || childRegistrable != registrable {
+		return "", fmt.Errorf(
+			"redirect URI %q: hosts under wildcard suffix %q are independently registrable "+
+				"(the public suffix list carries a wildcard rule for it), so anyone can obtain a matching host",
+			entry, suffix)
+	}
+	return folded, nil
 }
+
+// wildcardProbeLabel is a placeholder label used only to ask the Public Suffix
+// List what a child of a candidate suffix would resolve to. It never leaves this
+// package and is never compared against a real host.
+const wildcardProbeLabel = "wildcardprobe"
 
 // asciiLowerHost ASCII-lowercases host (A-Z to a-z only, no Unicode case
 // folding) and reports ok=false if the result contains any byte outside
