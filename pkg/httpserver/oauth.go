@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -92,33 +91,21 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 	}
 
-	// Phase 2: Validate remaining parameters. These errors are redirected to the client.
-	// The consent endpoint (HandleConsentPost) applies the exact same checks via
-	// validateAuthorizeParams so the two code-minting paths cannot drift.
-	if authErr := validateAuthorizeParams(client, responseType, codeChallenge, codeChallengeMethod, scope); authErr != nil {
-		redirectError(authErr.Code, authErr.Description)
+	// Phase 2: Every precondition for issuing a code. These live in
+	// checkCodeIssuance so HandleConsentPost -- the other code-minting path --
+	// enforces exactly the same set; see code_issuance.go.
+	grant, denial := s.checkCodeIssuance(r, client, responseType, codeChallenge, codeChallengeMethod, scope)
+	if denial != nil {
+		s.denyCodeIssuance(w, r, denial, codeIssuanceRedirects{
+			ToClient: redirectError,
+			// Preserve the OAuth parameters across the login so the user lands
+			// back in this flow afterwards.
+			Unauthenticated: "/oauth/login?" + r.URL.RawQuery,
+			Deactivated:     "/oauth/login?error=account_deactivated&" + r.URL.RawQuery,
+		})
 		return
 	}
-
-	// Phase 3: Check authentication and user status.
-	session, err := s.getSessionFromCookie(r)
-	if err != nil {
-		// If not authenticated, redirect to login page with OAuth parameters preserved
-		loginURL := "/oauth/login?" + r.URL.RawQuery
-		http.Redirect(w, r, loginURL, http.StatusFound)
-		return
-	}
-
-	user, err := s.datastore.Q.GetUserByIDIncludingInactive(r.Context(), session.UserID)
-	if err != nil {
-		redirectError("server_error", "An error occurred")
-		return
-	}
-	if !user.IsActive {
-		loginURL := "/oauth/login?error=account_deactivated&" + r.URL.RawQuery
-		http.Redirect(w, r, loginURL, http.StatusFound)
-		return
-	}
+	session := grant.Session
 
 	// Phase 4: Check consent. If user hasn't consented to these scopes, redirect to consent page.
 	consent, err := s.datastore.Q.GetUserConsent(r.Context(), db.GetUserConsentParams{
@@ -554,23 +541,13 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 	// here means the token was revoked (or has expired at the DB level), not
 	// that revocation tracking is unavailable - it must be rejected, mirroring
 	// introspectAccessToken's handling of the same lookup.
-	if claims.ID != "" {
-		_, err := s.datastore.Q.GetTokenByAccessToken(r.Context(), sql.NullString{String: claims.ID, Valid: true})
-		if err != nil {
-			if !errors.Is(err, sql.ErrNoRows) {
-				// Database error (not "not found") - fail closed for security
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusInternalServerError)
-				json.NewEncoder(w).Encode(map[string]string{
-					"error":             "server_error",
-					"error_description": "Failed to verify token status",
-				})
-				return
-			}
-			// No matching, non-revoked, non-expired row - the token is invalid.
-			writeUserInfoUnauthorized(w, "invalid_token", "Token has been revoked")
-			return
-		}
+	if _, live, err := s.liveAccessToken(r.Context(), claims.ID); err != nil {
+		log.Printf("HandleOauthUserInfo: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "server_error", "Failed to verify token status")
+		return
+	} else if !live {
+		writeUserInfoUnauthorized(w, "invalid_token", "Token has been revoked")
+		return
 	}
 
 	// Return OIDC standard claims from JWT.
@@ -694,14 +671,15 @@ func (s *Server) introspectAccessToken(ctx context.Context, token string) (map[s
 	}
 
 	// Check if the token has been revoked by looking up the JTI
-	dbToken, err := s.datastore.Q.GetTokenByAccessToken(ctx, sql.NullString{String: claims.ID, Valid: true})
+	dbToken, live, err := s.liveAccessToken(ctx, claims.ID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			// Token not found in DB — treat as inactive
-			return inactive, nil
-		}
-		// Database error — report to caller so it can return a server error
-		return nil, fmt.Errorf("introspectAccessToken: database error: %w", err)
+		// Could not determine revocation status; the caller turns this into a
+		// server error rather than reporting the token inactive, since "unknown"
+		// and "not active" are different answers.
+		return nil, err
+	}
+	if !live {
+		return inactive, nil
 	}
 
 	// Token is valid and not revoked
@@ -1084,12 +1062,6 @@ func (s *Server) HandleConsentGet(w http.ResponseWriter, r *http.Request) {
 
 // HandleConsentPost processes the consent decision.
 func (s *Server) HandleConsentPost(w http.ResponseWriter, r *http.Request) {
-	session, err := s.getSessionFromCookie(r)
-	if err != nil {
-		http.Error(w, "Not authenticated", http.StatusUnauthorized)
-		return
-	}
-
 	decision := r.FormValue("decision")
 	clientID := r.FormValue("client_id")
 	redirectURI := r.FormValue("redirect_uri")
@@ -1126,15 +1098,34 @@ func (s *Server) HandleConsentPost(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 	}
 
-	// Enforce the same parameter validation as the authorize endpoint before we
-	// store consent or mint an authorization code. Without this, a user could POST
-	// directly to /oauth/consent to obtain a PKCE-less code with arbitrary scopes,
-	// bypassing the checks in HandleOauthAuthorize (validation-bypass vulnerability).
+	// The same preconditions the authorize endpoint enforces, from the same
+	// place. Without this, a user could POST directly to /oauth/consent and
+	// bypass whatever HandleOauthAuthorize checks -- which is exactly how these
+	// two drifted before (a PKCE-less code with arbitrary scopes, and later a
+	// deactivated user obtaining a code). See code_issuance.go.
 	responseType := r.FormValue("response_type")
-	if authErr := validateAuthorizeParams(client, responseType, codeChallenge, codeChallengeMethod, scope); authErr != nil {
-		redirectError(authErr.Code, authErr.Description)
+	// Re-entering /oauth/authorize is how an unauthenticated or deactivated user
+	// is routed onward: it sends them to login with the OAuth parameters intact,
+	// so a fresh login returns them to the app rather than stranding them here.
+	resumeURL := buildAuthorizeURL(oauthFlowParams{
+		ClientID:            clientID,
+		RedirectURI:         redirectURI,
+		State:               state,
+		Scope:               scope,
+		CodeChallenge:       codeChallenge,
+		CodeChallengeMethod: codeChallengeMethod,
+		Nonce:               nonce,
+	})
+	grant, denial := s.checkCodeIssuance(r, client, responseType, codeChallenge, codeChallengeMethod, scope)
+	if denial != nil {
+		s.denyCodeIssuance(w, r, denial, codeIssuanceRedirects{
+			ToClient:        redirectError,
+			Unauthenticated: resumeURL,
+			Deactivated:     "/oauth/login?error=account_deactivated",
+		})
 		return
 	}
+	session := grant.Session
 
 	if decision == "deny" {
 		redirectError("access_denied", "User denied consent")
