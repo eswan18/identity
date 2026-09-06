@@ -200,6 +200,14 @@ func (s *Server) HandleResendVerification(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Shares change-email's budget: limiting only that one would leave the same
+	// relay intact, since an account can point its address at a victim once and
+	// then resend indefinitely.
+	if !s.allowVerificationMail(user.ID) {
+		http.Redirect(w, r, "/oauth/account-settings?error=verification_rate_limited", http.StatusFound)
+		return
+	}
+
 	// Send verification email
 	if err := s.sendVerificationEmail(r.Context(), user.ID, user.Email, user.Username); err != nil {
 		log.Printf("Failed to send verification email: %v", err)
