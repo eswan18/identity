@@ -39,6 +39,23 @@ jobs:
           templ generate
           git diff --exit-code || { echo "::error::templ output is stale — run 'make templ' (or 'templ generate') and commit the result."; exit 1; }
 
+      # pkg/db is generated from db/migrations by sqlc (see sqlc.yaml) and the
+      # output is committed, so nothing at build time would notice it drifting
+      # from the migrations. Regenerate and fail if it differs -- the same guard
+      # the templ output gets above.
+      #
+      # This is the check that was missing when pkg/db was generated from a
+      # pg_dump of a live database: an unmerged migration in that database put a
+      # column into the generated queries that no migrations-built database has,
+      # and everything stayed green until an integration test hit it. Pinned to
+      # the sqlc version that produced the committed output, since sqlc's
+      # codegen changes between releases.
+      - name: Verify sqlc generation is up to date
+        run: |
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
+          sqlc generate
+          git diff --exit-code || { echo "::error::pkg/db is stale — run 'make sqlc' and commit the result."; exit 1; }
+
       - name: Run go vet
         run: go vet ./...
 

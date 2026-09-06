@@ -65,6 +65,7 @@ func (q *Queries) CreateEmailToken(ctx context.Context, arg CreateEmailTokenPara
 }
 
 const createMFAEnrollmentPending = `-- name: CreateMFAEnrollmentPending :exec
+
 INSERT INTO auth_mfa_enrollment_pending (user_id, secret, expires_at)
 VALUES ($1, $2, $3)
 ON CONFLICT (user_id) DO UPDATE
@@ -79,6 +80,7 @@ type CreateMFAEnrollmentPendingParams struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+// MFA enrollment pending secrets (server-side, keyed by user)
 func (q *Queries) CreateMFAEnrollmentPending(ctx context.Context, arg CreateMFAEnrollmentPendingParams) error {
 	_, err := q.db.ExecContext(ctx, createMFAEnrollmentPending, arg.UserID, arg.Secret, arg.ExpiresAt)
 	return err
@@ -268,6 +270,13 @@ WHERE revoked_at IS NOT NULL
        AND refresh_expires_at <= now())
 `
 
+// Each row holds both an access token (expires_at) and a refresh token
+// (refresh_expires_at, which is NULLABLE -- NULL means the refresh token never
+// expires). A row is only safe to delete once it can never be used again:
+// either it has been revoked, or the access token is expired AND the refresh
+// token is also expired (never delete just because expires_at passed -- a
+// non-revoked row whose refresh token is still valid, or non-expiring, must
+// be kept since it can still mint new access tokens).
 func (q *Queries) DeleteDeadTokens(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteDeadTokens)
 	return err
@@ -278,6 +287,9 @@ DELETE FROM oauth_authorization_codes
 WHERE expires_at <= now() OR consumed_at IS NOT NULL
 `
 
+// Authorization codes are single-use and short-lived; a consumed OR expired
+// code can never yield tokens (replay of a consumed code is rejected by the
+// atomic ConsumeAuthorizationCode update), so both are safe to delete.
 func (q *Queries) DeleteExpiredAuthorizationCodes(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteExpiredAuthorizationCodes)
 	return err
@@ -326,6 +338,8 @@ DELETE FROM auth_sessions
 WHERE expires_at <= now()
 `
 
+// auth_sessions reads (GetSession) filter on expires_at > now(), so an expired
+// session can never be used again -- safe to delete outright.
 func (q *Queries) DeleteExpiredSessions(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteExpiredSessions)
 	return err

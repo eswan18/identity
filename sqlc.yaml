@@ -1,8 +1,18 @@
 version: "2"
 
+# The migrations ARE the schema. sqlc understands the golang-migrate layout:
+# it reads db/migrations/*.up.sql in order and ignores the .down.sql files.
+#
+# This used to point at db/schema.sql, which the Makefile produced by pg_dump-ing
+# whatever DATABASE_URL happened to point at. That made a live database the
+# source of truth for committed code, so anything that database contained -- an
+# unmerged migration, a hand-applied column, an abandoned experiment -- silently
+# became what sqlc generated against. It did exactly that: an unmerged
+# refresh-token migration leaked a replaced_by_token_id column into pkg/db,
+# producing queries that selected a column no migrations-built database has.
 sql:
   - schema:
-      - "db/schema.sql"
+      - "db/migrations"
     queries:
       - "db/queries"
     engine: "postgresql"

@@ -63,12 +63,8 @@ test-integration:
 lint:
 	go vet ./...
 
-sqlc: db/schema.sql
+# sqlc reads db/migrations directly (see sqlc.yaml), so this needs no database
+# and no pg_dump. CI regenerates and fails on drift, the same way it does for
+# templ, so pkg/db cannot silently disagree with the migrations.
+sqlc:
 	sqlc generate
-
-db/schema.sql: $(MIGRATIONS)
-	@if [ -z "${DATABASE_URL}" ]; then \
-		echo "Error: DATABASE_URL is not set"; \
-		exit 1; \
-	fi
-	pg_dump --schema-only --no-owner "${DATABASE_URL}" | grep -v '^\\' > db/schema.sql
