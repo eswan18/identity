@@ -89,11 +89,12 @@ func (s *Server) HandleAdminCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate username format (alphanumeric + underscore, 3-50 chars)
-	usernameRegex := regexp.MustCompile(`^[a-zA-Z0-9_]{3,50}$`)
-	if !usernameRegex.MatchString(req.Username) {
-		s.writeAdminError(w, http.StatusBadRequest, "invalid_request",
-			"Username must be 3-50 alphanumeric characters or underscores")
+	// Validate username format. This rule used to live here as a per-request
+	// regexp.MustCompile and nowhere else; it now comes from auth.ValidateUsername,
+	// which the self-service registration and change-username paths share, so the
+	// admin API and the public paths cannot enforce different rules.
+	if err := auth.ValidateUsername(req.Username); err != nil {
+		s.writeAdminError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 

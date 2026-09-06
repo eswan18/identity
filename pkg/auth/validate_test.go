@@ -109,3 +109,61 @@ func TestCommonPasswordsLoaded(t *testing.T) {
 		t.Errorf("commonPasswords has %d entries, expected ~1000", len(commonPasswords))
 	}
 }
+
+func TestValidateUsername(t *testing.T) {
+	tests := []struct {
+		name     string
+		username string
+		wantErr  bool
+	}{
+		// Accepted.
+		{"simple lowercase", "testuser", false},
+		{"mixed case", "TestUser", false},
+		{"digits", "user123", false},
+		{"underscores", "test_user_1", false},
+		{"minimum length", "abc", false},
+		{"maximum length", strings.Repeat("a", 50), false},
+
+		// Length bounds.
+		{"empty", "", true},
+		{"too short", "ab", true},
+		{"too long", strings.Repeat("a", 51), true},
+
+		// Character class. These are the ones that matter: a username reaches
+		// HTML email bodies, so anything that could carry markup must be
+		// refused here.
+		{"html tag", "<b>bold</b>", true},
+		{"script tag", "<script>alert(1)</script>", true},
+		{"anchor payload", `</p><a href="https://evil.example">click</a><p>`, true},
+		{"angle bracket alone", "user<name", true},
+		{"double quote", `user"name`, true},
+		{"single quote", "user'name", true},
+		{"ampersand", "user&name", true},
+		{"space", "test user", true},
+		{"leading space", " testuser", true},
+		{"trailing newline", "testuser\n", true},
+		{"embedded newline", "test\nuser", true},
+		{"tab", "test\tuser", true},
+		{"hyphen", "test-user", true},
+		{"dot", "test.user", true},
+		{"at sign", "user@example.com", true},
+		{"slash", "test/user", true},
+		{"percent", "test%user", true},
+		{"null byte", "test\x00user", true},
+		{"non-ascii", "tëstuser", true},
+		{"emoji", "test👍user", true},
+		{"rtl override", "test‮user", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateUsername(tt.username)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateUsername(%q) error = %v, wantErr %v", tt.username, err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil && !errors.Is(err, ErrUsernameInvalid) {
+				t.Errorf("ValidateUsername(%q) = %v, want ErrUsernameInvalid", tt.username, err)
+			}
+		})
+	}
+}
