@@ -21,6 +21,13 @@ type AuthEmailToken struct {
 	CreatedAt time.Time    `json:"created_at"`
 }
 
+type AuthMfaEnrollmentPending struct {
+	UserID    uuid.UUID `json:"user_id"`
+	Secret    string    `json:"secret"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
 type AuthMfaPending struct {
 	ID                  string         `json:"id"`
 	UserID              uuid.UUID      `json:"user_id"`
@@ -33,13 +40,6 @@ type AuthMfaPending struct {
 	CreatedAt           time.Time      `json:"created_at"`
 	ExpiresAt           time.Time      `json:"expires_at"`
 	Nonce               sql.NullString `json:"nonce"`
-}
-
-type AuthMfaEnrollmentPending struct {
-	UserID    uuid.UUID `json:"user_id"`
-	Secret    string    `json:"secret"`
-	CreatedAt time.Time `json:"created_at"`
-	ExpiresAt time.Time `json:"expires_at"`
 }
 
 type AuthSession struct {
@@ -97,17 +97,18 @@ type OauthClient struct {
 }
 
 type OauthToken struct {
-	ID               uuid.UUID      `json:"id"`
-	AccessToken      sql.NullString `json:"access_token"`
-	RefreshToken     sql.NullString `json:"refresh_token"`
-	UserID           uuid.NullUUID  `json:"user_id"`
-	ClientID         uuid.UUID      `json:"client_id"`
-	Scope            []string       `json:"scope"`
-	TokenType        string         `json:"token_type"`
-	ExpiresAt        time.Time      `json:"expires_at"`
-	RefreshExpiresAt sql.NullTime   `json:"refresh_expires_at"`
-	RevokedAt        sql.NullTime   `json:"revoked_at"`
-	CreatedAt        time.Time      `json:"created_at"`
+	ID                uuid.UUID      `json:"id"`
+	AccessToken       sql.NullString `json:"access_token"`
+	RefreshToken      sql.NullString `json:"refresh_token"`
+	UserID            uuid.NullUUID  `json:"user_id"`
+	ClientID          uuid.UUID      `json:"client_id"`
+	Scope             []string       `json:"scope"`
+	TokenType         string         `json:"token_type"`
+	ExpiresAt         time.Time      `json:"expires_at"`
+	RefreshExpiresAt  sql.NullTime   `json:"refresh_expires_at"`
+	RevokedAt         sql.NullTime   `json:"revoked_at"`
+	CreatedAt         time.Time      `json:"created_at"`
+	ReplacedByTokenID uuid.NullUUID  `json:"replaced_by_token_id"`
 }
 
 type OauthUserConsent struct {

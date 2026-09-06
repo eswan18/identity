@@ -362,3 +362,51 @@ INSERT INTO oauth_user_consents (user_id, client_id, scopes)
 VALUES ($1, $2, $3)
 ON CONFLICT (user_id, client_id)
 DO UPDATE SET scopes = $3, updated_at = now();
+
+-- name: GetTokenByRefreshTokenIncludingRevoked :one
+-- Like GetTokenByRefreshToken, but finds revoked rows too.
+--
+-- The refresh grant needs to tell "never existed" apart from "was rotated a
+-- moment ago", and the plain lookup cannot: it filters revoked rows out, so a
+-- request that loses a rotation race is indistinguishable from one presenting a
+-- token that was never issued. Callers MUST check revoked_at themselves.
+SELECT *
+FROM oauth_tokens
+WHERE refresh_token = $1;
+
+-- name: SetTokenReplacedBy :exec
+-- Record which token replaced a just-rotated one, so a request that lost the
+-- race can be handed the successor rather than an error.
+UPDATE oauth_tokens
+SET replaced_by_token_id = $2
+WHERE id = $1;
+
+-- name: GetTokenByID :one
+SELECT *
+FROM oauth_tokens
+WHERE id = $1;
+
+-- name: RevokeTokenChain :execrows
+-- Revoke a token and every token descended from it by rotation.
+--
+-- This is the response to a genuine replay. A refresh token presented outside
+-- the reuse window means someone holds a copy that should be dead -- either a
+-- thief replaying it, or a legitimate client whose successor was itself stolen
+-- and used. Neither case can be told apart from here, and in both the safe move
+-- is to end the whole line of descent rather than the single token presented,
+-- which the holder of the successor would otherwise keep using.
+--
+-- Already-revoked rows are updated again on purpose: revoked_at moves to the
+-- detection time, which is the moment worth having in an audit.
+WITH RECURSIVE chain AS (
+    SELECT root.id, root.replaced_by_token_id
+    FROM oauth_tokens root
+    WHERE root.id = $1
+  UNION
+    SELECT next.id, next.replaced_by_token_id
+    FROM oauth_tokens next
+    JOIN chain c ON next.id = c.replaced_by_token_id
+)
+UPDATE oauth_tokens
+SET revoked_at = now()
+WHERE oauth_tokens.id IN (SELECT chain.id FROM chain);

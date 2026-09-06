@@ -65,6 +65,7 @@ func (q *Queries) CreateEmailToken(ctx context.Context, arg CreateEmailTokenPara
 }
 
 const createMFAEnrollmentPending = `-- name: CreateMFAEnrollmentPending :exec
+
 INSERT INTO auth_mfa_enrollment_pending (user_id, secret, expires_at)
 VALUES ($1, $2, $3)
 ON CONFLICT (user_id) DO UPDATE
@@ -79,6 +80,7 @@ type CreateMFAEnrollmentPendingParams struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+// MFA enrollment pending secrets (server-side, keyed by user)
 func (q *Queries) CreateMFAEnrollmentPending(ctx context.Context, arg CreateMFAEnrollmentPendingParams) error {
 	_, err := q.db.ExecContext(ctx, createMFAEnrollmentPending, arg.UserID, arg.Secret, arg.ExpiresAt)
 	return err
@@ -268,6 +270,13 @@ WHERE revoked_at IS NOT NULL
        AND refresh_expires_at <= now())
 `
 
+// Each row holds both an access token (expires_at) and a refresh token
+// (refresh_expires_at, which is NULLABLE -- NULL means the refresh token never
+// expires). A row is only safe to delete once it can never be used again:
+// either it has been revoked, or the access token is expired AND the refresh
+// token is also expired (never delete just because expires_at passed -- a
+// non-revoked row whose refresh token is still valid, or non-expiring, must
+// be kept since it can still mint new access tokens).
 func (q *Queries) DeleteDeadTokens(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteDeadTokens)
 	return err
@@ -278,6 +287,9 @@ DELETE FROM oauth_authorization_codes
 WHERE expires_at <= now() OR consumed_at IS NOT NULL
 `
 
+// Authorization codes are single-use and short-lived; a consumed OR expired
+// code can never yield tokens (replay of a consumed code is rejected by the
+// atomic ConsumeAuthorizationCode update), so both are safe to delete.
 func (q *Queries) DeleteExpiredAuthorizationCodes(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteExpiredAuthorizationCodes)
 	return err
@@ -326,6 +338,8 @@ DELETE FROM auth_sessions
 WHERE expires_at <= now()
 `
 
+// auth_sessions reads (GetSession) filter on expires_at > now(), so an expired
+// session can never be used again -- safe to delete outright.
 func (q *Queries) DeleteExpiredSessions(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteExpiredSessions)
 	return err
@@ -612,7 +626,7 @@ func (q *Queries) GetSession(ctx context.Context, id string) (AuthSession, error
 }
 
 const getTokenByAccessToken = `-- name: GetTokenByAccessToken :one
-SELECT id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at
+SELECT id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at, replaced_by_token_id
 FROM oauth_tokens
 WHERE access_token = $1
   AND revoked_at IS NULL
@@ -634,12 +648,39 @@ func (q *Queries) GetTokenByAccessToken(ctx context.Context, accessToken sql.Nul
 		&i.RefreshExpiresAt,
 		&i.RevokedAt,
 		&i.CreatedAt,
+		&i.ReplacedByTokenID,
+	)
+	return i, err
+}
+
+const getTokenByID = `-- name: GetTokenByID :one
+SELECT id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at, replaced_by_token_id
+FROM oauth_tokens
+WHERE id = $1
+`
+
+func (q *Queries) GetTokenByID(ctx context.Context, id uuid.UUID) (OauthToken, error) {
+	row := q.db.QueryRowContext(ctx, getTokenByID, id)
+	var i OauthToken
+	err := row.Scan(
+		&i.ID,
+		&i.AccessToken,
+		&i.RefreshToken,
+		&i.UserID,
+		&i.ClientID,
+		pq.Array(&i.Scope),
+		&i.TokenType,
+		&i.ExpiresAt,
+		&i.RefreshExpiresAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.ReplacedByTokenID,
 	)
 	return i, err
 }
 
 const getTokenByRefreshToken = `-- name: GetTokenByRefreshToken :one
-SELECT id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at
+SELECT id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at, replaced_by_token_id
 FROM oauth_tokens
 WHERE refresh_token = $1
   AND revoked_at IS NULL
@@ -660,6 +701,39 @@ func (q *Queries) GetTokenByRefreshToken(ctx context.Context, refreshToken sql.N
 		&i.RefreshExpiresAt,
 		&i.RevokedAt,
 		&i.CreatedAt,
+		&i.ReplacedByTokenID,
+	)
+	return i, err
+}
+
+const getTokenByRefreshTokenIncludingRevoked = `-- name: GetTokenByRefreshTokenIncludingRevoked :one
+SELECT id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at, replaced_by_token_id
+FROM oauth_tokens
+WHERE refresh_token = $1
+`
+
+// Like GetTokenByRefreshToken, but finds revoked rows too.
+//
+// The refresh grant needs to tell "never existed" apart from "was rotated a
+// moment ago", and the plain lookup cannot: it filters revoked rows out, so a
+// request that loses a rotation race is indistinguishable from one presenting a
+// token that was never issued. Callers MUST check revoked_at themselves.
+func (q *Queries) GetTokenByRefreshTokenIncludingRevoked(ctx context.Context, refreshToken sql.NullString) (OauthToken, error) {
+	row := q.db.QueryRowContext(ctx, getTokenByRefreshTokenIncludingRevoked, refreshToken)
+	var i OauthToken
+	err := row.Scan(
+		&i.ID,
+		&i.AccessToken,
+		&i.RefreshToken,
+		&i.UserID,
+		&i.ClientID,
+		pq.Array(&i.Scope),
+		&i.TokenType,
+		&i.ExpiresAt,
+		&i.RefreshExpiresAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.ReplacedByTokenID,
 	)
 	return i, err
 }
@@ -921,7 +995,7 @@ INSERT INTO oauth_tokens (
   refresh_expires_at
 )
 VALUES ($1, $2, $3, $4, $5, COALESCE($8::text, 'bearer'), $6, $7)
-RETURNING id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at
+RETURNING id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at, replaced_by_token_id
 `
 
 type InsertTokenParams struct {
@@ -959,6 +1033,7 @@ func (q *Queries) InsertToken(ctx context.Context, arg InsertTokenParams) (Oauth
 		&i.RefreshExpiresAt,
 		&i.RevokedAt,
 		&i.CreatedAt,
+		&i.ReplacedByTokenID,
 	)
 	return i, err
 }
@@ -1138,6 +1213,40 @@ func (q *Queries) RevokeTokenByRefreshToken(ctx context.Context, refreshToken sq
 	return result.RowsAffected()
 }
 
+const revokeTokenChain = `-- name: RevokeTokenChain :execrows
+WITH RECURSIVE chain AS (
+    SELECT root.id, root.replaced_by_token_id
+    FROM oauth_tokens root
+    WHERE root.id = $1
+  UNION
+    SELECT next.id, next.replaced_by_token_id
+    FROM oauth_tokens next
+    JOIN chain c ON next.id = c.replaced_by_token_id
+)
+UPDATE oauth_tokens
+SET revoked_at = now()
+WHERE oauth_tokens.id IN (SELECT chain.id FROM chain)
+`
+
+// Revoke a token and every token descended from it by rotation.
+//
+// This is the response to a genuine replay. A refresh token presented outside
+// the reuse window means someone holds a copy that should be dead -- either a
+// thief replaying it, or a legitimate client whose successor was itself stolen
+// and used. Neither case can be told apart from here, and in both the safe move
+// is to end the whole line of descent rather than the single token presented,
+// which the holder of the successor would otherwise keep using.
+//
+// Already-revoked rows are updated again on purpose: revoked_at moves to the
+// detection time, which is the moment worth having in an audit.
+func (q *Queries) RevokeTokenChain(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeTokenChain, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setEmailVerified = `-- name: SetEmailVerified :exec
 
 UPDATE auth_users
@@ -1148,6 +1257,24 @@ WHERE id = $1
 // Email verification queries
 func (q *Queries) SetEmailVerified(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.ExecContext(ctx, setEmailVerified, id)
+	return err
+}
+
+const setTokenReplacedBy = `-- name: SetTokenReplacedBy :exec
+UPDATE oauth_tokens
+SET replaced_by_token_id = $2
+WHERE id = $1
+`
+
+type SetTokenReplacedByParams struct {
+	ID                uuid.UUID     `json:"id"`
+	ReplacedByTokenID uuid.NullUUID `json:"replaced_by_token_id"`
+}
+
+// Record which token replaced a just-rotated one, so a request that lost the
+// race can be handed the successor rather than an error.
+func (q *Queries) SetTokenReplacedBy(ctx context.Context, arg SetTokenReplacedByParams) error {
+	_, err := q.db.ExecContext(ctx, setTokenReplacedBy, arg.ID, arg.ReplacedByTokenID)
 	return err
 }
 

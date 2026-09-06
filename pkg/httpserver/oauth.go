@@ -297,7 +297,7 @@ func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Req
 	s.writeTokenResponse(w, r, client.ID, authCode.UserID, authCode.Scope, nonce)
 }
 
-// handleRefreshTokenGrant exchanges a refresh token for new tokens
+// handleRefreshTokenGrant exchanges a refresh token for new tokens.
 func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request, client db.OauthClient) {
 	refreshToken := r.FormValue("refresh_token")
 
@@ -306,8 +306,10 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// Look up the token by refresh token
-	token, err := s.datastore.Q.GetTokenByRefreshToken(r.Context(), sql.NullString{String: refreshToken, Valid: true})
+	// Revoked rows are included deliberately. A request that lost a rotation
+	// race and one presenting a token that never existed are indistinguishable
+	// to a lookup that filters them out, and they deserve opposite answers.
+	token, err := s.datastore.Q.GetTokenByRefreshTokenIncludingRevoked(r.Context(), sql.NullString{String: refreshToken, Valid: true})
 	if err != nil {
 		s.writeTokenError(w, "invalid_grant", "Invalid refresh token")
 		return
@@ -319,23 +321,19 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
+	if token.RevokedAt.Valid {
+		s.answerRotatedRefreshToken(w, r, client, token)
+		return
+	}
+
 	// Check if refresh token has expired
 	if token.RefreshExpiresAt.Valid && token.RefreshExpiresAt.Time.Before(time.Now()) {
 		s.writeTokenError(w, "invalid_grant", "Refresh token has expired")
 		return
 	}
 
-	// Check if user is still active (deactivated users cannot refresh tokens)
-	if token.UserID.Valid {
-		user, err := s.datastore.Q.GetUserByIDIncludingInactive(r.Context(), token.UserID.UUID)
-		if err != nil {
-			s.writeTokenError(w, "server_error", "Failed to verify user status")
-			return
-		}
-		if !user.IsActive {
-			s.writeTokenError(w, "invalid_grant", "Account deactivated")
-			return
-		}
+	if !s.refreshUserIsActive(w, r, token) {
+		return
 	}
 
 	// Atomically revoke the old refresh token before minting new tokens. The
@@ -352,6 +350,14 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	if rowsAffected == 0 {
+		// Someone rotated it between the read above and this revoke. Re-read so
+		// the rotated path can answer, rather than reporting a dead session for
+		// what is a race we now know how to serve.
+		reread, rereadErr := s.datastore.Q.GetTokenByRefreshTokenIncludingRevoked(r.Context(), sql.NullString{String: refreshToken, Valid: true})
+		if rereadErr == nil && reread.RevokedAt.Valid {
+			s.answerRotatedRefreshToken(w, r, client, reread)
+			return
+		}
 		s.writeTokenError(w, "invalid_grant", "Refresh token has already been used")
 		return
 	}
@@ -361,7 +367,119 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 	if token.UserID.Valid {
 		userID = token.UserID.UUID
 	}
-	s.writeTokenResponse(w, r, client.ID, userID, token.Scope, "")
+	tokens, err := s.generateTokens(r.Context(), client.ID, userID, token.Scope, "")
+	if err != nil {
+		s.writeTokenError(w, "server_error", "Failed to generate tokens")
+		return
+	}
+
+	// Record which token replaced this one. Without the link a racer cannot be
+	// pointed at the successor, so a failure here costs the grace window rather
+	// than the rotation, which has already committed — log it and carry on.
+	if linkErr := s.datastore.Q.SetTokenReplacedBy(r.Context(), db.SetTokenReplacedByParams{
+		ID:                token.ID,
+		ReplacedByTokenID: uuid.NullUUID{UUID: tokens.TokenID, Valid: true},
+	}); linkErr != nil {
+		log.Printf("[ERROR] handleRefreshTokenGrant: Failed to link rotated token %s to its successor: %v", token.ID, linkErr)
+	}
+
+	s.writeTokenPair(w, tokens)
+}
+
+// answerRotatedRefreshToken handles a refresh presenting an already-revoked token.
+//
+// Two very different things arrive here. Within the grace window, with a
+// successor on record, it is a client that lost a rotation race: it gets the
+// live token rather than an error, which is the whole point of the window.
+// Anything else is a replay of a token that should be dead, and the response is
+// to end the entire line of descent.
+func (s *Server) answerRotatedRefreshToken(w http.ResponseWriter, r *http.Request, client db.OauthClient, token db.OauthToken) {
+	rotatedRecently := token.RevokedAt.Valid && time.Since(token.RevokedAt.Time) <= refreshReuseGrace
+
+	if !rotatedRecently || !token.ReplacedByTokenID.Valid {
+		s.revokeAfterReuse(r, token)
+		// Deliberately the same wording as an unknown token: telling a caller it
+		// found a real-but-revoked one is information it has no use for.
+		s.writeTokenError(w, "invalid_grant", "Invalid refresh token")
+		return
+	}
+
+	live, ok := s.newestLiveDescendant(r, token)
+	if !ok {
+		s.revokeAfterReuse(r, token)
+		s.writeTokenError(w, "invalid_grant", "Invalid refresh token")
+		return
+	}
+
+	if !s.refreshUserIsActive(w, r, live) {
+		return
+	}
+
+	var userID uuid.UUID
+	if live.UserID.Valid {
+		userID = live.UserID.UUID
+	}
+	tokens, err := s.generateTokensReusingRefresh(r.Context(), client.ID, userID, live.Scope, "", live.RefreshToken.String)
+	if err != nil {
+		s.writeTokenError(w, "server_error", "Failed to generate tokens")
+		return
+	}
+	s.writeTokenPair(w, tokens)
+}
+
+// newestLiveDescendant walks the rotation chain forward to the token that is
+// currently live, so a racer arriving after two rotations still converges on
+// the one the client actually holds.
+func (s *Server) newestLiveDescendant(r *http.Request, token db.OauthToken) (db.OauthToken, bool) {
+	current := token
+	// Bounded rather than unbounded: replaced_by_token_id is a plain reference,
+	// and a cycle would otherwise spin here forever.
+	for range 32 {
+		if !current.ReplacedByTokenID.Valid {
+			return db.OauthToken{}, false
+		}
+		next, err := s.datastore.Q.GetTokenByID(r.Context(), current.ReplacedByTokenID.UUID)
+		if err != nil {
+			return db.OauthToken{}, false
+		}
+		if !next.RevokedAt.Valid && next.RefreshToken.Valid {
+			return next, true
+		}
+		current = next
+	}
+	return db.OauthToken{}, false
+}
+
+// revokeAfterReuse ends a whole rotation chain once a replay is detected.
+//
+// The token presented is not necessarily the stolen one — a thief who refreshes
+// first leaves the legitimate client holding the dead token and arriving here.
+// Since the two cannot be told apart, both are ended.
+func (s *Server) revokeAfterReuse(r *http.Request, token db.OauthToken) {
+	rows, err := s.datastore.Q.RevokeTokenChain(r.Context(), token.ID)
+	if err != nil {
+		log.Printf("[ERROR] revokeAfterReuse: Failed to revoke chain for token %s: %v", token.ID, err)
+		return
+	}
+	log.Printf("[WARN] revokeAfterReuse: Refresh token reuse detected for token %s (client %s); revoked %d token(s) in the chain", token.ID, token.ClientID, rows)
+}
+
+// refreshUserIsActive rejects a refresh for a deactivated account, writing the
+// error itself and reporting whether the caller should continue.
+func (s *Server) refreshUserIsActive(w http.ResponseWriter, r *http.Request, token db.OauthToken) bool {
+	if !token.UserID.Valid {
+		return true
+	}
+	user, err := s.datastore.Q.GetUserByIDIncludingInactive(r.Context(), token.UserID.UUID)
+	if err != nil {
+		s.writeTokenError(w, "server_error", "Failed to verify user status")
+		return false
+	}
+	if !user.IsActive {
+		s.writeTokenError(w, "invalid_grant", "Account deactivated")
+		return false
+	}
+	return true
 }
 
 // writeTokenResponse generates tokens and writes the JSON response.
@@ -373,6 +491,13 @@ func (s *Server) writeTokenResponse(w http.ResponseWriter, r *http.Request, clie
 		return
 	}
 
+	s.writeTokenPair(w, tokens)
+}
+
+// writeTokenPair serialises an already-generated pair. Split out of
+// writeTokenResponse so the refresh grant can generate, record which token
+// replaced which, and only then answer.
+func (s *Server) writeTokenPair(w http.ResponseWriter, tokens TokenPair) {
 	response := TokenResponse{
 		AccessToken:  tokens.AccessToken,
 		TokenType:    "Bearer",
@@ -910,13 +1035,13 @@ func (s *Server) HandleOIDCDiscovery(w http.ResponseWriter, r *http.Request) {
 		"jwks_uri":               issuer + "/.well-known/jwks.json",
 
 		// Recommended fields
-		"userinfo_endpoint":                   issuer + "/oauth/userinfo",
-		"scopes_supported":                    []string{"openid", "profile", "email"},
-		"response_types_supported":            []string{"code"},
-		"response_modes_supported":            []string{"query"},
-		"grant_types_supported":               []string{"authorization_code", "refresh_token", "client_credentials"},
+		"userinfo_endpoint":                     issuer + "/oauth/userinfo",
+		"scopes_supported":                      []string{"openid", "profile", "email"},
+		"response_types_supported":              []string{"code"},
+		"response_modes_supported":              []string{"query"},
+		"grant_types_supported":                 []string{"authorization_code", "refresh_token", "client_credentials"},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic"},
-		"subject_types_supported":             []string{"public"},
+		"subject_types_supported":               []string{"public"},
 		"id_token_signing_alg_values_supported": []string{"ES256"},
 		"claims_supported": []string{
 			"sub", "iss", "aud", "exp", "iat", "at_hash",

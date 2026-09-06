@@ -24,6 +24,19 @@ const authorizationCodeExpiresIn = 10 * time.Minute
 const sessionExpiresIn = 24 * time.Hour
 const accessTokenExpiresIn = 1 * time.Hour
 const refreshTokenExpiresIn = 30 * 24 * time.Hour
+
+// How long a just-rotated refresh token still answers.
+//
+// Rotation revokes the old token the instant the new one is minted, which is
+// right against a thief and wrong against a browser: a client that fires
+// several requests at once crosses the access token's expiry together, all of
+// them refresh with the same token, and only the first survives. Without a
+// window the rest are told their session is over.
+//
+// Ten seconds is far longer than that race -- sub-second in practice -- and far
+// shorter than anything a thief could plan around. A rotated token presented
+// after it is genuine replay, and handled as such.
+const refreshReuseGrace = 10 * time.Second
 const serviceAccountTokenExpiresIn = 15 * time.Minute
 
 // Sentinel errors for credential validation
@@ -178,6 +191,9 @@ type Session struct {
 }
 
 type TokenPair struct {
+	// TokenID is the oauth_tokens row behind this pair, so a caller that just
+	// rotated a token can record which one replaced it.
+	TokenID      uuid.UUID
 	AccessToken  string
 	RefreshToken string
 	IDToken      string // OIDC ID token, present when openid scope is requested
@@ -252,7 +268,24 @@ func (s *Server) createSession(ctx context.Context, userID uuid.UUID) (Session, 
 
 // generateTokens creates new access and refresh tokens and stores them in the database.
 // Returns the token pair on success.
+// generateTokens mints a fresh access/refresh pair and the row behind it.
 func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID uuid.UUID, scope []string, nonce string) (TokenPair, error) {
+	return s.generateTokensReusingRefresh(ctx, clientID, userID, scope, nonce, "")
+}
+
+// generateTokensReusingRefresh mints an access token and returns it alongside a
+// refresh token that already exists.
+//
+// This answers a request that lost a rotation race. It cannot hand back the
+// winner's access token -- only the JWT's jti is stored, never the JWT -- so it
+// mints a new one, and every racer converges on the single refresh token that
+// is actually live instead of each walking away with its own.
+//
+// The row it writes carries a NULL refresh_token. The column is unique, so two
+// rows cannot name the same token; and a row is still required because
+// GetTokenByAccessToken gates the admin middleware and introspection, so an
+// access token without one would verify by signature and then be refused there.
+func (s *Server) generateTokensReusingRefresh(ctx context.Context, clientID uuid.UUID, userID uuid.UUID, scope []string, nonce string, reuseRefreshToken string) (TokenPair, error) {
 	// Fetch user information for JWT claims
 	user, err := s.datastore.Q.GetUserByID(ctx, userID)
 	if err != nil {
@@ -282,9 +315,15 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 		return TokenPair{}, fmt.Errorf("failed to generate access token: %w", err)
 	}
 
-	refreshToken, err := generateRandomString(32)
-	if err != nil {
-		return TokenPair{}, err
+	refreshToken := reuseRefreshToken
+	storedRefreshToken := sql.NullString{}
+	if reuseRefreshToken == "" {
+		minted, mintErr := generateRandomString(32)
+		if mintErr != nil {
+			return TokenPair{}, mintErr
+		}
+		refreshToken = minted
+		storedRefreshToken = sql.NullString{String: minted, Valid: true}
 	}
 
 	accessExpiresAt := time.Now().Add(accessTokenExpiresIn)
@@ -292,9 +331,9 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 
 	// Store token record in database
 	// Note: Store JTI (JWT ID) in access_token column for audit/revocation tracking
-	_, err = s.datastore.Q.InsertToken(ctx, db.InsertTokenParams{
+	inserted, err := s.datastore.Q.InsertToken(ctx, db.InsertTokenParams{
 		AccessToken:      sql.NullString{String: jti, Valid: true}, // Store JTI, not full JWT
-		RefreshToken:     sql.NullString{String: refreshToken, Valid: true},
+		RefreshToken:     storedRefreshToken,
 		UserID:           uuid.NullUUID{UUID: userID, Valid: userID != uuid.Nil},
 		ClientID:         clientID,
 		Scope:            scope,
@@ -339,6 +378,7 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 	}
 
 	return TokenPair{
+		TokenID:      inserted.ID,
 		AccessToken:  accessToken, // Return full JWT to client
 		RefreshToken: refreshToken,
 		IDToken:      idToken,
