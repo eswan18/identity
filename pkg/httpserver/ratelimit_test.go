@@ -101,7 +101,7 @@ func TestGetClientIP(t *testing.T) {
 // limiter bucket is guaranteed to be rejected.
 func rateLimitTestHandler(t *testing.T) (http.Handler, *rateLimitStore) {
 	t.Helper()
-	store := newRateLimitStore()
+	store := newRateLimitStore(ipEntryTTL)
 	t.Cleanup(store.Stop)
 	handler := rateLimitMiddleware(store, 1)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -153,7 +153,7 @@ func TestRateLimitMiddleware_SpoofedXFFSharesLimiter(t *testing.T) {
 // page load (HTML + CSS/JS from /static) burning through the whole per-IP
 // budget and getting legitimate navigation 429'd.
 func TestRateLimitMiddleware_StaticAssetsExempt(t *testing.T) {
-	store := newRateLimitStore()
+	store := newRateLimitStore(ipEntryTTL)
 	t.Cleanup(store.Stop)
 	handler := rateLimitMiddleware(store, 1)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

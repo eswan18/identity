@@ -58,6 +58,8 @@ func (s *Server) HandleAccountSettingsGet(w http.ResponseWriter, r *http.Request
 	switch r.URL.Query().Get("error") {
 	case "email_send_failed":
 		errorMsg = "Failed to send verification email. Please try again later."
+	case "verification_rate_limited":
+		errorMsg = "Too many verification emails requested. Please try again later."
 	}
 	// Legacy query params
 	if r.URL.Query().Get("reactivated") == "true" {
@@ -389,6 +391,18 @@ func (s *Server) HandleChangeEmailPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update email in database
+	// Charge the account's verification-mail budget before changing anything.
+	// This is the last check, so only a change that will actually send costs a
+	// unit -- and it is before the write, so a refused request leaves the
+	// account's address untouched rather than moving it and then declining to
+	// send the link that would verify it.
+	if !s.allowVerificationMail(user.ID) {
+		pageData.Error = "You have changed your email address too many times recently. Please try again later."
+		w.WriteHeader(http.StatusTooManyRequests)
+		_ = views.ChangeEmail(pageData).Render(r.Context(), w)
+		return
+	}
+
 	err = s.datastore.Q.UpdateUserEmail(r.Context(), db.UpdateUserEmailParams{
 		Email: newEmail,
 		ID:    user.ID,

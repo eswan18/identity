@@ -16,11 +16,22 @@ type rateLimiterEntry struct {
 	lastSeen time.Time
 }
 
-// rateLimitStore manages rate limiters per IP address
+// rateLimitStore manages rate limiters keyed by an arbitrary string. The key is
+// an IP address for the global middleware and a user ID for the per-account
+// verification-mail budget (see Server.allowVerificationMail); the store itself
+// does not care which.
 type rateLimitStore struct {
 	limiters map[string]*rateLimiterEntry
 	mu       sync.RWMutex
 	cleanup  *time.Ticker
+
+	// entryTTL is how long an unused entry is kept before the cleanup goroutine
+	// discards it. It must be at least as long as the limiter takes to refill
+	// from empty, or eviction hands back a fresh budget early and silently
+	// weakens the limit: a 3-per-hour rule whose entries are dropped after ten
+	// idle minutes is really a 3-per-ten-minutes rule for anyone willing to
+	// pause. Callers pick a TTL that matches the budget they configure.
+	entryTTL time.Duration
 }
 
 // Stop stops the cleanup ticker
@@ -37,11 +48,13 @@ func (r *rateLimitStore) Reset() {
 	r.limiters = make(map[string]*rateLimiterEntry)
 }
 
-// newRateLimitStore creates a new rate limit store with automatic cleanup
-func newRateLimitStore() *rateLimitStore {
+// newRateLimitStore creates a new rate limit store with automatic cleanup.
+// entryTTL must be at least the limiter's refill time -- see the field comment.
+func newRateLimitStore(entryTTL time.Duration) *rateLimitStore {
 	store := &rateLimitStore{
 		limiters: make(map[string]*rateLimiterEntry),
 		cleanup:  time.NewTicker(5 * time.Minute),
+		entryTTL: entryTTL,
 	}
 
 	// Start cleanup goroutine to remove old entries
@@ -50,41 +63,50 @@ func newRateLimitStore() *rateLimitStore {
 	return store
 }
 
-// cleanupOldEntries removes rate limiter entries that haven't been used in 10 minutes
+// cleanupOldEntries removes rate limiter entries unused for longer than entryTTL.
 func (r *rateLimitStore) cleanupOldEntries() {
 	for range r.cleanup.C {
 		r.mu.Lock()
 		now := time.Now()
-		for ip, entry := range r.limiters {
-			if now.Sub(entry.lastSeen) > 10*time.Minute {
-				delete(r.limiters, ip)
+		for key, entry := range r.limiters {
+			if now.Sub(entry.lastSeen) > r.entryTTL {
+				delete(r.limiters, key)
 			}
 		}
 		r.mu.Unlock()
 	}
 }
 
-// getLimiter returns or creates a rate limiter for the given IP address
-func (r *rateLimitStore) getLimiter(ip string, requestsPerMinute int) *rate.Limiter {
+// getLimiter returns or creates the rate limiter for key, with the given
+// sustained rate and burst. limit and burst are only consulted when the entry is
+// first created; an existing entry keeps the budget it was created with.
+func (r *rateLimitStore) getLimiter(key string, limit rate.Limit, burst int) *rate.Limiter {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	entry, exists := r.limiters[ip]
+	entry, exists := r.limiters[key]
 	if !exists {
-		// Create new limiter: rate.Every calculates the interval between requests
-		// For 5 requests per minute: rate.Every(12 seconds) = 5 requests/minute
-		interval := time.Minute / time.Duration(requestsPerMinute)
-		limiter := rate.NewLimiter(rate.Every(interval), requestsPerMinute)
 		entry = &rateLimiterEntry{
-			limiter:  limiter,
+			limiter:  rate.NewLimiter(limit, burst),
 			lastSeen: time.Now(),
 		}
-		r.limiters[ip] = entry
+		r.limiters[key] = entry
 	} else {
 		entry.lastSeen = time.Now()
 	}
 
 	return entry.limiter
+}
+
+// perMinute converts a requests-per-minute budget into a rate.Limit, e.g. 5
+// requests per minute becomes one every 12 seconds.
+func perMinute(requestsPerMinute int) rate.Limit {
+	return rate.Every(time.Minute / time.Duration(requestsPerMinute))
+}
+
+// rateEvery expresses a budget as one unit per interval.
+func rateEvery(interval time.Duration) rate.Limit {
+	return rate.Every(interval)
 }
 
 // getClientIP extracts the client IP address from the request.
@@ -143,7 +165,7 @@ func rateLimitMiddleware(store *rateLimitStore, requestsPerMinute int) func(http
 			}
 
 			ip := getClientIP(r)
-			limiter := store.getLimiter(ip, requestsPerMinute)
+			limiter := store.getLimiter(ip, perMinute(requestsPerMinute), requestsPerMinute)
 
 			if !limiter.Allow() {
 				http.Error(w, "Rate limit exceeded. Please try again later.", http.StatusTooManyRequests)

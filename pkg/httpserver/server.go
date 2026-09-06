@@ -25,9 +25,12 @@ type Server struct {
 	httpServer     *http.Server
 	cleanupCancel  context.CancelFunc
 	rateLimitStore *rateLimitStore
-	jwtGenerator   *jwt.Generator
-	emailSender    email.Sender
-	avatarService  *avatar.Service
+	// verificationMailStore bounds how much verification mail a single account
+	// can cause to be sent. See allowVerificationMail.
+	verificationMailStore *rateLimitStore
+	jwtGenerator          *jwt.Generator
+	emailSender           email.Sender
+	avatarService         *avatar.Service
 }
 
 func New(config *config.Config, datastore *store.Store, emailSender email.Sender, storageProvider storage.Storage) *Server {
@@ -59,7 +62,7 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 
 	// Create rate limit store and apply rate limiting to all routes
 	// (20 requests per IP per minute - provides basic DDoS protection)
-	rateLimitStore := newRateLimitStore()
+	rateLimitStore := newRateLimitStore(ipEntryTTL)
 	r.Use(rateLimitMiddleware(rateLimitStore, 20))
 
 	jwtGen, err := jwt.NewGenerator(
@@ -72,13 +75,14 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 	}
 
 	s := &Server{
-		config:         config,
-		datastore:      datastore,
-		router:         r,
-		rateLimitStore: rateLimitStore,
-		jwtGenerator:   jwtGen,
-		emailSender:    emailSender,
-		avatarService:  avatar.NewService(storageProvider),
+		config:                config,
+		datastore:             datastore,
+		router:                r,
+		rateLimitStore:        rateLimitStore,
+		verificationMailStore: newRateLimitStore(verificationMailEntryTTL),
+		jwtGenerator:          jwtGen,
+		emailSender:           emailSender,
+		avatarService:         avatar.NewService(storageProvider),
 	}
 	s.registerRoutes()
 
@@ -206,6 +210,9 @@ func (s *Server) Close() error {
 	if s.rateLimitStore != nil {
 		s.rateLimitStore.Stop()
 	}
+	if s.verificationMailStore != nil {
+		s.verificationMailStore.Stop()
+	}
 	return err
 }
 
@@ -219,5 +226,8 @@ func (s *Server) isSecureContext() bool {
 func (s *Server) ResetRateLimits() {
 	if s.rateLimitStore != nil {
 		s.rateLimitStore.Reset()
+	}
+	if s.verificationMailStore != nil {
+		s.verificationMailStore.Reset()
 	}
 }
