@@ -394,7 +394,15 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 // Anything else is a replay of a token that should be dead, and the response is
 // to end the entire line of descent.
 func (s *Server) answerRotatedRefreshToken(w http.ResponseWriter, r *http.Request, client db.OauthClient, token db.OauthToken) {
-	rotatedRecently := token.RevokedAt.Valid && time.Since(token.RevokedAt.Time) <= refreshReuseGrace
+	// Asked of the database rather than the process: revoked_at was set by
+	// now() over there, and comparing it to this clock would let a few seconds
+	// of skew push every racer outside the window and revoke its chain.
+	dbNow, err := s.datastore.Q.GetDatabaseNow(r.Context())
+	if err != nil {
+		s.writeTokenError(w, "server_error", "Failed to verify token state")
+		return
+	}
+	rotatedRecently := token.RevokedAt.Valid && dbNow.Sub(token.RevokedAt.Time) <= refreshReuseGrace
 
 	if !rotatedRecently || !token.ReplacedByTokenID.Valid {
 		s.revokeAfterReuse(r, token)
@@ -408,6 +416,13 @@ func (s *Server) answerRotatedRefreshToken(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		s.revokeAfterReuse(r, token)
 		s.writeTokenError(w, "invalid_grant", "Invalid refresh token")
+		return
+	}
+
+	// The same check the un-revoked path makes. Without it an expired successor
+	// would be handed back along with a fresh hour of access.
+	if live.RefreshExpiresAt.Valid && live.RefreshExpiresAt.Time.Before(dbNow) {
+		s.writeTokenError(w, "invalid_grant", "Refresh token has expired")
 		return
 	}
 

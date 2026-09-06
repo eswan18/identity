@@ -264,10 +264,12 @@ func (q *Queries) DeleteAllUserSessions(ctx context.Context, userID uuid.UUID) e
 
 const deleteDeadTokens = `-- name: DeleteDeadTokens :exec
 DELETE FROM oauth_tokens
-WHERE revoked_at IS NOT NULL
-   OR (expires_at <= now()
-       AND refresh_expires_at IS NOT NULL
-       AND refresh_expires_at <= now())
+WHERE expires_at <= now()
+  AND (
+        refresh_token IS NULL
+     OR (refresh_expires_at IS NOT NULL AND refresh_expires_at <= now())
+  )
+  AND (revoked_at IS NULL OR revoked_at <= now() - interval '1 minute')
 `
 
 // Each row holds both an access token (expires_at) and a refresh token
@@ -277,6 +279,30 @@ WHERE revoked_at IS NOT NULL
 // token is also expired (never delete just because expires_at passed -- a
 // non-revoked row whose refresh token is still valid, or non-expiring, must
 // be kept since it can still mint new access tokens).
+//
+// Revised for rotation. This used to drop every revoked row on sight, which
+// quietly disabled the two things rotation depends on. A token revoked moments
+// ago is what a client that lost a rotation race presents, and it must still be
+// here to be answered with its successor. A token revoked long ago is what a
+// replay presents, and it must still be here to be recognised as one -- delete
+// it and the replay reads as an unknown token, so the chain is never revoked
+// and whoever holds the successor keeps using it.
+//
+// The boundary for both is refresh_expires_at. Past it a replay is refused on
+// expiry grounds anyway, so keeping the row buys nothing; before it, deleting
+// the row is what breaks detection. Revoked and live rows therefore get the
+// same test, and a rotated row survives until the refresh token it carried
+// would have expired regardless.
+//
+// refresh_token IS NULL covers rows that never had one -- client-credentials
+// grants, and the access-token-only rows written when a racer is served. The
+// old rule never matched those at all, since refresh_expires_at IS NOT NULL was
+// false for them, so they accumulated forever.
+//
+// The revoked_at floor is belt-and-braces: the clauses above already keep a
+// just-rotated row, because its refresh token has not expired. It makes the
+// dependency explicit so that shortening retention later cannot silently close
+// the reuse window, and must stay comfortably above refreshReuseGrace.
 func (q *Queries) DeleteDeadTokens(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteDeadTokens)
 	return err
@@ -447,6 +473,24 @@ func (q *Queries) GetAuthorizationCode(ctx context.Context, code string) (OauthA
 		&i.Nonce,
 	)
 	return i, err
+}
+
+const getDatabaseNow = `-- name: GetDatabaseNow :one
+SELECT now()::timestamptz AS db_now
+`
+
+// The database's clock, for comparing against timestamps it set itself.
+//
+// revoked_at comes from now() on the database. Judging the reuse window with
+// the application's clock would put two clocks on different hosts either side
+// of one comparison, and a few seconds of skew would push every racer outside
+// the window and revoke its chain -- turning a fix for spurious logouts into a
+// cause of them.
+func (q *Queries) GetDatabaseNow(ctx context.Context) (time.Time, error) {
+	row := q.db.QueryRowContext(ctx, getDatabaseNow)
+	var db_now time.Time
+	err := row.Scan(&db_now)
+	return db_now, err
 }
 
 const getEmailToken = `-- name: GetEmailToken :one

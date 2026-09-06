@@ -3,6 +3,7 @@
 package httpserver
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -130,6 +131,57 @@ func (s *OAuthFlowSuite) TestReuseOutsideTheWindowKillsTheChain() {
 	status, _ = s.refresh(flow.Client.ClientID, rotated.RefreshToken)
 	s.Equal(http.StatusBadRequest, status,
 		"detecting reuse must revoke the rest of the chain, not only the token presented")
+}
+
+// TestCleanupKeepsRotatedTokensInTheWindow is the regression the first version
+// of this feature failed and its tests missed entirely.
+//
+// The expiry sweep deleted every revoked row on sight. Rotation revokes the old
+// token, so a sweep landing between a rotation and a racer's arrival removed the
+// very row the grace window reads -- the racer then found nothing, was told its
+// token was invalid, and was logged out. Nothing caught it because the handler
+// tests never ran the sweep.
+func (s *OAuthFlowSuite) TestCleanupKeepsRotatedTokensInTheWindow() {
+	flow := s.mustCompleteOAuthFlow(s.newFlowClientParams())
+	original := flow.TokenResponse.RefreshToken
+
+	status, rotated := s.refresh(flow.Client.ClientID, original)
+	s.Require().Equal(http.StatusOK, status)
+
+	s.Require().NoError(s.server.runExpiryCleanup(context.Background()))
+
+	// The rotated row has to survive the sweep, or the window is a no-op
+	// whenever the two happen to coincide.
+	status, served := s.refresh(flow.Client.ClientID, original)
+	s.Equal(http.StatusOK, status, "a sweep must not delete a token still inside its reuse window")
+	s.Equal(rotated.RefreshToken, served.RefreshToken)
+
+	// And the successor must still work afterwards.
+	status, _ = s.refresh(flow.Client.ClientID, rotated.RefreshToken)
+	s.Equal(http.StatusOK, status)
+}
+
+// TestCleanupKeepsRevokedTokensForDetection covers the other half. Detecting a
+// replay needs the replayed token's row; if the sweep has removed it the request
+// reads as an unknown token, no chain is revoked, and whoever holds the
+// successor carries on using it.
+func (s *OAuthFlowSuite) TestCleanupKeepsRevokedTokensForDetection() {
+	flow := s.mustCompleteOAuthFlow(s.newFlowClientParams())
+	original := flow.TokenResponse.RefreshToken
+
+	status, rotated := s.refresh(flow.Client.ClientID, original)
+	s.Require().Equal(http.StatusOK, status)
+
+	// Well outside the window, so this is a replay rather than a race.
+	s.mustBackdateRevocation(original, refreshReuseGrace+time.Minute)
+	s.Require().NoError(s.server.runExpiryCleanup(context.Background()))
+
+	status, _ = s.refresh(flow.Client.ClientID, original)
+	s.Equal(http.StatusBadRequest, status)
+
+	status, _ = s.refresh(flow.Client.ClientID, rotated.RefreshToken)
+	s.Equal(http.StatusBadRequest, status,
+		"the sweep must leave revoked rows in place long enough for reuse to be detected and the chain revoked")
 }
 
 func (s *OAuthFlowSuite) mustBackdateRevocation(refreshToken string, by time.Duration) {

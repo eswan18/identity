@@ -229,7 +229,14 @@ func (s *OAuthFlowSuite) TestExpiryCleanup_DeletesDeadTokensOnly() {
 		return tok
 	}
 
-	// (a) Revoked -- must be deleted regardless of expiry.
+	// (a) Revoked, but its refresh token has not expired -- must SURVIVE.
+	//
+	// This case inverted when rotation gained a reuse window. A rotated token is
+	// revoked and is exactly what a client that lost a rotation race presents,
+	// so deleting it on sight took away the row the window reads. The same row
+	// is what makes a later replay recognisable as one rather than as an unknown
+	// token. It is now kept until the refresh token it carried would have
+	// expired anyway, which is the point past which neither use has any value.
 	revoked, err := s.datastore.Q.InsertToken(ctx, db.InsertTokenParams{
 		AccessToken:      sql.NullString{String: s.mustGenerateAlphanumericString(32), Valid: true},
 		RefreshToken:     sql.NullString{String: s.mustGenerateAlphanumericString(32), Valid: true},
@@ -243,8 +250,38 @@ func (s *OAuthFlowSuite) TestExpiryCleanup_DeletesDeadTokensOnly() {
 	err = s.datastore.Q.RevokeTokenByAccessToken(ctx, revoked.AccessToken)
 	s.Require().NoError(err)
 
+	// (a2) Revoked AND past its refresh expiry -- nothing can read it now, so it
+	// goes. This is what stops rotated rows accumulating forever.
+	revokedAndExpired, err := s.datastore.Q.InsertToken(ctx, db.InsertTokenParams{
+		AccessToken:      sql.NullString{String: s.mustGenerateAlphanumericString(32), Valid: true},
+		RefreshToken:     sql.NullString{String: s.mustGenerateAlphanumericString(32), Valid: true},
+		UserID:           userID,
+		ClientID:         client.ID,
+		Scope:            []string{"openid"},
+		ExpiresAt:        past,
+		RefreshExpiresAt: sql.NullTime{Time: past, Valid: true},
+	})
+	s.Require().NoError(err)
+	err = s.datastore.Q.RevokeTokenByAccessToken(ctx, revokedAndExpired.AccessToken)
+	s.Require().NoError(err)
+	s.mustAgeRevocation(revokedAndExpired.ID)
+
 	// (b) Access expired AND refresh expired -- dead, must be deleted.
 	bothExpired := insert(sql.NullTime{Time: past, Valid: true})
+
+	// (b2) No refresh token at all, access expired -- the shape a
+	// client-credentials grant leaves behind, and the one written when a racer is
+	// served. The old rule never matched these, so they accumulated forever.
+	noRefreshToken, err := s.datastore.Q.InsertToken(ctx, db.InsertTokenParams{
+		AccessToken:      sql.NullString{String: s.mustGenerateAlphanumericString(32), Valid: true},
+		RefreshToken:     sql.NullString{Valid: false},
+		UserID:           userID,
+		ClientID:         client.ID,
+		Scope:            []string{"openid"},
+		ExpiresAt:        past,
+		RefreshExpiresAt: sql.NullTime{Valid: false},
+	})
+	s.Require().NoError(err)
 
 	// (c) Access expired but refresh still valid (future) -- must survive.
 	refreshStillValid := insert(sql.NullTime{Time: future, Valid: true})
@@ -266,6 +303,8 @@ func (s *OAuthFlowSuite) TestExpiryCleanup_DeletesDeadTokensOnly() {
 	s.Require().NoError(err)
 
 	s.assertRowCount("oauth_tokens", "id = $1", revoked.ID, 1)
+	s.assertRowCount("oauth_tokens", "id = $1", revokedAndExpired.ID, 1)
+	s.assertRowCount("oauth_tokens", "id = $1", noRefreshToken.ID, 1)
 	s.assertRowCount("oauth_tokens", "id = $1", bothExpired.ID, 1)
 	s.assertRowCount("oauth_tokens", "id = $1", refreshStillValid.ID, 1)
 	s.assertRowCount("oauth_tokens", "id = $1", refreshNonExpiring.ID, 1)
@@ -274,11 +313,22 @@ func (s *OAuthFlowSuite) TestExpiryCleanup_DeletesDeadTokensOnly() {
 	err = s.server.runExpiryCleanup(ctx)
 	s.NoError(err)
 
-	s.assertRowCount("oauth_tokens", "id = $1", revoked.ID, 0)
+	s.assertRowCount("oauth_tokens", "id = $1", revoked.ID, 1)
+	s.assertRowCount("oauth_tokens", "id = $1", revokedAndExpired.ID, 0)
+	s.assertRowCount("oauth_tokens", "id = $1", noRefreshToken.ID, 0)
 	s.assertRowCount("oauth_tokens", "id = $1", bothExpired.ID, 0)
 	s.assertRowCount("oauth_tokens", "id = $1", refreshStillValid.ID, 1)
 	s.assertRowCount("oauth_tokens", "id = $1", refreshNonExpiring.ID, 1)
 	s.assertRowCount("oauth_tokens", "id = $1", fullyValid.ID, 1)
+}
+
+// mustAgeRevocation pushes a row's revoked_at back past the sweep's floor, so a
+// test does not have to wait out the grace period to assert on a token the
+// window no longer protects.
+func (s *OAuthFlowSuite) mustAgeRevocation(id uuid.UUID) {
+	_, err := s.datastore.DB.ExecContext(s.T().Context(),
+		"UPDATE oauth_tokens SET revoked_at = now() - interval '5 minutes' WHERE id = $1", id)
+	s.Require().NoError(err)
 }
 
 // assertRowCount asserts that exactly want rows in table match "WHERE " + whereClause

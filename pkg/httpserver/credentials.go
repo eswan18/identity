@@ -33,10 +33,16 @@ const refreshTokenExpiresIn = 30 * 24 * time.Hour
 // them refresh with the same token, and only the first survives. Without a
 // window the rest are told their session is over.
 //
-// Ten seconds is far longer than that race -- sub-second in practice -- and far
-// shorter than anything a thief could plan around. A rotated token presented
-// after it is genuine replay, and handled as such.
-const refreshReuseGrace = 10 * time.Second
+// Thirty seconds -- Okta's default for the same setting -- is far longer than
+// that race, which is sub-second, and far shorter than the minutes or hours over
+// which a thief and the real client take turns. A rotated token presented after
+// it is genuine replay, and handled as such.
+//
+// The length matters more than it looks, because presenting a token after the
+// window revokes the whole chain. Too short and a request merely delayed -- a
+// cold start, a slow network -- stops being one failed refresh and becomes a
+// live session killed on the server.
+const refreshReuseGrace = 30 * time.Second
 const serviceAccountTokenExpiresIn = 15 * time.Minute
 
 // Sentinel errors for credential validation
@@ -327,7 +333,13 @@ func (s *Server) generateTokensReusingRefresh(ctx context.Context, clientID uuid
 	}
 
 	accessExpiresAt := time.Now().Add(accessTokenExpiresIn)
-	refreshExpiresAt := time.Now().Add(refreshTokenExpiresIn)
+	// A row that carries no refresh token gets no refresh expiry either, so the
+	// cleanup sweep can drop it once its access token lapses rather than holding
+	// it for the refresh lifetime it never had.
+	storedRefreshExpiresAt := sql.NullTime{}
+	if storedRefreshToken.Valid {
+		storedRefreshExpiresAt = sql.NullTime{Time: time.Now().Add(refreshTokenExpiresIn), Valid: true}
+	}
 
 	// Store token record in database
 	// Note: Store JTI (JWT ID) in access_token column for audit/revocation tracking
@@ -339,7 +351,7 @@ func (s *Server) generateTokensReusingRefresh(ctx context.Context, clientID uuid
 		Scope:            scope,
 		TokenType:        sql.NullString{String: "Bearer", Valid: true},
 		ExpiresAt:        accessExpiresAt,
-		RefreshExpiresAt: sql.NullTime{Time: refreshExpiresAt, Valid: true},
+		RefreshExpiresAt: storedRefreshExpiresAt,
 	})
 	if err != nil {
 		return TokenPair{}, err
