@@ -14,7 +14,12 @@ import (
 // in a "token" query parameter (see password_reset.go's HandleForgotPasswordPost /
 // email_verification.go's sendVerificationEmail), so it is redacted before any request
 // is logged.
-var sensitiveQueryParams = []string{"token"}
+//
+// "pending" is the MFA pending-session id (see /oauth/mfa in routes.go). It is
+// half of a login in progress: the holder cannot complete it without a valid
+// TOTP code, but they can spend the account's attempt budget and destroy the
+// pending row, so it does not belong in access logs either.
+var sensitiveQueryParams = []string{"token", "pending"}
 
 // requestLoggingMiddleware is a thin replacement for chi's middleware.Logger. chi's
 // default logger logs the full request URI -- including the raw query string --

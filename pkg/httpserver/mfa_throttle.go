@@ -26,12 +26,28 @@ import (
 //
 // That is the difference between a weekend and a year and a half.
 //
-// This cannot be used to lock a stranger out. Reaching the MFA step at all
-// requires a valid password: HandleLoginPost validates credentials before
-// creating a pending row, so only someone who already holds the password can
-// spend an account's budget. An attacker who has the password can deny that
-// account its MFA step for a window -- but they are already most of the way in,
-// and a temporary refusal is the safer failure.
+// This cannot be used to lock a stranger out. Reaching any of these endpoints
+// requires a valid password or an authenticated session: HandleLoginPost
+// validates credentials before creating a pending row, and the setup/disable
+// handlers sit behind requireActiveUser. So only someone who already holds the
+// password can spend an account's budget.
+//
+// What such an attacker gets is worth stating precisely, because "for a window"
+// understates it: while over budget, requests are refused at the check without
+// charging, so the bucket refills at one per interval regardless -- and an
+// attacker who keeps consuming each token as it appears can hold the account at
+// zero indefinitely. They are already most of the way in at that point, and
+// refusing a second factor is the safer failure, but it is not self-healing
+// while the attack continues.
+//
+// The budget is per process. Production runs two replicas
+// (k8s/base/deployment.yaml), so an account's real budget is twice what these
+// constants say, and it scales with any change to replicas -- nothing ties the
+// two together. It also resets when a pod restarts, which on spot nodes is
+// routine rather than exceptional. Both are acceptable here only because of the
+// size of the gap being closed: a restart returns at most one burst against a
+// requirement of ~231,000 guesses. Persisting the counter would be the answer
+// if that margin ever narrowed.
 const (
 	// mfaAttemptBurst is how many failures an account may make in quick
 	// succession. Five is generous for a mistyped code and short of the runs of
@@ -49,31 +65,43 @@ const (
 	mfaAttemptEntryTTL = 30 * time.Minute
 )
 
-// mfaAttemptAllowed reports whether this account has budget left to attempt an
-// MFA code, WITHOUT consuming any.
+// chargeMFAAttempt takes one unit of the account's failure budget and reports
+// whether there was one to take. Call it before evaluating a code.
 //
-// The check and the charge are separate on purpose: only a failed attempt should
-// cost anything. Consuming on entry would make a user who logs in successfully
-// five times in a quarter of an hour -- during setup, or while testing -- lock
-// themselves out having done nothing wrong.
-func (s *Server) mfaAttemptAllowed(userID uuid.UUID) bool {
+// It charges every attempt, not only failures, and clearMFAAttempts wipes the
+// count on success. That is the conventional shape for a failure counter -- the
+// budget bounds *consecutive* failures rather than lifetime use -- and it is the
+// only shape that is atomic here.
+//
+// The obvious alternative, peek then charge on failure, is not atomic:
+// rate.Limiter.Allow reports false without consuming when short, so concurrent
+// requests can all pass the peek and each get a free code evaluation while only
+// some charge. Reserving and cancelling does not work either, and the reason is
+// worth recording so nobody tries it again: Reservation.CancelAt restores the
+// token only when timeToAct is still in the future, so a reservation that was
+// available immediately -- exactly the case here -- cannot be handed back.
+func (s *Server) chargeMFAAttempt(userID uuid.UUID) bool {
 	if s.mfaAttemptStore == nil {
 		return true
 	}
 	limiter := s.mfaAttemptStore.getLimiter(userID.String(), rateEvery(mfaAttemptInterval), mfaAttemptBurst)
-	if limiter.Tokens() < 1 {
-		log.Printf("mfaAttemptAllowed: MFA attempt budget exhausted for user %s", userID)
+	if !limiter.Allow() {
+		log.Printf("chargeMFAAttempt: MFA attempt budget exhausted for user %s", userID)
 		return false
 	}
 	return true
 }
 
-// recordFailedMFAAttempt charges one unit of the account's budget. Call it only
-// when a code was actually wrong.
-func (s *Server) recordFailedMFAAttempt(userID uuid.UUID) {
+// clearMFAAttempts restores an account's full budget. Call it when a code
+// verified successfully.
+//
+// Without this, a user who authenticates five times within the refill window --
+// during MFA setup, or logging back in a few times -- would throttle themselves
+// having done nothing wrong. An attacker who has the password but not the device
+// can never reach it, so it cannot be used to refill a guessing budget.
+func (s *Server) clearMFAAttempts(userID uuid.UUID) {
 	if s.mfaAttemptStore == nil {
 		return
 	}
-	limiter := s.mfaAttemptStore.getLimiter(userID.String(), rateEvery(mfaAttemptInterval), mfaAttemptBurst)
-	limiter.Allow()
+	s.mfaAttemptStore.forget(userID.String())
 }

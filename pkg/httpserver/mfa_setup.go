@@ -123,6 +123,17 @@ func (s *Server) HandleMFASetupPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enrollment draws on the same budget. The win here is smaller -- the secret
+	// is server-generated, so guessing a code only completes an enrollment the
+	// attacker cannot use -- but it is still an unbounded per-account code
+	// oracle, and enabling MFA against a secret nobody holds would lock the
+	// account's owner out of their own second factor.
+	if !s.chargeMFAAttempt(user.ID) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		s.renderMFASetupPage(w, r, user.Username, pending.Secret,
+			"Too many incorrect codes. Please wait a few minutes and try again.")
+		return
+	}
 	// Validate the TOTP code against the server-stored secret.
 	if !mfa.ValidateCode(pending.Secret, code) {
 		// Re-render using the SAME server-stored secret so the displayed QR and the
@@ -130,6 +141,7 @@ func (s *Server) HandleMFASetupPost(w http.ResponseWriter, r *http.Request) {
 		s.renderMFASetupPage(w, r, user.Username, pending.Secret, "Invalid verification code. Please try again.")
 		return
 	}
+	s.clearMFAAttempts(user.ID)
 
 	// Enable MFA for the user using the server-stored secret.
 	if err := s.datastore.Q.EnableMFA(r.Context(), db.EnableMFAParams{
@@ -213,6 +225,22 @@ func (s *Server) HandleMFADisablePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Same per-account budget as the login-time check. This endpoint is a TOTP
+	// oracle too, and a better target than the login one: succeeding here does
+	// not just get past the second factor, it removes it. The argument in
+	// mfa_throttle.go that the per-IP limiter is not a bound applies verbatim,
+	// so leaving this path unthrottled would have contradicted the reasoning for
+	// throttling the other.
+	if !s.chargeMFAAttempt(user.ID) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		s.renderAccountSettings(w, r, views.AccountSettingsView{
+			Username:   user.Username,
+			Email:      user.Email,
+			MfaEnabled: user.MfaEnabled,
+			Error:      "Too many incorrect codes. Please wait a few minutes and try again.",
+		})
+		return
+	}
 	if !mfa.ValidateCode(user.MfaSecret.String, code) {
 		w.WriteHeader(http.StatusUnauthorized)
 		s.renderAccountSettings(w, r, views.AccountSettingsView{
@@ -223,6 +251,7 @@ func (s *Server) HandleMFADisablePost(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	s.clearMFAAttempts(user.ID)
 
 	// Disable MFA
 	err = s.datastore.Q.DisableMFA(r.Context(), user.ID)

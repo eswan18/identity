@@ -1,36 +1,74 @@
 package httpserver
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
 )
 
-// TestMFAAttemptBudgetChargesOnlyFailures is the property that keeps this from
-// locking out people who did nothing wrong: checking whether an attempt is
-// allowed must not itself cost anything.
-func TestMFAAttemptBudgetChargesOnlyFailures(t *testing.T) {
+// TestSuccessfulMFAClearsTheFailureBudget is the property that keeps this from
+// locking out people who did nothing wrong. The budget bounds consecutive
+// failures, so a success must wipe the count -- otherwise authenticating a few
+// times inside the refill window throttles a user who never got a code wrong.
+func TestSuccessfulMFAClearsTheFailureBudget(t *testing.T) {
 	srv := newHermeticTestServer(t)
 	user := uuid.New()
 
-	// Checking repeatedly, without recording a failure, must never exhaust the
-	// budget -- this is the successful-login path.
+	// Charge-then-clear, as a successful verification does, many times over.
 	for i := 0; i < mfaAttemptBurst*3; i++ {
-		if !srv.mfaAttemptAllowed(user) {
-			t.Fatalf("check %d was refused; checking must not consume budget", i+1)
+		if !srv.chargeMFAAttempt(user) {
+			t.Fatalf("attempt %d was refused; a cleared budget must be fully restored", i+1)
 		}
+		srv.clearMFAAttempts(user)
 	}
 
-	// Failures do cost.
-	for i := 1; i <= mfaAttemptBurst; i++ {
-		if !srv.mfaAttemptAllowed(user) {
-			t.Fatalf("attempt %d of the burst was refused; the budget is %d", i, mfaAttemptBurst)
-		}
-		srv.recordFailedMFAAttempt(user)
+	// Almost spend it, then succeed: the whole burst comes back.
+	for i := 0; i < mfaAttemptBurst-1; i++ {
+		srv.chargeMFAAttempt(user)
 	}
-	if srv.mfaAttemptAllowed(user) {
-		t.Errorf("attempt %d was allowed; the burst of %d should be spent",
+	srv.clearMFAAttempts(user)
+	for i := 1; i <= mfaAttemptBurst; i++ {
+		if !srv.chargeMFAAttempt(user) {
+			t.Fatalf("failure %d of the burst was refused after a success cleared the count", i)
+		}
+	}
+	if srv.chargeMFAAttempt(user) {
+		t.Errorf("failure %d was allowed; the burst of %d should be spent",
 			mfaAttemptBurst+1, mfaAttemptBurst)
+	}
+}
+
+// TestMFAAttemptChargeIsAtomic pins the reason this charges with a single Allow
+// rather than peeking and then charging on failure. That split is not atomic:
+// Allow reports false without consuming when short, so concurrent requests can
+// all pass the peek and each get a free code evaluation while only some charge.
+// However many arrive at once, no more than the budget may get through.
+func TestMFAAttemptChargeIsAtomic(t *testing.T) {
+	srv := newHermeticTestServer(t)
+	user := uuid.New()
+
+	const concurrency = 256
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	allowed := 0
+
+	wg.Add(concurrency)
+	for i := 0; i < concurrency; i++ {
+		go func() {
+			defer wg.Done()
+			if srv.chargeMFAAttempt(user) {
+				mu.Lock()
+				allowed++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	if allowed > mfaAttemptBurst {
+		t.Errorf("%d concurrent attempts got through a budget of %d; the charge is not atomic",
+			allowed, mfaAttemptBurst)
 	}
 }
 
@@ -41,12 +79,12 @@ func TestMFAAttemptBudgetIsPerAccount(t *testing.T) {
 	victim := uuid.New()
 
 	for i := 0; i < mfaAttemptBurst; i++ {
-		srv.recordFailedMFAAttempt(victim)
+		srv.chargeMFAAttempt(victim)
 	}
-	if srv.mfaAttemptAllowed(victim) {
+	if srv.chargeMFAAttempt(victim) {
 		t.Fatal("the exhausted account should be refused")
 	}
-	if !srv.mfaAttemptAllowed(uuid.New()) {
+	if !srv.chargeMFAAttempt(uuid.New()) {
 		t.Error("a different account was refused; one account's failures must not affect another's")
 	}
 }

@@ -129,19 +129,35 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Refuse before checking the code once this account has spent its failure
-	// budget. Checked here rather than charged on entry so only wrong codes
-	// cost anything; see mfa_throttle.go for why the budget is per account and
-	// not per pending row or per IP.
-	if !s.mfaAttemptAllowed(pending.UserID) {
-		// Consume the pending row as well. Leaving it would let the attempt
-		// resume the instant the budget refills; destroying it means another
-		// password login is required first, which the per-IP limiter also bounds.
+	// An empty submission is a mistake, not a guess, and must not cost budget.
+	// HandleMFASetupPost already treats it this way; this path did not.
+	if code == "" {
+		s.renderMFAError(w, r, http.StatusBadRequest,
+			"Please enter the verification code from your authenticator app.", pendingID, pendingParams)
+		return
+	}
+
+	// Take a unit of the account's failure budget before evaluating the code,
+	// and hand it back below if the code turns out to be right. See
+	// mfa_throttle.go for why the budget is per account rather than per pending
+	// row or per IP, and why reserving beats peeking.
+	if !s.chargeMFAAttempt(pending.UserID) {
+		// Consume the pending row too. Leaving it would let guessing resume the
+		// instant a token refills; destroying it means another password login is
+		// needed first, which the per-IP limiter also bounds.
 		if err := s.datastore.Q.DeleteMFAPending(r.Context(), pendingID); err != nil {
 			log.Printf("[ERROR] HandleMFAPost: Failed to delete pending MFA session after exhausting attempts: %v", err)
 		}
-		s.renderMFAError(w, r, http.StatusTooManyRequests,
-			"Too many incorrect codes. Please wait a few minutes and sign in again.", "", pendingParams)
+		// Redirect rather than re-render the MFA form. The pending row is gone,
+		// so every field on that form is now dead -- re-rendering it invites the
+		// user to enter a code that cannot be checked and bounces them silently
+		// when they do. Send them to login, carrying the OAuth parameters so a
+		// fresh sign-in still returns them to the app, with a message that names
+		// the most likely innocent cause: a device clock too far out of sync for
+		// the ±1 window totp.Validate allows.
+		http.Redirect(w, r,
+			"/oauth/login?error=mfa_throttled&"+strings.TrimPrefix(buildAuthorizeURL(pendingParams), "/oauth/authorize?"),
+			http.StatusFound)
 		return
 	}
 
@@ -149,10 +165,11 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 	// retry within the validity window.
 	if !mfa.ValidateCode(mfaStatus.MfaSecret.String, code) {
 		s.debugf("HandleMFAPost: Invalid MFA code for user: %v", pending.UserID)
-		s.recordFailedMFAAttempt(pending.UserID)
 		s.renderMFAError(w, r, http.StatusUnauthorized, "Invalid verification code", pendingID, pendingParams)
 		return
 	}
+	// Correct code: a successful verification clears the failure count.
+	s.clearMFAAttempts(pending.UserID)
 
 	// Consume the pending MFA session (single use).
 	if err := s.datastore.Q.DeleteMFAPending(r.Context(), pendingID); err != nil {

@@ -126,6 +126,9 @@ func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
 		errorMsg = "Your account has been deactivated."
 	} else if r.URL.Query().Get("error") == "account_deactivated" {
 		errorMsg = "Your account is deactivated. You cannot log in to applications."
+	} else if r.URL.Query().Get("error") == "mfa_throttled" {
+		errorMsg = "Too many incorrect verification codes. Please wait a few minutes before trying again. " +
+			"If your codes keep being rejected, check that your authenticator device's clock is correct."
 	}
 
 	oauthParams := oauthFlowParams{
