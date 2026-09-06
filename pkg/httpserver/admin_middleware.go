@@ -1,7 +1,6 @@
 package httpserver
 
 import (
-	"database/sql"
 	"log"
 	"net/http"
 	"slices"
@@ -30,15 +29,19 @@ func (s *Server) AdminAuthMiddleware(requiredScopes ...string) func(http.Handler
 				return
 			}
 
-			// Check if token has been revoked (by looking up JTI in database)
-			if claims.ID != "" {
-				_, err := s.datastore.Q.GetTokenByAccessToken(r.Context(), sql.NullString{String: claims.ID, Valid: true})
-				if err == sql.ErrNoRows {
-					// Token not found could mean it was revoked or never existed
-					s.writeAdminError(w, http.StatusUnauthorized, "invalid_token", "Token has been revoked or is invalid")
-					return
-				}
-				// Note: If err != nil but not ErrNoRows, we allow through - the DB might be temporarily unavailable
+			// Revocation check. Unlike everything above it, this needs the
+			// database -- and being unable to reach it is not permission to
+			// continue. liveAccessToken's contract is that callers fail closed;
+			// this path previously did the opposite, allowing the request through
+			// on any error other than ErrNoRows and so skipping revocation
+			// entirely, on the most privileged surface in the service.
+			if _, live, err := s.liveAccessToken(r.Context(), claims.ID); err != nil {
+				log.Printf("Admin auth: %v", err)
+				s.writeAdminError(w, http.StatusInternalServerError, "server_error", "Failed to verify token status")
+				return
+			} else if !live {
+				s.writeAdminError(w, http.StatusUnauthorized, "invalid_token", "Token has been revoked or is invalid")
+				return
 			}
 
 			// Validate required scopes
