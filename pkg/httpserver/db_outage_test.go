@@ -89,6 +89,124 @@ func (s *OAuthFlowSuite) TestDatabaseOutageIsNotAGrantVerdictOnAnyGrant() {
 	s.NotEqual("invalid_grant", body["error"], "an outage is not a verdict on the code")
 }
 
+// postToHandler drives any handler directly, bypassing the router so the shared rate
+// limiter plays no part.
+func (s *OAuthFlowSuite) postToHandler(h http.HandlerFunc, path string, form url.Values) (int, map[string]string) {
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	h(rec, req)
+
+	var body map[string]string
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	return rec.Code, body
+}
+
+// TestOutageOnConfidentialEndpointsIsNotBadCredentials covers introspection and
+// revocation, which authenticate the same way the token endpoint does and were
+// still calling an unreachable database a credentials failure.
+//
+// These matter more than their obscurity suggests: a resource server
+// introspects on every request it serves, so during an outage it would be told
+// its own client credentials were wrong, continuously.
+func (s *OAuthFlowSuite) TestOutageOnConfidentialEndpointsIsNotBadCredentials() {
+	dead := s.serverWithDeadDatabase()
+
+	for _, tc := range []struct {
+		name    string
+		path    string
+		handler http.HandlerFunc
+	}{
+		{"introspection", "/oauth/introspect", dead.HandleIntrospect},
+		{"revocation", "/oauth/revoke", dead.HandleOauthRevoke},
+	} {
+		s.Run(tc.name, func() {
+			status, body := s.postToHandler(tc.handler, tc.path, url.Values{
+				"token":         {"some-token"},
+				"client_id":     {"some-client"},
+				"client_secret": {"some-secret"},
+			})
+
+			s.Equal(http.StatusInternalServerError, status)
+			s.Equal("server_error", body["error"])
+			s.NotEqual("invalid_client", body["error"],
+				"an unreachable database is not a verdict on the caller's credentials")
+		})
+	}
+}
+
+// withTableHidden renames a table for the duration of fn, so queries against it
+// fail with a real driver error while the rest of the schema keeps working.
+// That is the only way to reach the lookups BELOW client authentication: with
+// the whole pool closed, client auth fails first and short-circuits the request.
+func (s *OAuthFlowSuite) withTableHidden(table string, fn func()) {
+	hidden := table + "_hidden_for_test"
+	_, err := s.datastore.DB.Exec("ALTER TABLE " + table + " RENAME TO " + hidden)
+	s.Require().NoError(err)
+	defer func() {
+		_, err := s.datastore.DB.Exec("ALTER TABLE " + hidden + " RENAME TO " + table)
+		s.Require().NoError(err, "failed to restore %s -- later tests in this suite will fail", table)
+	}()
+	fn()
+}
+
+// TestRefreshTokenLookupFailureIsNotAGrantVerdict is the test the outage cases
+// above cannot be: client authentication succeeds here, so the failure lands on
+// GetTokenByRefreshToken. Without it, both call sites of lookupFailure can be
+// reverted to a literal "invalid_grant" and the entire suite still passes.
+func (s *OAuthFlowSuite) TestRefreshTokenLookupFailureIsNotAGrantVerdict() {
+	flow := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "http://localhost:8080",
+	})
+
+	s.withTableHidden("oauth_tokens", func() {
+		status, body := s.postToken(s.server, url.Values{
+			"grant_type":    {"refresh_token"},
+			"refresh_token": {flow.TokenResponse.RefreshToken},
+			"client_id":     {flow.Client.ClientID},
+		})
+
+		s.Equal(http.StatusInternalServerError, status)
+		s.Equal("server_error", body["error"])
+		// The description must agree with the code, or a client branching on
+		// one and a human reading the other reach opposite conclusions.
+		s.Equal("Failed to look up refresh token", body["error_description"])
+	})
+}
+
+// TestAuthorizationCodeLookupFailureIsNotAGrantVerdict is the same for the code
+// exchange, where it costs a sign-in rather than a session.
+func (s *OAuthFlowSuite) TestAuthorizationCodeLookupFailureIsNotAGrantVerdict() {
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:       s.mustGenerateRandomString(8),
+		ClientSecret:   sql.NullString{String: "", Valid: false},
+		Name:           s.mustGenerateRandomString(8),
+		RedirectUris:   []string{"http://localhost:8080/callback"},
+		AllowedScopes:  []string{"openid", "profile", "email"},
+		IsConfidential: false,
+		Audience:       "http://localhost:8080",
+	})
+
+	s.withTableHidden("oauth_authorization_codes", func() {
+		status, body := s.postToken(s.server, url.Values{
+			"grant_type":   {"authorization_code"},
+			"code":         {"any-code"},
+			"redirect_uri": {"http://localhost:8080/callback"},
+			"client_id":    {client.ClientID},
+		})
+
+		s.Equal(http.StatusInternalServerError, status)
+		s.Equal("server_error", body["error"])
+		s.Equal("Failed to look up authorization code", body["error_description"])
+	})
+}
+
 // TestUnknownRefreshTokenStillEndsTheSession guards the other side: the
 // discrimination above must not have made a genuinely dead token look
 // retryable, or reuse detection stops logging anyone out.

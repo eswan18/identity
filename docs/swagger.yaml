@@ -963,14 +963,7 @@ paths:
             type: object
         "500":
           description: OAuth2 error response for a failure on our side (server_error)
-            - retryable
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "503":
-          description: OAuth2 error response when briefly unable to serve (temporarily_unavailable)
-            - retryable
+            - retryable, and not a verdict on the grant
           schema:
             additionalProperties:
               type: string

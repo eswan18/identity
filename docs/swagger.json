@@ -1336,16 +1336,7 @@
                         }
                     },
                     "500": {
-                        "description": "OAuth2 error response for a failure on our side (server_error) - retryable",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "503": {
-                        "description": "OAuth2 error response when briefly unable to serve (temporarily_unavailable) - retryable",
+                        "description": "OAuth2 error response for a failure on our side (server_error) - retryable, and not a verdict on the grant",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
