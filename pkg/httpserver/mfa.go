@@ -129,6 +129,38 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// An empty submission is a mistake, not a guess, and must not cost budget.
+	// HandleMFASetupPost already treats it this way; this path did not.
+	if code == "" {
+		s.renderMFAError(w, r, http.StatusBadRequest,
+			"Please enter the verification code from your authenticator app.", pendingID, pendingParams)
+		return
+	}
+
+	// Take a unit of the account's failure budget before evaluating the code,
+	// and hand it back below if the code turns out to be right. See
+	// mfa_throttle.go for why the budget is per account rather than per pending
+	// row or per IP, and why reserving beats peeking.
+	if !s.chargeMFAAttempt(pending.UserID) {
+		// Consume the pending row too. Leaving it would let guessing resume the
+		// instant a token refills; destroying it means another password login is
+		// needed first, which the per-IP limiter also bounds.
+		if err := s.datastore.Q.DeleteMFAPending(r.Context(), pendingID); err != nil {
+			log.Printf("[ERROR] HandleMFAPost: Failed to delete pending MFA session after exhausting attempts: %v", err)
+		}
+		// Redirect rather than re-render the MFA form. The pending row is gone,
+		// so every field on that form is now dead -- re-rendering it invites the
+		// user to enter a code that cannot be checked and bounces them silently
+		// when they do. Send them to login, carrying the OAuth parameters so a
+		// fresh sign-in still returns them to the app, with a message that names
+		// the most likely innocent cause: a device clock too far out of sync for
+		// the ±1 window totp.Validate allows.
+		http.Redirect(w, r,
+			"/oauth/login?error=mfa_throttled&"+strings.TrimPrefix(buildAuthorizeURL(pendingParams), "/oauth/authorize?"),
+			http.StatusFound)
+		return
+	}
+
 	// Validate the TOTP code. A wrong code leaves the pending row intact so the user can
 	// retry within the validity window.
 	if !mfa.ValidateCode(mfaStatus.MfaSecret.String, code) {
@@ -136,6 +168,8 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 		s.renderMFAError(w, r, http.StatusUnauthorized, "Invalid verification code", pendingID, pendingParams)
 		return
 	}
+	// Correct code: a successful verification clears the failure count.
+	s.clearMFAAttempts(pending.UserID)
 
 	// Consume the pending MFA session (single use).
 	if err := s.datastore.Q.DeleteMFAPending(r.Context(), pendingID); err != nil {

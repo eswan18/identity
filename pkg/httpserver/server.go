@@ -28,9 +28,12 @@ type Server struct {
 	// verificationMailStore bounds how much verification mail a single account
 	// can cause to be sent. See allowVerificationMail.
 	verificationMailStore *rateLimitStore
-	jwtGenerator          *jwt.Generator
-	emailSender           email.Sender
-	avatarService         *avatar.Service
+	// mfaAttemptStore bounds failed MFA verifications per account, independently
+	// of the requester's IP. See mfaAttemptAllowed.
+	mfaAttemptStore *rateLimitStore
+	jwtGenerator    *jwt.Generator
+	emailSender     email.Sender
+	avatarService   *avatar.Service
 }
 
 func New(config *config.Config, datastore *store.Store, emailSender email.Sender, storageProvider storage.Storage) *Server {
@@ -80,6 +83,7 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 		router:                r,
 		rateLimitStore:        rateLimitStore,
 		verificationMailStore: newRateLimitStore(verificationMailEntryTTL),
+		mfaAttemptStore:       newRateLimitStore(mfaAttemptEntryTTL),
 		jwtGenerator:          jwtGen,
 		emailSender:           emailSender,
 		avatarService:         avatar.NewService(storageProvider),
@@ -213,6 +217,9 @@ func (s *Server) Close() error {
 	if s.verificationMailStore != nil {
 		s.verificationMailStore.Stop()
 	}
+	if s.mfaAttemptStore != nil {
+		s.mfaAttemptStore.Stop()
+	}
 	return err
 }
 
@@ -229,5 +236,8 @@ func (s *Server) ResetRateLimits() {
 	}
 	if s.verificationMailStore != nil {
 		s.verificationMailStore.Reset()
+	}
+	if s.mfaAttemptStore != nil {
+		s.mfaAttemptStore.Reset()
 	}
 }

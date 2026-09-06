@@ -77,6 +77,17 @@ func (r *rateLimitStore) cleanupOldEntries() {
 	}
 }
 
+// forget discards the entry for key, restoring its full budget.
+//
+// Used to clear an account's failed-attempt count once it authenticates
+// successfully, which is the conventional semantics for a failure counter: the
+// budget bounds consecutive failures, not lifetime use.
+func (r *rateLimitStore) forget(key string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.limiters, key)
+}
+
 // getLimiter returns or creates the rate limiter for key, with the given
 // sustained rate and burst. limit and burst are only consulted when the entry is
 // first created; an existing entry keeps the budget it was created with.
