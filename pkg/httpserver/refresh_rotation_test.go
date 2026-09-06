@@ -63,6 +63,13 @@ func (s *OAuthFlowSuite) TestConcurrentRefreshConvergesOnOneToken() {
 	statuses := make([]int, racers)
 	tokens := make([]TokenResponse, racers)
 
+	// The racers each leave a keep-alive connection on the shared client, and
+	// the suite's teardown calls server.Close(), whose graceful shutdown waits
+	// for connections to fall idle -- so without this the suite intermittently
+	// fails teardown with "context deadline exceeded". No other test opens
+	// several connections at once, which is why only this one provoked it.
+	defer s.httpClient.CloseIdleConnections()
+
 	var wg sync.WaitGroup
 	for i := range racers {
 		wg.Add(1)
