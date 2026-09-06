@@ -158,6 +158,7 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 // @Success      200 {object} map[string]interface{} "Token response with access_token, token_type, expires_in, refresh_token, scope, and id_token (when openid scope requested)"
 // @Failure      400 {object} map[string]string "OAuth2 error response (invalid_request, invalid_grant, unsupported_grant_type, etc.)"
 // @Failure      401 {object} map[string]string "OAuth2 error response (invalid_client)"
+// @Failure      503 {object} map[string]string "OAuth2 error response for a failure on our side (server_error, temporarily_unavailable) - retryable, the grant is unaffected"
 // @Router       /oauth/token [post]
 func (s *Server) HandleOauthToken(w http.ResponseWriter, r *http.Request) {
 	grantType := r.FormValue("grant_type")
@@ -451,8 +452,34 @@ func (s *Server) writeClientCredentialsTokenResponse(w http.ResponseWriter, r *h
 // writeTokenError writes an OAuth2 error response with 400 status. This is
 // correct for every token-endpoint error except invalid_client — see
 // writeInvalidClientError for that case.
+// retryableTokenErrors are the token-endpoint error codes that report a failure
+// of ours rather than a defect in the request. They are the reason
+// writeTokenError does not answer a flat 400.
+var retryableTokenErrors = map[string]bool{
+	"server_error":            true,
+	"temporarily_unavailable": true,
+}
+
+// writeTokenError writes an OAuth2 error response for the token endpoint.
+//
+// The status is chosen from the error code rather than fixed at 400. RFC 6749
+// §5.2 mandates 400 for the errors it enumerates -- all of which describe
+// something wrong with the *request* -- and `server_error` is deliberately not
+// among them. Answering 400 for it says "your request was bad" when the truth
+// is "our database just failed", and every client then has to parse the body to
+// learn otherwise. Three of them did not, and signed users out of healthy
+// sessions on a transient database blip; see the write-ups on
+// footstrike-ios#22 and haruspex#205.
+//
+// A 503 makes the honest answer the default one: a client that only inspects
+// the status retries instead of ending the session, and one that reads the body
+// still gets the same error code it did before.
 func (s *Server) writeTokenError(w http.ResponseWriter, errorCode, description string) {
-	writeJSONError(w, http.StatusBadRequest, errorCode, description)
+	status := http.StatusBadRequest
+	if retryableTokenErrors[errorCode] {
+		status = http.StatusServiceUnavailable
+	}
+	writeJSONError(w, status, errorCode, description)
 }
 
 // writeInvalidClientError writes the invalid_client error for the token endpoint.

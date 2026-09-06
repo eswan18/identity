@@ -961,6 +961,13 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "503":
+          description: OAuth2 error response for a failure on our side (server_error,
+            temporarily_unavailable) - retryable, the grant is unaffected
+          schema:
+            additionalProperties:
+              type: string
+            type: object
       summary: OAuth2 token endpoint
       tags:
       - oauth2
