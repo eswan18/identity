@@ -23,7 +23,7 @@ This project requires a few CLI tools:
 # swaggo/swag for generating openapi docs
 go install github.com/swaggo/swag/cmd/swag@latest
 # sqlc-dev/sqlc for generating type-safe database code
-go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0  # or just use `make sqlc`, which pins this
 # golang-migrate/migrate for migrations
 go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
 # a-h/templ for the server-rendered HTML pages (pkg/views/*.templ)
@@ -149,6 +149,13 @@ Regenerate sqlc queries and types.
 ```shell
 make sqlc
 ```
+
+`pkg/db` is generated from `db/migrations` and `db/queries` — the migrations are
+the schema, so this needs no database and no `DATABASE_URL`. The output is
+committed, and CI runs `make sqlc-check` to fail if it drifts, the same way it
+does for templ. The sqlc version is pinned in the Makefile, so run codegen
+through `make sqlc` rather than a bare `sqlc generate`: a different version
+regenerates the same code with a different banner, which CI reports as stale.
 
 ## Migrations
 

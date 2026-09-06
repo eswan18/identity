@@ -10,6 +10,11 @@ version: "2"
 # became what sqlc generated against. It did exactly that: an unmerged
 # refresh-token migration leaked a replaced_by_token_id column into pkg/db,
 # producing queries that selected a column no migrations-built database has.
+#
+# Note this is the *directory*: every .sql file in it is treated as schema,
+# except the .down.sql files sqlc knows to skip. A seed or fixture .sql parked
+# here would silently rewrite what the generated code is built against, so keep
+# the directory to migrations only (`make migrate-new` does the right thing).
 sql:
   - schema:
       - "db/migrations"
