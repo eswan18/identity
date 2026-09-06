@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -158,13 +159,21 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 // @Success      200 {object} map[string]interface{} "Token response with access_token, token_type, expires_in, refresh_token, scope, and id_token (when openid scope requested)"
 // @Failure      400 {object} map[string]string "OAuth2 error response (invalid_request, invalid_grant, unsupported_grant_type, etc.)"
 // @Failure      401 {object} map[string]string "OAuth2 error response (invalid_client)"
-// @Failure      503 {object} map[string]string "OAuth2 error response for a failure on our side (server_error, temporarily_unavailable) - retryable"
+// @Failure      500 {object} map[string]string "OAuth2 error response for a failure on our side (server_error) - retryable"
+// @Failure      503 {object} map[string]string "OAuth2 error response when briefly unable to serve (temporarily_unavailable) - retryable"
 // @Router       /oauth/token [post]
 func (s *Server) HandleOauthToken(w http.ResponseWriter, r *http.Request) {
 	grantType := r.FormValue("grant_type")
 
 	client, err := s.authenticateClient(r)
 	if err != nil {
+		// A lookup that failed is not a rejected client. This fires before
+		// either grant handler, so in a full database outage it is the ONLY
+		// thing a client sees -- and invalid_client is a credentials verdict.
+		if errors.Is(err, ErrClientLookupFailed) {
+			s.writeTokenError(w, "server_error", "Failed to look up client")
+			return
+		}
 		s.writeInvalidClientError(w)
 		return
 	}
@@ -207,7 +216,7 @@ func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Req
 	// Look up the authorization code
 	authCode, err := s.datastore.Q.GetAuthorizationCode(r.Context(), code)
 	if err != nil {
-		s.writeTokenError(w, "invalid_grant", "Invalid authorization code")
+		s.writeTokenError(w, lookupFailureCode(err), "Invalid authorization code")
 		return
 	}
 
@@ -298,7 +307,7 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 	// Look up the token by refresh token
 	token, err := s.datastore.Q.GetTokenByRefreshToken(r.Context(), sql.NullString{String: refreshToken, Valid: true})
 	if err != nil {
-		s.writeTokenError(w, "invalid_grant", "Invalid refresh token")
+		s.writeTokenError(w, lookupFailureCode(err), "Invalid refresh token")
 		return
 	}
 
@@ -449,12 +458,32 @@ func (s *Server) writeClientCredentialsTokenResponse(w http.ResponseWriter, r *h
 	json.NewEncoder(w).Encode(response)
 }
 
-// retryableTokenErrors are the token-endpoint error codes that report a failure
-// of ours rather than a defect in the request. They are the reason
-// writeTokenError does not answer a flat 400.
-var retryableTokenErrors = map[string]bool{
-	"server_error":            true,
-	"temporarily_unavailable": true,
+// lookupFailureCode gives the OAuth error code for a row lookup that failed.
+//
+// Only "no such row" is a verdict on what was being looked up. Every other
+// error is the lookup itself failing -- a dropped connection, a statement
+// timeout -- which says nothing about the token, code or client involved.
+// Collapsing the two is how a database blip came to tell healthy clients their
+// grant was dead, so the distinction is made here once rather than at each site.
+func lookupFailureCode(err error) string {
+	if errors.Is(err, sql.ErrNoRows) {
+		return "invalid_grant"
+	}
+	return "server_error"
+}
+
+// tokenErrorStatus gives the HTTP status for the token-endpoint error codes that
+// report a failure of ours rather than a defect in the request. Anything absent
+// here is the caller's problem and gets RFC 6749 §5.2's default 400.
+//
+// The pairing is the RFC's own. §4.1.2.1 explains that `server_error` exists
+// "because a 500 Internal Server Error HTTP status code cannot be returned to
+// the client via an HTTP redirect", and says the same of `temporarily_unavailable`
+// and 503. Those are also the statuses this codebase already uses for the same
+// two ideas everywhere else (writeAdminError, userinfo, introspect, revoke).
+var tokenErrorStatus = map[string]int{
+	"server_error":            http.StatusInternalServerError,
+	"temporarily_unavailable": http.StatusServiceUnavailable,
 }
 
 // writeTokenError writes an OAuth2 error response for the token endpoint.
@@ -472,9 +501,9 @@ var retryableTokenErrors = map[string]bool{
 // the status retries instead of ending the session, and one that reads the body
 // still gets the same error code it did before.
 func (s *Server) writeTokenError(w http.ResponseWriter, errorCode, description string) {
-	status := http.StatusBadRequest
-	if retryableTokenErrors[errorCode] {
-		status = http.StatusServiceUnavailable
+	status, ok := tokenErrorStatus[errorCode]
+	if !ok {
+		status = http.StatusBadRequest
 	}
 	writeJSONError(w, status, errorCode, description)
 }

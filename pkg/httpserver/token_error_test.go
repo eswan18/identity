@@ -8,7 +8,7 @@ import (
 )
 
 // TestWriteTokenErrorStatus pins which token-endpoint errors are answered with
-// a 5xx rather than RFC 6749 §5.2's default 400.
+// a 5xx rather than RFC 6749 §5.2's default 400, and which 5xx.
 //
 // The distinction is not cosmetic. Every error here used to be a 400, including
 // server_error — which handleRefreshTokenGrant returns when the database fails
@@ -21,8 +21,10 @@ func TestWriteTokenErrorStatus(t *testing.T) {
 		code string
 		want int
 	}{
-		// Ours: the request was fine, we failed to serve it.
-		{"database failed mid-refresh", "server_error", http.StatusServiceUnavailable},
+		// Ours: the request was fine, we failed to serve it. RFC 6749 §4.1.2.1
+		// pairs each of these codes with the status below it, and the rest of
+		// this codebase already uses the same pairing.
+		{"database failed mid-refresh", "server_error", http.StatusInternalServerError},
 		{"briefly unavailable", "temporarily_unavailable", http.StatusServiceUnavailable},
 
 		// Theirs: something about the request or the grant is wrong, and

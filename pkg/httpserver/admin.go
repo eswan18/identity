@@ -47,11 +47,11 @@ type UserResponse struct {
 
 // ListUsersResponse represents the response for listing users
 type ListUsersResponse struct {
-	Users      []UserResponse `json:"users"`
-	Total      int64          `json:"total"`
-	Limit      int            `json:"limit"`
-	Offset     int            `json:"offset"`
-	HasMore    bool           `json:"has_more"`
+	Users   []UserResponse `json:"users"`
+	Total   int64          `json:"total"`
+	Limit   int            `json:"limit"`
+	Offset  int            `json:"offset"`
+	HasMore bool           `json:"has_more"`
 }
 
 // HandleAdminCreateUser godoc

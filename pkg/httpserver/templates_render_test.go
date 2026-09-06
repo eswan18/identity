@@ -605,4 +605,3 @@ func TestPageTemplatesRenderConsent(t *testing.T) {
 		`name="decision" value="deny"`,
 	)
 }
-

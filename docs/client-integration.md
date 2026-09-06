@@ -79,7 +79,7 @@ code in the response body — not the HTTP status alone:
 | `400` + `invalid_scope` | Token carries scopes it may not refresh with; it is refused without being consumed, so it will never succeed | **Yes** |
 | `400` + `invalid_request` | The `refresh_token` field was missing | **Yes** — only a fresh sign-in can supply one |
 | `401` + `invalid_client` | *Your* client id or secret is wrong | **No** — ending sessions will not fix your configuration, and users cannot sign back in either |
-| `503` + `server_error` | Our database or an internal call failed | **No** — retry |
+| `500` + `server_error` | Our database or an internal call failed | **No** — retry |
 | `503` + `temporarily_unavailable` | We are briefly unable to serve (reserved; not currently emitted) | **No** — retry |
 | `429` | Rate limited (plain text, not JSON) | **No** — back off and retry |
 | Any other `5xx` | Our failure, or something in front of us | **No** — retry |
@@ -93,10 +93,9 @@ for any status at or above 500 *before* parsing the body, so you get an
 retryable.
 
 A useful default: **a `5xx` is always retryable**, and below that the body's
-`error` code decides. `server_error` and `temporarily_unavailable` were once
-returned as `400`, so older clients that branched on the status alone signed
-users out on transient database failures — they now carry `503` precisely so a
-status check is right by default.
+`error` code decides. `server_error` was once returned as `400`, so older clients that branched on the
+status alone signed users out on transient database failures — it now carries
+`500` precisely so a status check is right by default.
 
 ### Back off between retries
 

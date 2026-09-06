@@ -45,6 +45,14 @@ var (
 // public client that only supplied a client_id.
 var ErrConfidentialClientRequired = errors.New("client authentication required")
 
+// ErrClientLookupFailed reports that the client could not be looked up at all,
+// as opposed to being looked up and rejected. Callers must not answer
+// invalid_client for it: that is a verdict on the caller's credentials, and the
+// credentials were never reached. Because client authentication runs before any
+// grant handler, conflating the two meant a database outage told every client
+// its credentials were bad.
+var ErrClientLookupFailed = errors.New("client lookup failed")
+
 // authenticateClient extracts client credentials from the request using either
 // client_secret_post (form values) or client_secret_basic (Authorization header),
 // looks up the client, and verifies the secret for confidential clients.
@@ -53,6 +61,9 @@ func (s *Server) authenticateClient(r *http.Request) (db.OauthClient, error) {
 
 	client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
 	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return db.OauthClient{}, fmt.Errorf("%w: %w", ErrClientLookupFailed, err)
+		}
 		return db.OauthClient{}, fmt.Errorf("invalid client: %w", err)
 	}
 
