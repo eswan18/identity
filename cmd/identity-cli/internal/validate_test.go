@@ -28,3 +28,30 @@ func TestValidateRedirectURIs(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateAdminScopes(t *testing.T) {
+	cases := []struct {
+		name           string
+		scopes         []string
+		isConfidential bool
+		wantErr        bool
+	}{
+		{"public client with no admin scopes", []string{"openid", "profile"}, false, false},
+		{"confidential client with admin scopes", []string{"admin:users:write"}, true, false},
+		{"confidential client without admin scopes", []string{"openid"}, true, false},
+		{"public client with admin write rejected", []string{"openid", "admin:users:write"}, false, true},
+		{"public client with admin read rejected", []string{"admin:users:read"}, false, true},
+		{"public client with a future admin scope rejected", []string{"admin:clients:write"}, false, true},
+		{"public client with a scope named admin is fine", []string{"admin"}, false, false},
+		{"no scopes", nil, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateAdminScopes(tc.scopes, tc.isConfidential)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("ValidateAdminScopes(%v, %v) error = %v, wantErr %v",
+					tc.scopes, tc.isConfidential, err, tc.wantErr)
+			}
+		})
+	}
+}

@@ -55,6 +55,13 @@ func runClientCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Refuse to register admin scopes against a public client. --confidential
+	// defaults to false, so this is the check that keeps an otherwise
+	// reasonable-looking command from producing a silently unusable client.
+	if err := internal.ValidateAdminScopes(scopeList, createIsConfidential); err != nil {
+		return err
+	}
+
 	// Get shared datastore
 	datastore := getDatastore()
 
