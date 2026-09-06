@@ -52,6 +52,61 @@ The access token is a JWT containing these claims:
 
 **Important:** Use the `sub` claim as the stable user identifier. Email and username can change; `sub` never will.
 
+## Step 3b: Refreshing Tokens (and when NOT to log the user out)
+
+Refresh is a **grant type on `/oauth/token`**, not a separate endpoint. There is
+no `/oauth/refresh` — post `grant_type=refresh_token` to the same URL you used
+for the code exchange. Prefer reading `token_endpoint` from
+`/.well-known/openid-configuration` over hardcoding the path.
+
+Refresh tokens are **single-use**: a successful refresh returns a new one and
+revokes the old. Store the new one before the next request goes out, and
+serialise concurrent refreshes so two in-flight requests do not both spend the
+same token.
+
+### Deciding whether a failed refresh ends the session
+
+This is the part clients get wrong, and getting it wrong is expensive: treat
+every failure as fatal and a brief blip here signs out every user at once, each
+still holding a perfectly valid refresh token.
+
+**Only end the session when we say the grant is finished.** Read the `error`
+code in the response body — not the HTTP status alone:
+
+| Response | Meaning | End the session? |
+|----------|---------|------------------|
+| `400` + `invalid_grant` | Token revoked, expired, already used, or issued to another client | **Yes** |
+| `400` + `invalid_scope` | Token carries scopes it may not refresh with; it is refused without being consumed, so it will never succeed | **Yes** |
+| `400` + `invalid_request` | The `refresh_token` field was missing | **Yes** — only a fresh sign-in can supply one |
+| `401` + `invalid_client` | *Your* client id or secret is wrong | **No** — ending sessions will not fix your configuration, and users cannot sign back in either |
+| `500` + `server_error` | Our database or an internal call failed | **No** — retry |
+| `503` + `temporarily_unavailable` | We are briefly unable to serve (reserved; not currently emitted) | **No** — retry |
+| `429` | Rate limited (plain text, not JSON) | **No** — back off and retry |
+| Any other `5xx` | Our failure, or something in front of us | **No** — retry |
+| Unparseable body | A proxy or gateway answered, not us | **No** — it is not a statement about the grant |
+| Network error / timeout | Never reached us | **No** — a plane-mode launch must not log anyone out |
+
+**If you use authlib (Python):** `parse_response_token` calls `raise_for_status()`
+for any status at or above 500 *before* parsing the body, so you get an
+`httpx.HTTPStatusError` with no `error` code rather than an `OAuthError`. Read
+`exc.response.text` if you need the code, and treat the raised status as
+retryable.
+
+A useful default: **a `5xx` is always retryable**, and below that the body's
+`error` code decides. `server_error` was once returned as `400`, so older clients that branched on the
+status alone signed users out on transient database failures — it now carries
+`500` precisely so a status check is right by default.
+
+### Back off between retries
+
+Keeping the session alive means retries are no longer stopped by a logout, so
+bound them yourself: a few seconds of backoff after a failure, and a timeout on
+the refresh request. `/oauth/token` shares a 20 request/minute per-IP limit with JWKS fetches and the
+login code exchange. The IP is taken from `CF-Connecting-IP` where present and
+the socket address otherwise — so a **server-side** client calling us from inside
+the cluster shares one bucket across all of its users, and an unbounded retry
+loop there can lock your own users out of signing in.
+
 ## Step 4: Store Users in Your Application
 
 Your app should maintain its own users table that references the IdP user.

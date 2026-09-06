@@ -2,31 +2,65 @@ package httpserver
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
-// TestWriteTokenError_Uses400 verifies that every token-endpoint error other than
-// invalid_client is reported as HTTP 400, per RFC 6749 §5.2's default error status.
-func TestWriteTokenError_Uses400(t *testing.T) {
-	s := &Server{}
-	rec := httptest.NewRecorder()
+// TestWriteTokenErrorStatus pins which token-endpoint errors are answered with
+// a 5xx rather than RFC 6749 §5.2's default 400, and which 5xx.
+//
+// The distinction is not cosmetic. Every error here used to be a 400, including
+// server_error — which handleRefreshTokenGrant returns when the database fails
+// while verifying the user, revoking the old token, or minting the new one. A
+// client reading only the status saw "your request was bad" and concluded the
+// grant was dead, so a database blip signed people out of healthy sessions.
+func TestWriteTokenErrorStatus(t *testing.T) {
+	tests := []struct {
+		name string
+		code string
+		want int
+	}{
+		// Ours: the request was fine, we failed to serve it. RFC 6749 §4.1.2.1
+		// pairs each of these codes with the status below it, and the rest of
+		// this codebase already uses the same pairing.
+		{"database failed mid-refresh", "server_error", http.StatusInternalServerError},
+		{"briefly unavailable", "temporarily_unavailable", http.StatusServiceUnavailable},
 
-	s.writeTokenError(rec, "invalid_grant", "Refresh token has already been used")
+		// Theirs: something about the request or the grant is wrong, and
+		// repeating it unchanged will not help.
+		{"token revoked, expired or replayed", "invalid_grant", http.StatusBadRequest},
+		{"refresh token carries admin scopes", "invalid_scope", http.StatusBadRequest},
+		{"malformed request", "invalid_request", http.StatusBadRequest},
+		{"client may not use this grant", "unauthorized_client", http.StatusBadRequest},
+		{"unknown grant type", "unsupported_grant_type", http.StatusBadRequest},
+	}
 
-	if rec.Code != 400 {
-		t.Errorf("expected status 400, got %d", rec.Code)
-	}
-	if got := rec.Header().Get("WWW-Authenticate"); got != "" {
-		t.Errorf("expected no WWW-Authenticate header for invalid_grant, got %q", got)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			(&Server{}).writeTokenError(rec, tt.code, "a description")
 
-	var body map[string]string
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("failed to unmarshal response body: %v", err)
-	}
-	if body["error"] != "invalid_grant" {
-		t.Errorf("expected error code invalid_grant, got %q", body["error"])
+			if rec.Code != tt.want {
+				t.Errorf("status = %d, want %d", rec.Code, tt.want)
+			}
+			if got := rec.Header().Get("WWW-Authenticate"); got != "" {
+				t.Errorf("expected no WWW-Authenticate header, got %q", got)
+			}
+
+			// The body is the contract every client that DOES parse relies on.
+			// Changing the status must not disturb it.
+			var body map[string]string
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("body is not JSON: %v", err)
+			}
+			if body["error"] != tt.code {
+				t.Errorf("error = %q, want %q", body["error"], tt.code)
+			}
+			if body["error_description"] != "a description" {
+				t.Errorf("error_description = %q, want %q", body["error_description"], "a description")
+			}
+		})
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -158,12 +159,20 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 // @Success      200 {object} map[string]interface{} "Token response with access_token, token_type, expires_in, refresh_token, scope, and id_token (when openid scope requested)"
 // @Failure      400 {object} map[string]string "OAuth2 error response (invalid_request, invalid_grant, unsupported_grant_type, etc.)"
 // @Failure      401 {object} map[string]string "OAuth2 error response (invalid_client)"
+// @Failure      500 {object} map[string]string "OAuth2 error response for a failure on our side (server_error) - retryable, and not a verdict on the grant"
 // @Router       /oauth/token [post]
 func (s *Server) HandleOauthToken(w http.ResponseWriter, r *http.Request) {
 	grantType := r.FormValue("grant_type")
 
 	client, err := s.authenticateClient(r)
 	if err != nil {
+		// A lookup that failed is not a rejected client. This fires before
+		// either grant handler, so in a full database outage it is the ONLY
+		// thing a client sees -- and invalid_client is a credentials verdict.
+		if errors.Is(err, ErrClientLookupFailed) {
+			s.writeTokenError(w, "server_error", "Failed to look up client")
+			return
+		}
 		s.writeInvalidClientError(w)
 		return
 	}
@@ -206,7 +215,8 @@ func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Req
 	// Look up the authorization code
 	authCode, err := s.datastore.Q.GetAuthorizationCode(r.Context(), code)
 	if err != nil {
-		s.writeTokenError(w, "invalid_grant", "Invalid authorization code")
+		code, description := lookupFailure(err, "authorization code")
+		s.writeTokenError(w, code, description)
 		return
 	}
 
@@ -297,7 +307,8 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 	// Look up the token by refresh token
 	token, err := s.datastore.Q.GetTokenByRefreshToken(r.Context(), sql.NullString{String: refreshToken, Valid: true})
 	if err != nil {
-		s.writeTokenError(w, "invalid_grant", "Invalid refresh token")
+		code, description := lookupFailure(err, "refresh token")
+		s.writeTokenError(w, code, description)
 		return
 	}
 
@@ -448,11 +459,74 @@ func (s *Server) writeClientCredentialsTokenResponse(w http.ResponseWriter, r *h
 	json.NewEncoder(w).Encode(response)
 }
 
-// writeTokenError writes an OAuth2 error response with 400 status. This is
-// correct for every token-endpoint error except invalid_client — see
-// writeInvalidClientError for that case.
+// writeClientAuthError answers a failed client authentication on the endpoints
+// that require a confidential client.
+//
+// A lookup that never reached an answer is not a rejected client. Reporting it
+// as invalid_client tells a resource server its own credentials are wrong --
+// during an outage, on an endpoint it hits for every request it serves.
+func (s *Server) writeClientAuthError(w http.ResponseWriter, err error) {
+	if errors.Is(err, ErrClientLookupFailed) {
+		writeJSONError(w, http.StatusInternalServerError, "server_error", "Failed to look up client")
+		return
+	}
+	w.Header().Set("WWW-Authenticate", `Basic realm="oauth"`)
+	writeJSONError(w, http.StatusUnauthorized, "invalid_client", "Client authentication required")
+}
+
+// lookupFailure gives the OAuth error code AND description for a row lookup
+// that failed. They travel together because they must agree: a body reading
+// {"error":"server_error","error_description":"Invalid refresh token"} tells a
+// client one thing in the field this PR asks it to branch on and the opposite
+// in the field a human reads.
+//
+// Only "no such row" is a verdict on what was being looked up. Every other
+// error is the lookup itself failing -- a dropped connection, a statement
+// timeout -- which says nothing about the token, code or client involved.
+// Collapsing the two is how a database blip came to tell healthy clients their
+// grant was dead, so the distinction is made here once rather than at each site.
+func lookupFailure(err error, subject string) (code, description string) {
+	if errors.Is(err, sql.ErrNoRows) {
+		return "invalid_grant", "Invalid " + subject
+	}
+	return "server_error", "Failed to look up " + subject
+}
+
+// tokenErrorStatus gives the HTTP status for the token-endpoint error codes that
+// report a failure of ours rather than a defect in the request. Anything absent
+// here is the caller's problem and gets RFC 6749 §5.2's default 400.
+//
+// §5.2 governs this endpoint and defines neither code, so emitting them here is
+// an extension this service already made long before this mapping existed. The
+// statuses are chosen to match: RFC 6749 pairs `server_error` with 500 and
+// `temporarily_unavailable` with 503 at the authorization endpoint (§4.1.2.1),
+// and this codebase already uses those same two statuses for the same two ideas
+// everywhere else (writeAdminError, userinfo, introspect, revoke).
+var tokenErrorStatus = map[string]int{
+	"server_error":            http.StatusInternalServerError,
+	"temporarily_unavailable": http.StatusServiceUnavailable,
+}
+
+// writeTokenError writes an OAuth2 error response for the token endpoint.
+//
+// The status is chosen from the error code rather than fixed at 400. RFC 6749
+// §5.2 mandates 400 for the errors it enumerates -- all of which describe
+// something wrong with the *request* -- and `server_error` is deliberately not
+// among them. Answering 400 for it says "your request was bad" when the truth
+// is "our database just failed", and every client then has to parse the body to
+// learn otherwise. Three of them did not, and signed users out of healthy
+// sessions on a transient database blip; see the write-ups on
+// footstrike-ios#22 and haruspex#205.
+//
+// A 503 makes the honest answer the default one: a client that only inspects
+// the status retries instead of ending the session, and one that reads the body
+// still gets the same error code it did before.
 func (s *Server) writeTokenError(w http.ResponseWriter, errorCode, description string) {
-	writeJSONError(w, http.StatusBadRequest, errorCode, description)
+	status, ok := tokenErrorStatus[errorCode]
+	if !ok {
+		status = http.StatusBadRequest
+	}
+	writeJSONError(w, status, errorCode, description)
 }
 
 // writeInvalidClientError writes the invalid_client error for the token endpoint.
@@ -612,8 +686,7 @@ func (s *Server) HandleIntrospect(w http.ResponseWriter, r *http.Request) {
 	// allowance.
 	_, err := s.authenticateConfidentialClient(r)
 	if err != nil {
-		w.Header().Set("WWW-Authenticate", `Basic realm="oauth"`)
-		writeJSONError(w, http.StatusUnauthorized, "invalid_client", "Client authentication required")
+		s.writeClientAuthError(w, err)
 		return
 	}
 
@@ -767,8 +840,7 @@ func (s *Server) HandleOauthRevoke(w http.ResponseWriter, r *http.Request) {
 	// allowance.
 	client, err := s.authenticateConfidentialClient(r)
 	if err != nil {
-		w.Header().Set("WWW-Authenticate", `Basic realm="oauth"`)
-		writeJSONError(w, http.StatusUnauthorized, "invalid_client", "Client authentication required")
+		s.writeClientAuthError(w, err)
 		return
 	}
 

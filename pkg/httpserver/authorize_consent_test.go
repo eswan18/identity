@@ -520,7 +520,7 @@ func (s *OAuthFlowSuite) TestLogoutWithValidPostLogoutRedirectURI() {
 	})
 
 	// Logout with a valid post_logout_redirect_uri and client_id
-	resp, err := csrfPostFormLogin(s.T(), s.httpClient, 
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient,
 		"http://localhost:8080/oauth/logout?post_logout_redirect_uri=http://example.com/callback&client_id="+client.ClientID,
 		nil,
 	)
@@ -543,7 +543,7 @@ func (s *OAuthFlowSuite) TestLogoutRejectsUnregisteredPostLogoutRedirectURI() {
 	})
 
 	// Logout with a redirect URI that is NOT in the client's registered URIs
-	resp, err := csrfPostFormLogin(s.T(), s.httpClient, 
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient,
 		"http://localhost:8080/oauth/logout?post_logout_redirect_uri=https://evil.com/phishing&client_id=logout-reject-client",
 		nil,
 	)
@@ -557,7 +557,7 @@ func (s *OAuthFlowSuite) TestLogoutRejectsUnregisteredPostLogoutRedirectURI() {
 
 func (s *OAuthFlowSuite) TestLogoutRejectsPostLogoutRedirectURIWithUnknownClientID() {
 	// Providing a client_id that doesn't exist should fall back to login
-	resp, err := csrfPostFormLogin(s.T(), s.httpClient, 
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient,
 		"http://localhost:8080/oauth/logout?post_logout_redirect_uri=http://example.com/callback&client_id=nonexistent-client",
 		nil,
 	)
@@ -570,7 +570,7 @@ func (s *OAuthFlowSuite) TestLogoutRejectsPostLogoutRedirectURIWithUnknownClient
 
 func (s *OAuthFlowSuite) TestLogoutRejectsPostLogoutRedirectURIWithoutClientID() {
 	// Providing post_logout_redirect_uri without client_id should fall back to login
-	resp, err := csrfPostFormLogin(s.T(), s.httpClient, 
+	resp, err := csrfPostFormLogin(s.T(), s.httpClient,
 		"http://localhost:8080/oauth/logout?post_logout_redirect_uri=http://example.com/callback",
 		nil,
 	)
