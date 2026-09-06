@@ -55,7 +55,7 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 	// method/path/status/duration fields but redacts sensitive query parameter values.
 	r.Use(requestLoggingMiddleware)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(60 * time.Second))
+	r.Use(middleware.Timeout(handlerTimeout))
 
 	// Create rate limit store and apply rate limiting to all routes
 	// (20 requests per IP per minute - provides basic DDoS protection)
@@ -117,11 +117,64 @@ func (s *Server) IsListening() bool {
 	return true
 }
 
-func (s *Server) Run() error {
-	s.httpServer = &http.Server{
-		Addr:    s.config.HTTPAddress,
-		Handler: s.router,
+// Timeouts bounding a single connection's lifecycle. http.Server applies none
+// of these by default: a connection that sends nothing, or dribbles a request
+// out a byte at a time, is held open indefinitely, and each one occupies a
+// goroutine. Every value below is far longer than any legitimate request to
+// this service takes -- they exist to bound abuse and stuck peers, not to
+// discipline slow clients.
+const (
+	// readHeaderTimeout bounds the time from accepting a connection to having
+	// the complete request headers. This is the one that matters most: a client
+	// that opens a connection and then sends headers slowly, or never completes
+	// them, is the classic slowloris shape, and no amount of body-size limiting
+	// helps because no body is ever sent.
+	readHeaderTimeout = 10 * time.Second
+
+	// readTimeout bounds headers plus body. The largest legitimate body this
+	// service accepts is an avatar upload, capped at
+	// avatar.MaxAvatarRequestBodySize (10MB) by maxAvatarUploadBytes. 60s leaves
+	// room for that over a poor mobile connection while still cutting off a
+	// slow-body ("R-U-Dead-Yet") client, which the byte cap alone does not:
+	// MaxBytesReader limits how much is sent, never how long the sending takes.
+	readTimeout = 60 * time.Second
+
+	// writeTimeout bounds handler execution plus response write, measured from
+	// the end of the request headers. It is deliberately longer than the 60s
+	// chi middleware.Timeout applied in New: that middleware cancels the request
+	// context and returns 504, and it needs to be the thing that fires first so
+	// the client gets a real response instead of a severed connection.
+	writeTimeout = 90 * time.Second
+
+	// idleTimeout bounds how long a keep-alive connection may sit unused between
+	// requests. Without it an idle connection is kept until the peer closes it.
+	idleTimeout = 120 * time.Second
+
+	// handlerTimeout is the per-request deadline applied by chi's
+	// middleware.Timeout in New. It is named rather than inlined so the
+	// relationship writeTimeout > handlerTimeout can be asserted in a test:
+	// if that ever inverts, clients stop receiving the 504 the middleware
+	// produces and get a dropped connection instead.
+	handlerTimeout = 60 * time.Second
+)
+
+// newHTTPServer builds the http.Server that Run serves on. It is split out so
+// the timeout configuration can be asserted in a unit test without binding a
+// port -- the values are the whole point of this code, and an http.Server
+// literal inline in Run is unreachable from a test.
+func (s *Server) newHTTPServer() *http.Server {
+	return &http.Server{
+		Addr:              s.config.HTTPAddress,
+		Handler:           s.router,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
 	}
+}
+
+func (s *Server) Run() error {
+	s.httpServer = s.newHTTPServer()
 
 	// Launch the periodic expiry-cleanup worker (see cleanup.go) here, not in
 	// New, so constructing a Server for tests never spawns background work.
