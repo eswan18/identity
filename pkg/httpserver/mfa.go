@@ -129,10 +129,27 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Refuse before checking the code once this account has spent its failure
+	// budget. Checked here rather than charged on entry so only wrong codes
+	// cost anything; see mfa_throttle.go for why the budget is per account and
+	// not per pending row or per IP.
+	if !s.mfaAttemptAllowed(pending.UserID) {
+		// Consume the pending row as well. Leaving it would let the attempt
+		// resume the instant the budget refills; destroying it means another
+		// password login is required first, which the per-IP limiter also bounds.
+		if err := s.datastore.Q.DeleteMFAPending(r.Context(), pendingID); err != nil {
+			log.Printf("[ERROR] HandleMFAPost: Failed to delete pending MFA session after exhausting attempts: %v", err)
+		}
+		s.renderMFAError(w, r, http.StatusTooManyRequests,
+			"Too many incorrect codes. Please wait a few minutes and sign in again.", "", pendingParams)
+		return
+	}
+
 	// Validate the TOTP code. A wrong code leaves the pending row intact so the user can
 	// retry within the validity window.
 	if !mfa.ValidateCode(mfaStatus.MfaSecret.String, code) {
 		s.debugf("HandleMFAPost: Invalid MFA code for user: %v", pending.UserID)
+		s.recordFailedMFAAttempt(pending.UserID)
 		s.renderMFAError(w, r, http.StatusUnauthorized, "Invalid verification code", pendingID, pendingParams)
 		return
 	}
