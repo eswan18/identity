@@ -1343,7 +1343,7 @@ const docTemplate = `{
                         }
                     },
                     "503": {
-                        "description": "OAuth2 error response for a failure on our side (server_error, temporarily_unavailable) - retryable, the grant is unaffected",
+                        "description": "OAuth2 error response for a failure on our side (server_error, temporarily_unavailable) - retryable",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {

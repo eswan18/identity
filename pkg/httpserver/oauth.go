@@ -158,7 +158,7 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 // @Success      200 {object} map[string]interface{} "Token response with access_token, token_type, expires_in, refresh_token, scope, and id_token (when openid scope requested)"
 // @Failure      400 {object} map[string]string "OAuth2 error response (invalid_request, invalid_grant, unsupported_grant_type, etc.)"
 // @Failure      401 {object} map[string]string "OAuth2 error response (invalid_client)"
-// @Failure      503 {object} map[string]string "OAuth2 error response for a failure on our side (server_error, temporarily_unavailable) - retryable, the grant is unaffected"
+// @Failure      503 {object} map[string]string "OAuth2 error response for a failure on our side (server_error, temporarily_unavailable) - retryable"
 // @Router       /oauth/token [post]
 func (s *Server) HandleOauthToken(w http.ResponseWriter, r *http.Request) {
 	grantType := r.FormValue("grant_type")
@@ -449,9 +449,6 @@ func (s *Server) writeClientCredentialsTokenResponse(w http.ResponseWriter, r *h
 	json.NewEncoder(w).Encode(response)
 }
 
-// writeTokenError writes an OAuth2 error response with 400 status. This is
-// correct for every token-endpoint error except invalid_client — see
-// writeInvalidClientError for that case.
 // retryableTokenErrors are the token-endpoint error codes that report a failure
 // of ours rather than a defect in the request. They are the reason
 // writeTokenError does not answer a flat 400.

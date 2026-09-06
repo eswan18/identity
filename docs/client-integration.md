@@ -77,13 +77,20 @@ code in the response body — not the HTTP status alone:
 |----------|---------|------------------|
 | `400` + `invalid_grant` | Token revoked, expired, already used, or issued to another client | **Yes** |
 | `400` + `invalid_scope` | Token carries scopes it may not refresh with; it is refused without being consumed, so it will never succeed | **Yes** |
-| `400` + `invalid_request` | Malformed request — a bug in your client | **Yes** (fix the request) |
+| `400` + `invalid_request` | The `refresh_token` field was missing | **Yes** — only a fresh sign-in can supply one |
 | `401` + `invalid_client` | *Your* client id or secret is wrong | **No** — ending sessions will not fix your configuration, and users cannot sign back in either |
 | `503` + `server_error` | Our database or an internal call failed | **No** — retry |
-| `503` + `temporarily_unavailable` | We are briefly unable to serve | **No** — retry |
+| `503` + `temporarily_unavailable` | We are briefly unable to serve (reserved; not currently emitted) | **No** — retry |
+| `429` | Rate limited (plain text, not JSON) | **No** — back off and retry |
 | Any other `5xx` | Our failure, or something in front of us | **No** — retry |
 | Unparseable body | A proxy or gateway answered, not us | **No** — it is not a statement about the grant |
 | Network error / timeout | Never reached us | **No** — a plane-mode launch must not log anyone out |
+
+**If you use authlib (Python):** `parse_response_token` calls `raise_for_status()`
+for any status at or above 500 *before* parsing the body, so you get an
+`httpx.HTTPStatusError` with no `error` code rather than an `OAuthError`. Read
+`exc.response.text` if you need the code, and treat the raised status as
+retryable.
 
 A useful default: **a `5xx` is always retryable**, and below that the body's
 `error` code decides. `server_error` and `temporarily_unavailable` were once
@@ -95,9 +102,11 @@ status check is right by default.
 
 Keeping the session alive means retries are no longer stopped by a logout, so
 bound them yourself: a few seconds of backoff after a failure, and a timeout on
-the refresh request. `/oauth/token` shares a per-IP rate limit with JWKS fetches
-and the login code exchange, so an unbounded retry loop can lock your own users
-out of signing in.
+the refresh request. `/oauth/token` shares a 20 request/minute per-IP limit with JWKS fetches and the
+login code exchange. The IP is taken from `CF-Connecting-IP` where present and
+the socket address otherwise — so a **server-side** client calling us from inside
+the cluster shares one bucket across all of its users, and an unbounded retry
+loop there can lock your own users out of signing in.
 
 ## Step 4: Store Users in Your Application
 
