@@ -3,6 +3,11 @@ name: Pull Request
 on:
   pull_request:
     branches: [main]
+  # Also on main itself. Two PRs that are each green can still leave main stale
+  # -- one adds a migration, the other regenerates pkg/db without it -- and
+  # nothing would notice until somebody's unrelated PR went red.
+  push:
+    branches: [main]
 
 jobs:
   lint-and-test:
@@ -37,7 +42,27 @@ jobs:
         run: |
           go install github.com/a-h/templ/cmd/templ@v0.3.1020
           templ generate
-          git diff --exit-code || { echo "::error::templ output is stale — run 'make templ' (or 'templ generate') and commit the result."; exit 1; }
+          # Stage first: git diff alone ignores untracked files, so a NEW
+          # component's generated file would leave this green while
+          # uncommitted. Same trap the sqlc check below is written to avoid.
+          git add -A
+          git diff --cached --exit-code || { echo "::error::templ output is stale — run 'make templ' (or 'templ generate') and commit the result."; exit 1; }
+
+      # pkg/db is generated from db/migrations by sqlc (see sqlc.yaml) and the
+      # output is committed, so nothing at build time would notice it drifting
+      # from the migrations.
+      #
+      # This uses `sqlc diff` via make rather than regenerating and running
+      # `git diff --exit-code`. That pairing looks equivalent and is not: git
+      # diff does not report untracked files, so a *new* generated file -- what
+      # adding a query produces, the likeliest reason to need this guard --
+      # leaves the check green while the file sits uncommitted. Worse, because
+      # this step runs before build and test, it materialises that file just in
+      # time for them to pass on it, and main breaks for everyone on merge.
+      #
+      # The version lives in the Makefile so CI and contributors cannot skew.
+      - name: Verify sqlc output matches the migrations
+        run: make sqlc-check
 
       - name: Run go vet
         run: go vet ./...

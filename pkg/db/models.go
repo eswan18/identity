@@ -21,6 +21,13 @@ type AuthEmailToken struct {
 	CreatedAt time.Time    `json:"created_at"`
 }
 
+type AuthMfaEnrollmentPending struct {
+	UserID    uuid.UUID `json:"user_id"`
+	Secret    string    `json:"secret"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
 type AuthMfaPending struct {
 	ID                  string         `json:"id"`
 	UserID              uuid.UUID      `json:"user_id"`
@@ -33,13 +40,6 @@ type AuthMfaPending struct {
 	CreatedAt           time.Time      `json:"created_at"`
 	ExpiresAt           time.Time      `json:"expires_at"`
 	Nonce               sql.NullString `json:"nonce"`
-}
-
-type AuthMfaEnrollmentPending struct {
-	UserID    uuid.UUID `json:"user_id"`
-	Secret    string    `json:"secret"`
-	CreatedAt time.Time `json:"created_at"`
-	ExpiresAt time.Time `json:"expires_at"`
 }
 
 type AuthSession struct {
@@ -117,9 +117,4 @@ type OauthUserConsent struct {
 	Scopes    []string  `json:"scopes"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
-}
-
-type SchemaMigration struct {
-	Version int64 `json:"version"`
-	Dirty   bool  `json:"dirty"`
 }

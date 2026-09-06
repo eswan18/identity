@@ -2,7 +2,6 @@ SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 GO_SOURCES := $(shell find . -name '*.go' -not -path './docs/*' -not -path './vendor/*')
 TEMPL_SOURCES := $(wildcard pkg/views/*.templ)
-MIGRATIONS := $(wildcard db/migrations/*.up.sql)
 ENV ?= local
 
 .DEFAULT_GOAL := build
@@ -63,12 +62,30 @@ test-integration:
 lint:
 	go vet ./...
 
-sqlc: db/schema.sql
-	sqlc generate
+# sqlc reads db/migrations directly (see sqlc.yaml), so codegen needs no database
+# and no pg_dump.
+#
+# The version is pinned here and nowhere else. CI runs these same targets rather
+# than invoking sqlc itself, so there is one source of truth for which version
+# produced the committed output. Without that, a contributor on a different
+# release regenerates identical code with a different version banner, CI reports
+# the tree as stale, and re-running `make sqlc` -- which is what the error tells
+# them to do -- changes nothing.
+SQLC_VERSION := v1.30.0
+SQLC := go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
 
-db/schema.sql: $(MIGRATIONS)
-	@if [ -z "${DATABASE_URL}" ]; then \
-		echo "Error: DATABASE_URL is not set"; \
+.PHONY: sqlc
+sqlc:
+	$(SQLC) generate
+
+# sqlc-check is what CI runs. It uses `sqlc diff`, not `generate` followed by a
+# git diff: the latter cannot see a *new* generated file, because git diff does
+# not report untracked paths. Adding a query is the most likely reason to need
+# this guard at all, and it is exactly the case that slipped through.
+.PHONY: sqlc-check
+sqlc-check:
+	@$(SQLC) diff || { \
+		echo "pkg/db is out of date with db/migrations and db/queries."; \
+		echo "Run 'make sqlc' (sqlc $(SQLC_VERSION)) and commit the result."; \
 		exit 1; \
-	fi
-	pg_dump --schema-only --no-owner "${DATABASE_URL}" | grep -v '^\\' > db/schema.sql
+	}
