@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eswan18/identity/pkg/auth"
 	"github.com/eswan18/identity/pkg/db"
 	"github.com/eswan18/identity/pkg/views"
 	"github.com/google/uuid"
@@ -336,6 +337,26 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 			s.writeTokenError(w, "invalid_grant", "Account deactivated")
 			return
 		}
+	}
+
+	// Refuse to carry admin scopes forward.
+	//
+	// validateAuthorizeParams now prevents an authorization code from ever
+	// carrying admin:*, and client_credentials issues no refresh token at all
+	// (see generateServiceAccountTokens), so a refresh token holding one is
+	// anomalous by construction -- it can only be a token minted before that
+	// rule existed. Rejecting here means the rule cannot be outlived by a token
+	// issued under the old one, for up to the 30-day refresh lifetime.
+	//
+	// The token is deliberately not consumed: this rejects the grant rather than
+	// spending the credential, matching how every other validation failure above
+	// behaves.
+	if adminScopes := auth.AdminScopesIn(token.Scope); len(adminScopes) > 0 {
+		log.Printf("handleRefreshTokenGrant: refusing refresh token carrying admin scopes %v for client %s",
+			adminScopes, client.ClientID)
+		s.writeTokenError(w, "invalid_scope",
+			"Refresh tokens may not carry admin scopes; use the client_credentials grant")
+		return
 	}
 
 	// Atomically revoke the old refresh token before minting new tokens. The
@@ -910,13 +931,13 @@ func (s *Server) HandleOIDCDiscovery(w http.ResponseWriter, r *http.Request) {
 		"jwks_uri":               issuer + "/.well-known/jwks.json",
 
 		// Recommended fields
-		"userinfo_endpoint":                   issuer + "/oauth/userinfo",
-		"scopes_supported":                    []string{"openid", "profile", "email"},
-		"response_types_supported":            []string{"code"},
-		"response_modes_supported":            []string{"query"},
-		"grant_types_supported":               []string{"authorization_code", "refresh_token", "client_credentials"},
+		"userinfo_endpoint":                     issuer + "/oauth/userinfo",
+		"scopes_supported":                      []string{"openid", "profile", "email"},
+		"response_types_supported":              []string{"code"},
+		"response_modes_supported":              []string{"query"},
+		"grant_types_supported":                 []string{"authorization_code", "refresh_token", "client_credentials"},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic"},
-		"subject_types_supported":             []string{"public"},
+		"subject_types_supported":               []string{"public"},
 		"id_token_signing_alg_values_supported": []string{"ES256"},
 		"claims_supported": []string{
 			"sub", "iss", "aud", "exp", "iat", "at_hash",
@@ -962,6 +983,38 @@ func validateAuthorizeParams(client db.OauthClient, responseType, codeChallenge,
 	}
 	if scopesAllowed, invalidScopes := containsAll(client.AllowedScopes, scope); !scopesAllowed {
 		return &oauthAuthorizeError{"invalid_scope", fmt.Sprintf("Scopes %v not allowed for this client", invalidScopes)}
+	}
+	// Admin scopes may never ride a user-delegated token.
+	//
+	// The /admin routes authorize on the scope string alone (see
+	// AdminAuthMiddleware): there is no admin flag on auth_users, because roles
+	// are deliberately left to downstream apps. Admin authority is therefore a
+	// property of the *client*, and the only grant where a client acts as
+	// itself is client_credentials -- which handleClientCredentialsGrant already
+	// restricts to confidential clients.
+	//
+	// Without this check the authorization-code flow is a second way in, and a
+	// far weaker one. For a public client it is a hole outright: there is no
+	// secret to present at the token endpoint, so any user who can reach
+	// /oauth/authorize could consent to admin:* and redeem the code themselves
+	// with only a client_id and their own PKCE verifier. For a confidential
+	// client it is still a hazard, since a user can append admin:* to an
+	// authorize request and the resulting token reaches them if the app ever
+	// hands access tokens to the browser.
+	//
+	// Nothing bounded this before: oauth_clients has no grant_types column,
+	// HandleOauthToken dispatches on whatever grant_type the request names, and
+	// identity-cli will register any scope string against a client that defaults
+	// to public. Enforcing the rule here -- shared by authorize and consent, the
+	// only two paths that mint an authorization code -- means an over-permissive
+	// client registration can no longer become an escalation path.
+	//
+	// This check sits after the allowed-scopes check on purpose: a client that
+	// was never granted admin:* should be told the scope is not allowed for it,
+	// which is the more accurate answer.
+	if adminScopes := auth.AdminScopesIn(scope); len(adminScopes) > 0 {
+		return &oauthAuthorizeError{"invalid_scope", fmt.Sprintf(
+			"Scopes %v may only be obtained via the client_credentials grant", adminScopes)}
 	}
 	return nil
 }

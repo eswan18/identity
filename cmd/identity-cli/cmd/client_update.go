@@ -134,6 +134,13 @@ func runClientUpdate(cmd *cobra.Command, args []string) error {
 		params.Audience = sql.NullString{String: currentClient.Audience, Valid: true}
 	}
 
+	// Apply the same admin-scope rule as create, against the effective values
+	// (a flag that was not passed keeps the client's current setting), so an
+	// update cannot arrive at a combination create would have refused.
+	if err := internal.ValidateAdminScopes(params.AllowedScopes, params.IsConfidential.Bool); err != nil {
+		return err
+	}
+
 	// Validate: confidential clients must have secrets
 	if params.IsConfidential.Bool && !currentClient.ClientSecret.Valid {
 		// Note: We can't update the secret with the current UpdateOAuthClient query

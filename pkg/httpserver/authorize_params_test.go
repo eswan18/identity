@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/eswan18/identity/pkg/db"
@@ -87,6 +88,91 @@ func TestValidateAuthorizeParams(t *testing.T) {
 			}
 			if got.Code != tt.wantErrCode {
 				t.Errorf("expected error code %q, got %q (%s)", tt.wantErrCode, got.Code, got.Description)
+			}
+		})
+	}
+}
+
+// TestValidateAuthorizeParams_RejectsAdminScopes covers the rule that admin
+// scopes may only be obtained through the client_credentials grant.
+//
+// The cases where the client *does* list an admin scope in allowed_scopes are
+// the point: before this rule, that registration made the authorization-code
+// flow a second way to obtain admin authority, and for a public client a user
+// could redeem the code themselves with no secret at all.
+func TestValidateAuthorizeParams_RejectsAdminScopes(t *testing.T) {
+	tests := []struct {
+		name          string
+		allowedScopes []string
+		scope         []string
+		wantErrCode   string
+		wantErrDesc   string
+	}{
+		{
+			name:          "admin scope refused even when the client is allowed it",
+			allowedScopes: []string{"openid", "admin:users:write"},
+			scope:         []string{"openid", "admin:users:write"},
+			wantErrCode:   "invalid_scope",
+			wantErrDesc:   "client_credentials",
+		},
+		{
+			name:          "admin read scope refused",
+			allowedScopes: []string{"openid", "admin:users:read"},
+			scope:         []string{"admin:users:read"},
+			wantErrCode:   "invalid_scope",
+			wantErrDesc:   "client_credentials",
+		},
+		{
+			name:          "future admin scope refused by prefix",
+			allowedScopes: []string{"openid", "admin:clients:write"},
+			scope:         []string{"admin:clients:write"},
+			wantErrCode:   "invalid_scope",
+			wantErrDesc:   "client_credentials",
+		},
+		{
+			// Ordering: a client that was never granted the scope should be told
+			// that, which is the more accurate answer.
+			name:          "client without the scope gets the not-allowed error",
+			allowedScopes: []string{"openid"},
+			scope:         []string{"admin:users:write"},
+			wantErrCode:   "invalid_scope",
+			wantErrDesc:   "not allowed for this client",
+		},
+		{
+			name:          "non-admin scopes still pass for an admin-capable client",
+			allowedScopes: []string{"openid", "profile", "admin:users:write"},
+			scope:         []string{"openid", "profile"},
+			wantErrCode:   "",
+		},
+		{
+			// "admin" is not "admin:" — it grants nothing, since the routes
+			// require the full scope string. Pin the prefix semantics so the rule
+			// is not quietly widened into a substring match.
+			name:          "scope named admin without a colon is not an admin scope",
+			allowedScopes: []string{"openid", "admin"},
+			scope:         []string{"admin"},
+			wantErrCode:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := db.OauthClient{AllowedScopes: tt.allowedScopes}
+			got := validateAuthorizeParams(client, "code", "abc123", "S256", tt.scope)
+			if tt.wantErrCode == "" {
+				if got != nil {
+					t.Fatalf("expected no error, got %q (%s)", got.Code, got.Description)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatalf("expected error %q, got nil", tt.wantErrCode)
+			}
+			if got.Code != tt.wantErrCode {
+				t.Errorf("expected error code %q, got %q (%s)", tt.wantErrCode, got.Code, got.Description)
+			}
+			if !strings.Contains(got.Description, tt.wantErrDesc) {
+				t.Errorf("expected description to mention %q, got %q", tt.wantErrDesc, got.Description)
 			}
 		})
 	}
