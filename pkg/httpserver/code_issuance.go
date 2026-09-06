@@ -34,9 +34,22 @@ import (
 type codeIssuanceDenialKind int
 
 const (
+	// denialUnspecified is the zero value, and is deliberately not a real
+	// denial reason.
+	//
+	// It exists because the zero value is what a mistake produces: a
+	// codeIssuanceDenial constructed without setting Kind, or a kind added to
+	// this list later and not yet handled everywhere. If the zero value were a
+	// real reason, that mistake would be rendered as whatever reason happened to
+	// sit at iota 0 -- and when this file was first written that was
+	// denialInvalidParams, the single branch that dereferences OAuthError, so
+	// the zero value panicked rather than failing closed as the comment above
+	// promised. Reserving iota 0 makes the accident land in denyCodeIssuance's
+	// default branch, which is the whole point of having one.
+	denialUnspecified codeIssuanceDenialKind = iota
 	// denialInvalidParams: the request parameters are not acceptable for this
 	// client. Carries the RFC 6749 error to hand back.
-	denialInvalidParams codeIssuanceDenialKind = iota
+	denialInvalidParams
 	// denialNoSession: no valid session cookie; the user must authenticate.
 	denialNoSession
 	// denialUserLookupFailed: the session is valid but the user could not be
@@ -59,12 +72,25 @@ type codeIssuanceGrant struct {
 	User    db.AuthUser
 }
 
-// checkCodeIssuance runs every precondition that must hold before an
-// authorization code is issued, for both code-minting paths.
+// checkCodeIssuance reports whether this request may be issued an authorization
+// code, for both code-minting paths.
 //
 // It returns exactly one of grant or denial. Callers must not proceed on a
 // denial, and must not re-check these conditions themselves -- a check that
 // lives in a handler is a check the other handler does not have.
+//
+// It must stay a PURE PREDICATE. It is not a hook for things that happen once
+// per issued code, because it does not run once per issued code:
+//
+//   - A single successful flow calls it twice. /oauth/authorize checks, finds
+//     no stored consent, and redirects to /oauth/consent, which checks again.
+//   - It also runs on requests that mint nothing -- an unauthenticated caller,
+//     a deactivated account, invalid parameters.
+//
+// So a rate limit, an audit record, a counter, or a single-use nonce does not
+// belong here: it would be charged twice for one code and charged for requests
+// that produced none. Those belong at the generateAuthorizationCode call sites,
+// which really are one-per-code.
 func (s *Server) checkCodeIssuance(
 	r *http.Request,
 	client db.OauthClient,
@@ -113,16 +139,17 @@ type codeIssuanceRedirects struct {
 // has not thought about is refused as a server error rather than silently
 // treated as success.
 func (s *Server) denyCodeIssuance(w http.ResponseWriter, r *http.Request, d *codeIssuanceDenial, to codeIssuanceRedirects) {
-	switch d.Kind {
-	case denialInvalidParams:
+	switch {
+	case d.Kind == denialInvalidParams && d.OAuthError != nil:
 		to.ToClient(d.OAuthError.Code, d.OAuthError.Description)
-	case denialNoSession:
+	case d.Kind == denialNoSession:
 		http.Redirect(w, r, to.Unauthenticated, http.StatusFound)
-	case denialUserInactive:
+	case d.Kind == denialUserInactive:
 		http.Redirect(w, r, to.Deactivated, http.StatusFound)
-	case denialUserLookupFailed:
-		to.ToClient("server_error", "An error occurred")
 	default:
+		// denialUserLookupFailed, denialUnspecified, a kind added later that no
+		// caller renders, and denialInvalidParams with no error attached all
+		// land here. Denying is always a safe answer; issuing a code is not.
 		to.ToClient("server_error", "An error occurred")
 	}
 }

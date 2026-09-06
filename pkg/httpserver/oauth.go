@@ -814,9 +814,18 @@ func (s *Server) revokeAccessTokenIfOwnedByClient(ctx context.Context, token str
 // revokeAccessTokenByLookupIfOwned looks up the token record by its stored access_token value
 // (which is the JTI for JWTs) and revokes it only if it belongs to clientID.
 func (s *Server) revokeAccessTokenByLookupIfOwned(ctx context.Context, accessToken string, clientID uuid.UUID) {
-	dbToken, err := s.datastore.Q.GetTokenByAccessToken(ctx, sql.NullString{String: accessToken, Valid: true})
+	dbToken, live, err := s.liveAccessToken(ctx, accessToken)
 	if err != nil {
-		// Not found (or already revoked/expired) — nothing to do.
+		// The lookup failed, so we cannot tell whether this token exists or who
+		// owns it, and therefore cannot revoke it. RFC 7009 §2.2 has the
+		// endpoint answer 200 regardless, so the caller still does -- but log it,
+		// because "revocation returned 200 and silently did nothing" is
+		// otherwise invisible.
+		log.Printf("revokeAccessTokenByLookupIfOwned: could not look up token to revoke: %v", err)
+		return
+	}
+	if !live {
+		// Not found, already revoked, or expired — nothing to do.
 		return
 	}
 	if dbToken.ClientID != clientID {
@@ -1006,13 +1015,21 @@ var scopeDescriptionMap = map[string]string{
 
 // HandleConsentGet renders the consent page.
 func (s *Server) HandleConsentGet(w http.ResponseWriter, r *http.Request) {
-	// Verify session
+	// Verify session. A deactivated account is bounced here rather than being
+	// shown a consent screen it could never submit: HandleConsentPost refuses it
+	// via checkCodeIssuance, so rendering the form would only walk the user up to
+	// a wall. This is a rendering courtesy, not the control -- the control is on
+	// the POST, where a code could actually be minted.
 	session, err := s.getSessionFromCookie(r)
 	if err != nil {
 		http.Redirect(w, r, "/oauth/login?"+r.URL.RawQuery, http.StatusFound)
 		return
 	}
-	_ = session
+	user, err := s.datastore.Q.GetUserByIDIncludingInactive(r.Context(), session.UserID)
+	if err != nil || !user.IsActive {
+		http.Redirect(w, r, "/oauth/login?error=account_deactivated&"+r.URL.RawQuery, http.StatusFound)
+		return
+	}
 
 	clientID := r.URL.Query().Get("client_id")
 	scopeParam := r.URL.Query().Get("scope")
@@ -1103,10 +1120,23 @@ func (s *Server) HandleConsentPost(w http.ResponseWriter, r *http.Request) {
 	// bypass whatever HandleOauthAuthorize checks -- which is exactly how these
 	// two drifted before (a PKCE-less code with arbitrary scopes, and later a
 	// deactivated user obtaining a code). See code_issuance.go.
+	// A refusal is answered before anything else. Declining consent mints no
+	// code, so the preconditions for minting one have no business gating it --
+	// and the client is entitled to be told the user said no regardless of the
+	// state of their account. Checking first would silently swallow the refusal
+	// of, say, a deactivated user and leave the client waiting.
+	if decision == "deny" {
+		redirectError("access_denied", "User denied consent")
+		return
+	}
+
 	responseType := r.FormValue("response_type")
-	// Re-entering /oauth/authorize is how an unauthenticated or deactivated user
-	// is routed onward: it sends them to login with the OAuth parameters intact,
-	// so a fresh login returns them to the app rather than stranding them here.
+	// Re-entering /oauth/authorize is how a user who cannot proceed here is
+	// routed onward: it sends them to login carrying the OAuth parameters, so
+	// once they can proceed they land back at the app instead of being stranded
+	// on the account page. Both the unauthenticated and the deactivated case
+	// need that, which is why they share it -- the deactivated one only adds the
+	// error that tells the login page what to say.
 	resumeURL := buildAuthorizeURL(oauthFlowParams{
 		ClientID:            clientID,
 		RedirectURI:         redirectURI,
@@ -1121,16 +1151,11 @@ func (s *Server) HandleConsentPost(w http.ResponseWriter, r *http.Request) {
 		s.denyCodeIssuance(w, r, denial, codeIssuanceRedirects{
 			ToClient:        redirectError,
 			Unauthenticated: resumeURL,
-			Deactivated:     "/oauth/login?error=account_deactivated",
+			Deactivated:     "/oauth/login?error=account_deactivated&" + strings.TrimPrefix(resumeURL, "/oauth/authorize?"),
 		})
 		return
 	}
 	session := grant.Session
-
-	if decision == "deny" {
-		redirectError("access_denied", "User denied consent")
-		return
-	}
 
 	// Store consent
 	err = s.datastore.Q.UpsertUserConsent(r.Context(), db.UpsertUserConsentParams{

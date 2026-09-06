@@ -17,24 +17,63 @@ import (
 // exhaustive switches, so the default branch has to be the thing that catches
 // it -- and it has to deny, not fall through silently.
 //
-// A kind well past any real value stands in for a future one.
-func TestDenyCodeIssuanceFailsClosedOnUnknownKind(t *testing.T) {
-	srv := newHermeticTestServer(t)
-
-	denied := false
-	redirects := codeIssuanceRedirects{
-		ToClient:        func(errorCode, description string) { denied = true },
-		Unauthenticated: "/oauth/login",
-		Deactivated:     "/oauth/login?error=account_deactivated",
+// The cases here are the ones a mistake actually produces. An earlier version of
+// this test used only a far-off kind (9999), which passed while the zero value
+// -- by far the likelier accident -- panicked: denialInvalidParams was iota 0,
+// and it is the one branch that dereferences OAuthError. The test gave
+// assurance the code did not deserve.
+func TestDenyCodeIssuanceFailsClosedOnUnrenderedKinds(t *testing.T) {
+	tests := []struct {
+		name   string
+		denial *codeIssuanceDenial
+	}{
+		{
+			// The zero value: a denial constructed without setting Kind.
+			name:   "zero value",
+			denial: &codeIssuanceDenial{},
+		},
+		{
+			name:   "explicitly unspecified",
+			denial: &codeIssuanceDenial{Kind: denialUnspecified},
+		},
+		{
+			// A kind added later that no caller renders yet.
+			name:   "kind from the future",
+			denial: &codeIssuanceDenial{Kind: codeIssuanceDenialKind(9999)},
+		},
+		{
+			// The right kind, but nothing to render with -- the shape that
+			// panicked.
+			name:   "invalid params with no error attached",
+			denial: &codeIssuanceDenial{Kind: denialInvalidParams},
+		},
 	}
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/oauth/authorize", nil)
-	srv.denyCodeIssuance(rec, req, &codeIssuanceDenial{Kind: codeIssuanceDenialKind(9999)}, redirects)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := newHermeticTestServer(t)
+			denied := false
+			redirects := codeIssuanceRedirects{
+				ToClient:        func(errorCode, description string) { denied = true },
+				Unauthenticated: "/oauth/login",
+				Deactivated:     "/oauth/login?error=account_deactivated",
+			}
 
-	if !denied {
-		t.Error("an unrecognised denial kind produced no response; a future kind that no caller " +
-			"renders must still deny rather than fall through to issuing a code")
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/oauth/authorize", nil)
+
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("denyCodeIssuance panicked (%v); a malformed denial must deny, not crash", r)
+				}
+			}()
+			srv.denyCodeIssuance(rec, req, tt.denial, redirects)
+
+			if !denied {
+				t.Error("no response was produced; a denial this code cannot render must still " +
+					"deny rather than fall through to issuing a code")
+			}
+		})
 	}
 }
 
