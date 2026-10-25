@@ -17,7 +17,7 @@ COPY pkg/views ./pkg/views
 RUN npx @tailwindcss/cli -i static/input.css -o static/style.css --minify
 
 # Go build stage
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git
