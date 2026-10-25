@@ -74,7 +74,7 @@ jobs:
         run: go test -v ./...
 
       # Integration tests are gated behind the `integration` build tag. They use
-      # testcontainers to spin up Postgres/MinIO, which relies on the Docker
+      # testcontainers to spin up Postgres/RustFS, which relies on the Docker
       # daemon available on GitHub-hosted ubuntu runners. Scoped to the packages
       # that hold them and to the suite/test entrypoints so the untagged unit
       # tests (already run above) aren't rebuilt and re-run a second time.
