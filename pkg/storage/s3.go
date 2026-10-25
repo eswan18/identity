@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
-// S3Storage implements Storage using S3-compatible APIs (works with AWS S3, Cloudflare R2, MinIO).
+// S3Storage implements Storage using S3-compatible APIs (works with AWS S3, Cloudflare R2, RustFS).
 type S3Storage struct {
 	client        *s3.Client
 	bucket        string
@@ -33,7 +33,7 @@ func NewS3Storage(endpoint, bucket, accessKey, secretKey, publicURLBase, region 
 			"",
 		),
 		BaseEndpoint: aws.String(endpoint),
-		UsePathStyle: true, // Required for MinIO and some S3-compatible services
+		UsePathStyle: true, // Required for RustFS and some S3-compatible services
 	})
 
 	return &S3Storage{

@@ -55,7 +55,7 @@ test:
 	go test ./...
 
 # Integration tests are gated behind the `integration` build tag because they
-# spin up Postgres/MinIO containers via testcontainers and require Docker.
+# spin up Postgres/RustFS containers via testcontainers and require Docker.
 test-integration:
 	go test -tags integration ./...
 

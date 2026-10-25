@@ -27,21 +27,27 @@ import (
 	"github.com/eswan18/identity/pkg/storage"
 	"github.com/eswan18/identity/pkg/store"
 	"github.com/stretchr/testify/suite"
-	"github.com/testcontainers/testcontainers-go/modules/minio"
+	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 const (
-	minioUser     = "minioadmin"
-	minioPassword = "minioadmin"
-	minioBucket   = "avatars"
+	// RustFS stands in for production's Cloudflare R2. It replaced MinIO, whose
+	// images were pulled from Docker Hub and Quay in Sept 2026. Pin the tag: an
+	// unpinned image is how upstream changes break CI without a code change.
+	s3Image     = "rustfs/rustfs:1.0.4"
+	s3Port      = "9000/tcp"
+	s3AccessKey = "rustfsadmin"
+	s3SecretKey = "rustfsadmin"
+	s3Bucket    = "avatars"
 )
 
 type AvatarFlowSuite struct {
 	suite.Suite
 	httpClient     *http.Client
 	pgContainer    *postgres.PostgresContainer
-	minioContainer *minio.MinioContainer
+	s3Container    testcontainers.Container
 	datastore      *store.Store
 	server         *Server
 	storageService storage.Storage
@@ -65,27 +71,31 @@ func (s *AvatarFlowSuite) SetupSuite() {
 	s.datastore, err = store.New(dbURL)
 	s.NoError(err)
 
-	// Setup MinIO container
-	s.minioContainer, err = minio.Run(ctx,
-		"minio/minio:latest",
-		minio.WithUsername(minioUser),
-		minio.WithPassword(minioPassword),
+	// Setup RustFS (S3-compatible) container
+	s.s3Container, err = testcontainers.Run(ctx, s3Image,
+		testcontainers.WithExposedPorts(s3Port),
+		testcontainers.WithEnv(map[string]string{
+			"RUSTFS_ACCESS_KEY": s3AccessKey,
+			"RUSTFS_SECRET_KEY": s3SecretKey,
+		}),
+		testcontainers.WithCmd("/data"),
+		testcontainers.WithWaitStrategy(wait.ForListeningPort(s3Port)),
 	)
 	s.Require().NoError(err)
 
-	// Get MinIO connection details
-	minioEndpoint, err := s.minioContainer.ConnectionString(ctx)
+	// Get RustFS connection details
+	s3Endpoint, err := s.s3Container.PortEndpoint(ctx, s3Port, "")
 	s.Require().NoError(err)
 
-	// Create S3-compatible storage pointing to MinIO
+	// Create S3-compatible storage pointing to RustFS
 	// The storage package will create the bucket if it doesn't exist
 	s.storageService, err = storage.NewS3Storage(
-		"http://"+minioEndpoint,
-		minioBucket,
-		minioUser,
-		minioPassword,
-		"http://"+minioEndpoint+"/"+minioBucket, // Public URL
-		"us-east-1", // MinIO default region
+		"http://"+s3Endpoint,
+		s3Bucket,
+		s3AccessKey,
+		s3SecretKey,
+		"http://"+s3Endpoint+"/"+s3Bucket, // Public URL
+		"us-east-1",                       // RustFS default region
 	)
 	s.Require().NoError(err)
 
@@ -126,8 +136,8 @@ func (s *AvatarFlowSuite) TearDownSuite() {
 	if s.pgContainer != nil {
 		s.NoError(s.pgContainer.Terminate(ctx))
 	}
-	if s.minioContainer != nil {
-		s.NoError(s.minioContainer.Terminate(ctx))
+	if s.s3Container != nil {
+		s.NoError(s.s3Container.Terminate(ctx))
 	}
 }
 
@@ -232,7 +242,7 @@ func (s *AvatarFlowSuite) TestAvatarUpload() {
 	s.Require().NoError(err)
 	s.Require().True(updatedUser.Picture.Valid)
 	s.Require().NotEmpty(updatedUser.Picture.String)
-	s.Require().Contains(updatedUser.Picture.String, minioBucket)
+	s.Require().Contains(updatedUser.Picture.String, s3Bucket)
 }
 
 func (s *AvatarFlowSuite) TestAvatarUploadOversizedFile() {
@@ -498,7 +508,7 @@ func (s *AvatarFlowSuite) TestUserInfoReturnsPicture() {
 	bodyBytes, err := io.ReadAll(resp.Body)
 	s.Require().NoError(err)
 	s.Require().Contains(string(bodyBytes), "picture")
-	s.Require().Contains(string(bodyBytes), minioBucket)
+	s.Require().Contains(string(bodyBytes), s3Bucket)
 }
 
 // mustRegisterUser creates a new user for testing
