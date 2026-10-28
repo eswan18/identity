@@ -30,18 +30,11 @@ type AuthMfaEnrollmentPending struct {
 }
 
 type AuthMfaPending struct {
-	ID                  string         `json:"id"`
-	UserID              uuid.UUID      `json:"user_id"`
-	ClientID            sql.NullString `json:"client_id"`
-	RedirectUri         sql.NullString `json:"redirect_uri"`
-	State               sql.NullString `json:"state"`
-	Scope               []string       `json:"scope"`
-	CodeChallenge       sql.NullString `json:"code_challenge"`
-	CodeChallengeMethod sql.NullString `json:"code_challenge_method"`
-	CreatedAt           time.Time      `json:"created_at"`
-	ExpiresAt           time.Time      `json:"expires_at"`
-	Nonce               sql.NullString `json:"nonce"`
-	AuthorizeQuery      sql.NullString `json:"authorize_query"`
+	ID             string         `json:"id"`
+	UserID         uuid.UUID      `json:"user_id"`
+	CreatedAt      time.Time      `json:"created_at"`
+	ExpiresAt      time.Time      `json:"expires_at"`
+	AuthorizeQuery sql.NullString `json:"authorize_query"`
 }
 
 type AuthSession struct {
