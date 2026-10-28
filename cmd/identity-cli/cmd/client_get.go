@@ -40,6 +40,11 @@ func runClientGet(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Redirect URIs:  %s\n", strings.Join(client.RedirectUris, ", "))
 	fmt.Printf("  Allowed Scopes: %s\n", strings.Join(client.AllowedScopes, ", "))
 	fmt.Printf("  Default Resource: %s\n", internal.DefaultResourceValue(client.DefaultResource))
+	allowed, err := datastore.Q.ListClientResources(ctx, client.ID)
+	if err != nil {
+		return fmt.Errorf("failed to read the client's allowed resources: %w", err)
+	}
+	fmt.Printf("  Allowed Resources: %s\n", allowedResourcesValue(allowed))
 	fmt.Printf("  Kind:           %s\n", client.Kind)
 	fmt.Printf("  Confidential:   %v\n", client.IsConfidential)
 	fmt.Printf("  Created:        %s\n", client.CreatedAt.Format("2006-01-02 15:04:05"))

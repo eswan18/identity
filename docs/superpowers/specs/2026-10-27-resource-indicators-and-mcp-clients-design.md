@@ -1,7 +1,12 @@
 # Resource Indicators and MCP Clients
 
 **Date:** 2026-10-27
-**Status:** Reviewed; decisions confirmed. Nothing built.
+**Status:** Reviewed; decisions confirmed. Phase 1 built (#148, #149, #150)
+and contracted (000014, #151). Phase 2 built: the `resource` parameter end to
+end, registry-driven scope checks, consent per resource (000015 records
+existing consents under each client's default resource) and the §8 consent
+screen, and the CLI. Phase 4 (refresh-token reuse) built (#153). Phase 3:
+the CIMD resolver exists (`pkg/cimd`, #152) but is not wired in.
 **Why now:** Sensibility (and later footstrike-api) will host MCP servers that
 Claude connects to as the signed-in user, through identity
 (`sensibility/docs/superpowers/specs/2026-10-25-mcp-agent-access-design.md`).

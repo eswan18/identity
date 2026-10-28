@@ -79,4 +79,4 @@ jobs:
       # that hold them and to the suite/test entrypoints so the untagged unit
       # tests (already run above) aren't rebuilt and re-run a second time.
       - name: Run integration tests
-        run: go test -v -tags integration -timeout 600s -run 'TestOAuthFlowSuite|TestAvatarFlowSuite|TestUpAgainstPostgres' ./pkg/httpserver/ ./db/migrations/
+        run: go test -v -tags integration -timeout 600s -run 'TestOAuthFlowSuite|TestAvatarFlowSuite|TestUpAgainstPostgres|TestCLI' ./pkg/httpserver/ ./db/migrations/ ./cmd/identity-cli/cmd/

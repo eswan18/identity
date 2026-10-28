@@ -91,6 +91,9 @@ func TestAuthorizeRequest_Params(t *testing.T) {
 		CodeChallenge:       "abc",
 		CodeChallengeMethod: "S256",
 		Nonce:               "n",
+		// Every value, as sent: refusing more than one is checkCodeIssuance's
+		// job, so it can answer the client with invalid_target.
+		Resource: []string{"https://a.example", "https://b.example"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("params() = %+v, want %+v", got, want)

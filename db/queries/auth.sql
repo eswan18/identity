@@ -106,6 +106,62 @@ SELECT *
 FROM oauth_resources
 ORDER BY uri;
 
+-- name: UpdateOAuthResource :one
+-- Every field is replaced: the CLI reads the row, applies the flags it was
+-- given, and writes the whole result back. The uri is the key and never
+-- changes here (it is every token's aud; see the spec, section 1).
+UPDATE oauth_resources
+SET name = sqlc.arg(name),
+    scopes = sqlc.arg(scopes),
+    dynamic_clients = sqlc.arg(dynamic_clients)
+WHERE uri = sqlc.arg(uri)
+RETURNING *;
+
+-- name: DeleteOAuthResource :execrows
+DELETE FROM oauth_resources
+WHERE uri = $1;
+
+-- name: ListClientsReferencingResource :many
+-- The clients that name a resource, as their default or on their allow-list.
+-- A resource is not deleted while this is non-empty.
+SELECT c.client_id, c.name,
+       (c.default_resource IS NOT NULL AND c.default_resource = r.uri)::boolean AS is_default
+FROM oauth_resources r
+JOIN oauth_clients c
+  ON c.default_resource = r.uri
+  OR EXISTS (
+       SELECT 1 FROM oauth_client_resources cr
+       WHERE cr.client_id = c.id AND cr.resource_id = r.id
+     )
+WHERE r.uri = $1
+ORDER BY c.name, c.client_id;
+
+-- Client resource allow-lists: the resources a registered client may request
+-- by name, beyond its default (which is always allowed).
+
+-- name: ClientMayRequestResource :one
+SELECT EXISTS (
+  SELECT 1
+  FROM oauth_client_resources
+  WHERE client_id = $1 AND resource_id = $2
+);
+
+-- name: ListClientResources :many
+SELECT r.*
+FROM oauth_client_resources cr
+JOIN oauth_resources r ON r.id = cr.resource_id
+WHERE cr.client_id = $1
+ORDER BY r.uri;
+
+-- name: AddClientResource :exec
+INSERT INTO oauth_client_resources (client_id, resource_id)
+VALUES ($1, $2)
+ON CONFLICT DO NOTHING;
+
+-- name: RemoveClientResource :execrows
+DELETE FROM oauth_client_resources
+WHERE client_id = $1 AND resource_id = $2;
+
 -- name: InsertAuthorizationCode :exec
 INSERT INTO oauth_authorization_codes (
   code,
@@ -116,9 +172,10 @@ INSERT INTO oauth_authorization_codes (
   code_challenge,
   code_challenge_method,
   expires_at,
-  nonce
+  nonce,
+  resource
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
 
 -- name: GetAuthorizationCode :one
 SELECT *
@@ -444,18 +501,19 @@ WHERE (revoked_at IS NOT NULL
 
 -- Consent queries
 
--- Consent is keyed by (user, client, resource) since migration 000012. Until
--- requests can name a resource, every consent is for no resource (NULL), so
--- these read and write only that row and behave exactly as they did when the
--- key was (user, client). The upsert names the wider key in ON CONFLICT so it
--- keeps working once the contract migration drops the old (user, client) one.
+-- Consent is remembered per (user, client, resource): approving one resource
+-- for a client does not approve another. resource is the URI the grant is for,
+-- or NULL for a grant for identity itself, and IS NOT DISTINCT FROM makes NULL
+-- match NULL, like the unique index (NULLS NOT DISTINCT) that the upsert names.
 
 -- name: GetUserConsent :one
 SELECT * FROM oauth_user_consents
-WHERE user_id = $1 AND client_id = $2 AND resource IS NULL;
+WHERE user_id = sqlc.arg(user_id)
+  AND client_id = sqlc.arg(client_id)
+  AND resource IS NOT DISTINCT FROM sqlc.narg(resource)::text;
 
 -- name: UpsertUserConsent :exec
-INSERT INTO oauth_user_consents (user_id, client_id, scopes)
-VALUES ($1, $2, $3)
+INSERT INTO oauth_user_consents (user_id, client_id, resource, scopes)
+VALUES (sqlc.arg(user_id), sqlc.arg(client_id), sqlc.narg(resource)::text, sqlc.arg(scopes))
 ON CONFLICT (user_id, client_id, resource)
-DO UPDATE SET scopes = $3, updated_at = now();
+DO UPDATE SET scopes = EXCLUDED.scopes, updated_at = now();

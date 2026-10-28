@@ -12,14 +12,29 @@ type ScopeDescription struct {
 	Description string
 }
 
-// ConsentView holds everything the consent page renders. AuthorizeQuery is the
+// ConsentView holds everything the consent page renders (spec section 8: who
+// is asking, what for, and where the answer goes). AuthorizeQuery is the
 // authorization request being approved or denied (see AuthorizeQueryField).
 type ConsentView struct {
-	Error             string
-	ClientName        string
+	Error string
+	// ClientName is who is asking: a registered client's name, or for a
+	// client identified by a metadata document, the host serving it.
+	ClientName string
+	// ClaimedName is the name a metadata-document client gives itself, shown
+	// beneath ClientName as its claim rather than as fact. Empty otherwise.
+	ClaimedName string
+	// ResourceName and ResourceHost say which API the access is for. Empty
+	// when the token is for identity itself.
+	ResourceName      string
+	ResourceHost      string
 	ScopeDescriptions []ScopeDescription
-	AuthorizeQuery    string
-	CSRFToken         string
+	// RedirectHost is where the answer goes: the redirect URI's host.
+	RedirectHost string
+	// LoopbackOnly is set when every redirect URI the client has is a
+	// loopback one, so the page warns that the app runs on this computer.
+	LoopbackOnly   bool
+	AuthorizeQuery string
+	CSRFToken      string
 }
 
 // Consent renders the OAuth authorization/consent screen. The authorization
@@ -35,9 +50,27 @@ templ Consent(data ConsentView) {
 			<p class="text-sm text-base-content/60 mt-2">
 				<strong>{ data.ClientName }</strong> is requesting access to your account
 			</p>
+			if data.ClaimedName != "" {
+				<p class="text-xs text-base-content/60 mt-1">It calls itself “{ data.ClaimedName }”</p>
+			}
 		</div>
 		if data.Error != "" {
 			@alertError(data.Error)
+		}
+		if data.LoopbackOnly {
+			<div class="alert alert-warning mb-6" role="alert">
+				@iconError()
+				<span>This app runs on your computer. Only continue if you started this sign-in yourself.</span>
+			</div>
+		}
+		if data.ResourceName != "" {
+			<div class="mb-4">
+				<p class="text-sm font-medium mb-1">Access to:</p>
+				<p class="text-sm">
+					<strong>{ data.ResourceName }</strong>
+					<span class="text-base-content/60">({ data.ResourceHost })</span>
+				</p>
+			</div>
 		}
 		<div class="mb-6">
 			<p class="text-sm font-medium mb-3">This application will be able to:</p>
@@ -52,6 +85,9 @@ templ Consent(data ConsentView) {
 				}
 			</ul>
 		</div>
+		<p class="text-xs text-base-content/60 mb-4">
+			Your answer will be sent to <strong>{ data.RedirectHost }</strong>.
+		</p>
 		<form method="POST" action="/oauth/consent" class="space-y-3">
 			<input type="hidden" name="csrf_token" value={ data.CSRFToken }/>
 			<input type="hidden" name={ AuthorizeQueryField } value={ data.AuthorizeQuery }/>

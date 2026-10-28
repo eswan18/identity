@@ -203,8 +203,11 @@ func normalizeCodeChallenge(challenge string) string {
 	return strings.TrimRight(challenge, "=")
 }
 
-// generateAuthorizationCode generates a new authorization code and stores it in the database
-func (s *Server) generateAuthorizationCode(ctx context.Context, userID uuid.UUID, clientID uuid.UUID, redirectURI string, scope []string, codeChallenge string, codeChallengeMethod string, nonce string) (string, error) {
+// generateAuthorizationCode generates a new authorization code and stores it in the database.
+// resource is what the code is for (NULL: identity itself), as checkCodeIssuance
+// resolved it; the code records it the way token rows do (storedResource), and
+// the exchange reads it back with grantedResource.
+func (s *Server) generateAuthorizationCode(ctx context.Context, userID uuid.UUID, clientID uuid.UUID, redirectURI string, scope []string, codeChallenge string, codeChallengeMethod string, nonce string, resource sql.NullString) (string, error) {
 	code, err := generateRandomString(32)
 	if err != nil {
 		return "", err
@@ -224,6 +227,10 @@ func (s *Server) generateAuthorizationCode(ctx context.Context, userID uuid.UUID
 		CodeChallengeMethod: sql.NullString{String: codeChallengeMethod, Valid: codeChallengeMethod != ""},
 		ExpiresAt:           time.Now().Add(authorizationCodeExpiresIn),
 		Nonce:               sql.NullString{String: nonce, Valid: nonce != ""},
+		// Never NULL, as on token rows: a NULL resource on a code means the
+		// previous release wrote it, and the exchange then uses the client's
+		// default, which is what that release would have minted for.
+		Resource: s.storedResource(resource),
 	})
 	if err != nil {
 		return "", err
@@ -292,8 +299,9 @@ func (s *Server) storedResource(resource sql.NullString) sql.NullString {
 // resource is what the token is for, and becomes its aud (see tokenAudience).
 // The aud is recorded on the token row (see storedResource), so a refresh
 // reissues for the same audience instead of re-reading the client's default,
-// which may since have changed. The caller decides it: the client's default
-// resource at code exchange, the stored resource at refresh.
+// which may since have changed. The caller decides it: the resource stored on
+// the code at code exchange (resolved at authorize time), the stored resource
+// at refresh.
 //
 // family is the refresh-token family the row joins (a new one at code exchange,
 // the presented token's at refresh); the refresh token expires no later than
@@ -396,11 +404,9 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 
 // generateServiceAccountTokens creates an access token for service accounts (client credentials grant).
 // No user is involved - the client authenticates as itself. No refresh token is issued per OAuth2 spec.
-// The token is for the client's default resource, or for identity itself (aud =
-// issuer, which the admin API requires) when the client has none.
-func (s *Server) generateServiceAccountTokens(ctx context.Context, client db.OauthClient, scope []string) (TokenPair, error) {
-	resource := client.DefaultResource
-
+// The token is for resource: what the request named, else the client's default,
+// else identity itself (aud = issuer, which the admin API requires).
+func (s *Server) generateServiceAccountTokens(ctx context.Context, client db.OauthClient, scope []string, resource sql.NullString) (TokenPair, error) {
 	// Generate JWT access token with client_id as subject
 	accessToken, jti, err := s.jwtGenerator.GenerateServiceAccountToken(
 		client.ClientID,

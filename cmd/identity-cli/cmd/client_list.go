@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -32,8 +33,8 @@ func runClientList(cmd *cobra.Command, args []string) error {
 
 	// Print table
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "CLIENT ID\tNAME\tDEFAULT RESOURCE\tCONFIDENTIAL\tCREATED")
-	fmt.Fprintln(w, "---------\t----\t----------------\t------------\t-------")
+	fmt.Fprintln(w, "CLIENT ID\tNAME\tDEFAULT RESOURCE\tALLOWED RESOURCES\tCONFIDENTIAL\tCREATED")
+	fmt.Fprintln(w, "---------\t----\t----------------\t-----------------\t------------\t-------")
 
 	for _, client := range clients {
 		confidential := "No"
@@ -45,10 +46,23 @@ func runClientList(cmd *cobra.Command, args []string) error {
 		if client.DefaultResource.Valid {
 			defaultResource = client.DefaultResource.String
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+		allowed, err := datastore.Q.ListClientResources(ctx, client.ID)
+		if err != nil {
+			return fmt.Errorf("failed to read allowed resources of %s: %w", client.ClientID, err)
+		}
+		allowedURIs := "-"
+		if len(allowed) > 0 {
+			uris := make([]string, len(allowed))
+			for i, r := range allowed {
+				uris[i] = r.Uri
+			}
+			allowedURIs = strings.Join(uris, " ")
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			client.ClientID,
 			client.Name,
 			defaultResource,
+			allowedURIs,
 			confidential,
 			client.CreatedAt.Format("2006-01-02 15:04:05"),
 		)
