@@ -1,0 +1,20 @@
+-- NOT A MIGRATION. sqlc reads this after db/migrations (see sqlc.yaml); no
+-- database ever runs it.
+--
+-- Migration 000012 is the expand half of an expand/contract rename:
+-- oauth_clients.audience is replaced by default_resource, but the column stays
+-- until a later contract migration drops it, because the release that was
+-- serving when 000012 was applied still reads it. The code that runs against
+-- 000012 must already be the code that will run after the contract migration:
+-- if it named audience anywhere, dropping the column would break every pod still
+-- running it.
+--
+-- So sqlc generates against the schema as it will be after the contract step.
+-- Every query that would name audience (SELECT * and RETURNING * included, which
+-- sqlc expands into explicit column lists) leaves it out, db.OauthClient has no
+-- Audience field, and a query that mentions the column fails to generate.
+--
+-- Delete this file, and its entry in sqlc.yaml, in the same change as the
+-- contract migration that drops the column; `make sqlc` should then produce no
+-- diff at all.
+ALTER TABLE oauth_clients DROP COLUMN audience;

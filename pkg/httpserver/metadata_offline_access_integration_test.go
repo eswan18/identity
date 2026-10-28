@@ -47,11 +47,11 @@ func (s *OAuthFlowSuite) TestAuthorizationServerMetadataBothPaths() {
 
 	// The issuer in the document is the iss in an ID token, byte for byte.
 	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
-		ClientID:      s.mustGenerateRandomString(8),
-		Name:          s.mustGenerateRandomString(8),
-		RedirectUris:  []string{"http://localhost:8080/callback"},
-		AllowedScopes: []string{"openid"},
-		Audience:      "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		DefaultResource: testResource("http://localhost:8080"),
 	}, "openid")
 	parts := strings.Split(result.TokenResponse.IDToken, ".")
 	s.Require().Len(parts, 3)
@@ -66,13 +66,13 @@ func (s *OAuthFlowSuite) TestAuthorizationServerMetadataBothPaths() {
 // and still gets its refresh token (as every code exchange does).
 func (s *OAuthFlowSuite) TestOfflineAccessWithoutRegistration() {
 	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8080"),
 	}, "openid offline_access")
 
 	s.NotEmpty(result.TokenResponse.AccessToken)
@@ -97,11 +97,11 @@ func (s *OAuthFlowSuite) TestOfflineAccessWithoutRegistration() {
 // The consent screen explains offline_access in plain words.
 func (s *OAuthFlowSuite) TestOfflineAccessConsentDescription() {
 	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
-		ClientID:      s.mustGenerateRandomString(8),
-		Name:          s.mustGenerateRandomString(8),
-		RedirectUris:  []string{"http://localhost:8080/callback"},
-		AllowedScopes: []string{"openid"},
-		Audience:      "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 	scv := s.mustCreateStateAndCodeVerifier()
 	authorize := "http://localhost:8080/oauth/authorize?" + url.Values{
@@ -134,13 +134,13 @@ func (s *OAuthFlowSuite) TestOfflineAccessConsentDescription() {
 func (s *OAuthFlowSuite) TestOfflineAccessRefusedOnClientCredentials() {
 	secret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: secret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"admin:users:read", "offline_access"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: secret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"admin:users:read", "offline_access"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	post := func(scope string) (int, map[string]any) {

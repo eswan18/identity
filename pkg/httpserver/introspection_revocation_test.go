@@ -19,24 +19,24 @@ func (s *OAuthFlowSuite) TestTokenIntrospectionAccessToken() {
 	// Create a confidential client for introspection (needs client_secret)
 	clientSecret := s.mustGenerateRandomString(32)
 	introspectClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 
 	// Create a public client to obtain tokens (easier flow)
 	tokenClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 
 	// Complete OAuth flow to get an access token using public client
@@ -94,30 +94,34 @@ func (s *OAuthFlowSuite) TestTokenIntrospectionAccessToken() {
 	s.Equal("http://localhost:8080", introspectResponse["iss"])
 	s.NotNil(introspectResponse["exp"])
 	s.NotNil(introspectResponse["iat"])
+	// client_id is the public client_id of the client the token was issued to
+	// (not the client introspecting it, and not the internal row UUID).
+	s.Equal(tokenClient.ClientID, introspectResponse["client_id"])
+	s.Equal("http://localhost:8000", introspectResponse["aud"])
 }
 
 func (s *OAuthFlowSuite) TestTokenIntrospectionRefreshToken() {
 	// Create a confidential client for introspection (needs client_secret)
 	clientSecret := s.mustGenerateRandomString(32)
 	introspectClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 
 	// Create a public client to obtain tokens (easier flow)
 	tokenClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 
 	// Complete OAuth flow to get tokens using public client
@@ -173,6 +177,7 @@ func (s *OAuthFlowSuite) TestTokenIntrospectionRefreshToken() {
 	s.Equal(user.ID.String(), introspectResponse["sub"])
 	s.Equal("openid profile email", introspectResponse["scope"])
 	s.Equal("refresh_token", introspectResponse["token_type"])
+	s.Equal(tokenClient.ClientID, introspectResponse["client_id"], "client_id should be the public client_id")
 }
 
 // TestTokenIntrospectionRefreshTokenNonExpiringOmitsExp is a regression test for
@@ -185,13 +190,13 @@ func (s *OAuthFlowSuite) TestTokenIntrospectionRefreshToken() {
 func (s *OAuthFlowSuite) TestTokenIntrospectionRefreshTokenNonExpiringOmitsExp() {
 	clientSecret := s.mustGenerateRandomString(32)
 	introspectClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 
 	user := s.mustRegisterUser(
@@ -240,13 +245,13 @@ func (s *OAuthFlowSuite) TestTokenIntrospectionInvalidToken() {
 	// Create a confidential client
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 
 	// Introspect an invalid token
@@ -275,13 +280,13 @@ func (s *OAuthFlowSuite) TestTokenIntrospectionInvalidClientCredentials() {
 	// Create a confidential client
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 
 	// Try to introspect with wrong client secret
@@ -300,13 +305,13 @@ func (s *OAuthFlowSuite) TestTokenIntrospectionMissingToken() {
 	// Create a confidential client
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 
 	// Try to introspect without a token
@@ -327,13 +332,13 @@ func (s *OAuthFlowSuite) TestTokenRevocationAccessToken() {
 	// client (unlike introspection, which doesn't require token ownership).
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 
 	// Complete OAuth flow to get tokens
@@ -417,25 +422,25 @@ func (s *OAuthFlowSuite) TestTokenRevocationRejectsOtherClient() {
 	// The client that will obtain (and own) the tokens.
 	ownerSecret := s.mustGenerateRandomString(32)
 	ownerClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: ownerSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: ownerSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 
 	// A different, unrelated confidential client that will attempt the revocation.
 	attackerSecret := s.mustGenerateRandomString(32)
 	attackerClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: attackerSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: attackerSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 
 	user := s.mustRegisterUser(
@@ -507,13 +512,13 @@ func (s *OAuthFlowSuite) TestTokenRevocationRefreshToken() {
 	// client (unlike introspection, which doesn't require token ownership).
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 
 	// Complete OAuth flow to get tokens
@@ -593,13 +598,13 @@ func (s *OAuthFlowSuite) TestTokenRevocationInvalidToken() {
 	// Create a confidential client
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 
 	// Revoke an invalid token - should still return 200 OK per RFC 7009
@@ -618,13 +623,13 @@ func (s *OAuthFlowSuite) TestTokenRevocationInvalidClientCredentials() {
 	// Create a confidential client
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 
 	// Try to revoke with wrong client secret
@@ -643,13 +648,13 @@ func (s *OAuthFlowSuite) TestTokenRevocationMissingToken() {
 	// Create a confidential client
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 
 	// Try to revoke without a token

@@ -56,7 +56,8 @@ func TestAdminAuthMiddlewareFailsClosedOnDatabaseError(t *testing.T) {
 		"11111111-1111-1111-1111-111111111111",
 		"someone",
 		"someone@example.com",
-		"test-audience",
+		"test-issuer", // the hermetic server's issuer: an admin token's aud
+		"test-client",
 		true,
 		[]string{"admin:users:read"},
 		time.Hour,

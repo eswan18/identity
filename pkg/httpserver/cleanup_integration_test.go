@@ -126,12 +126,12 @@ func (s *OAuthFlowSuite) TestExpiryCleanup_DeletesDeadAuthorizationCodes() {
 		s.mustGenerateAlphanumericString(10)+"@example.com",
 	)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateAlphanumericString(12),
-		Name:           "cleanup-test-client",
-		RedirectUris:   []string{"http://example.com/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: false,
-		Audience:       "test-audience",
+		ClientID:        s.mustGenerateAlphanumericString(12),
+		Name:            "cleanup-test-client",
+		RedirectUris:    []string{"http://example.com/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  false,
+		DefaultResource: testResource("test-audience"),
 	})
 
 	past := time.Now().Add(-1 * time.Hour)
@@ -203,12 +203,12 @@ func (s *OAuthFlowSuite) TestExpiryCleanup_DeletesDeadTokensOnly() {
 		s.mustGenerateAlphanumericString(10)+"@example.com",
 	)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateAlphanumericString(12),
-		Name:           "cleanup-test-client",
-		RedirectUris:   []string{"http://example.com/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: false,
-		Audience:       "test-audience",
+		ClientID:        s.mustGenerateAlphanumericString(12),
+		Name:            "cleanup-test-client",
+		RedirectUris:    []string{"http://example.com/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  false,
+		DefaultResource: testResource("test-audience"),
 	})
 	userID := uuid.NullUUID{UUID: user.ID, Valid: true}
 

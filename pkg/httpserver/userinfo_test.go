@@ -122,6 +122,7 @@ func TestHandleOauthUserInfo_TokenResolution(t *testing.T) {
 
 	accessToken, _, err := s.jwtGenerator.GenerateAccessToken(
 		"11111111-1111-1111-1111-111111111111", "someuser", "user@example.com", "aud",
+		"test-client",
 		true, []string{"openid"}, time.Hour,
 	)
 	if err != nil {

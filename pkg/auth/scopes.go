@@ -1,6 +1,9 @@
 package auth
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // AdminScopePrefix marks scopes that grant access to the /admin API. The prefix
 // is matched rather than an explicit list so a future admin scope
@@ -24,4 +27,11 @@ func AdminScopesIn(scopes []string) []string {
 		}
 	}
 	return found
+}
+
+// IsIdentityScope reports whether scope is one identity defines for itself:
+// one of IdentityScopes, or an admin scope. A resource in the registry may not
+// define a scope with such a name, so a scope string always means one thing.
+func IsIdentityScope(scope string) bool {
+	return IsAdminScope(scope) || slices.Contains(IdentityScopes, scope)
 }

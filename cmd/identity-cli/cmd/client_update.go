@@ -19,7 +19,8 @@ var (
 	updateRemoveRedirectURIs string
 	updateAllowedScopes      string
 	updateIsConfidential     bool
-	updateAudience           string
+	updateDefaultResource    string
+	updateClearDefaultRes    bool
 )
 
 var clientUpdateCmd = &cobra.Command{
@@ -31,7 +32,11 @@ Use --confidential=true or --confidential=false to change confidentiality status
 --add-redirect-uris to append to it instead (already-present URIs are skipped),
 or --remove-redirect-uris to drop entries from it. Removing a URI the client
 does not have is an error and leaves the client unchanged, so a typo can't look
-like a successful revocation.`,
+like a successful revocation.
+--default-resource points the client's tokens at another registered resource;
+--clear-default-resource removes the default, so its tokens are for identity
+itself. Either affects tokens issued from then on: a refresh keeps the resource
+the original token was issued for.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runClientUpdate,
 	Example: `  # Update client name
@@ -46,6 +51,10 @@ like a successful revocation.`,
   # Remove redirect URIs, keeping the rest
   identity-client client update abc123 --remove-redirect-uris "https://old.example.com/callback"
 
+  # Point the client's tokens at a registered resource, or at identity itself
+  identity-client client update abc123 --default-resource "https://api.example.com"
+  identity-client client update abc123 --clear-default-resource
+
   # Update multiple fields
   identity-client client update abc123 --name "New Name" --scopes "openid,profile"`,
 }
@@ -57,8 +66,10 @@ func init() {
 	clientUpdateCmd.Flags().StringVar(&updateRemoveRedirectURIs, "remove-redirect-uris", "", "Comma-separated redirect URIs to remove from the existing list")
 	clientUpdateCmd.Flags().StringVar(&updateAllowedScopes, "scopes", "", "Comma-separated list of allowed scopes")
 	clientUpdateCmd.Flags().BoolVar(&updateIsConfidential, "confidential", false, "Whether the client is confidential")
-	clientUpdateCmd.Flags().StringVar(&updateAudience, "audience", "", "JWT audience claim for this client")
+	clientUpdateCmd.Flags().StringVar(&updateDefaultResource, "default-resource", "", "URI of a registered resource its tokens are for by default")
+	clientUpdateCmd.Flags().BoolVar(&updateClearDefaultRes, "clear-default-resource", false, "Remove the default resource (tokens are for identity itself)")
 	clientUpdateCmd.MarkFlagsMutuallyExclusive("redirect-uris", "add-redirect-uris", "remove-redirect-uris")
+	clientUpdateCmd.MarkFlagsMutuallyExclusive("default-resource", "clear-default-resource")
 }
 
 func runClientUpdate(cmd *cobra.Command, args []string) error {
@@ -87,7 +98,6 @@ func runClientUpdate(cmd *cobra.Command, args []string) error {
 	removeRedirectURIsSet := flags.Changed("remove-redirect-uris")
 	scopesSet := flags.Changed("scopes")
 	confidentialSet := flags.Changed("confidential")
-	audienceSet := flags.Changed("audience")
 
 	if nameSet {
 		params.Name = sql.NullString{String: updateName, Valid: true}
@@ -128,10 +138,23 @@ func runClientUpdate(cmd *cobra.Command, args []string) error {
 		params.IsConfidential = sql.NullBool{Bool: currentClient.IsConfidential, Valid: true}
 	}
 
-	if audienceSet {
-		params.Audience = sql.NullString{String: updateAudience, Valid: true}
-	} else {
-		params.Audience = sql.NullString{String: currentClient.Audience, Valid: true}
+	// The default resource is left alone unless asked; clearing it sets NULL,
+	// which is why the query takes an explicit "set" flag rather than treating
+	// NULL as "unchanged" like the fields above.
+	switch {
+	case flags.Changed("clear-default-resource") && updateClearDefaultRes:
+		params.SetDefaultResource = true
+		params.DefaultResource = sql.NullString{}
+	case flags.Changed("default-resource"):
+		if updateDefaultResource == "" {
+			return errors.New("--default-resource cannot be empty; use --clear-default-resource to remove the default")
+		}
+		defaultResource, err := resolveDefaultResource(ctx, updateDefaultResource)
+		if err != nil {
+			return err
+		}
+		params.SetDefaultResource = true
+		params.DefaultResource = defaultResource
 	}
 
 	// Apply the same admin-scope rule as create, against the effective values
@@ -166,7 +189,7 @@ func runClientUpdate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Name:           %s\n", updatedClient.Name)
 	fmt.Printf("  Redirect URIs:  %s\n", strings.Join(updatedClient.RedirectUris, ", "))
 	fmt.Printf("  Allowed Scopes: %s\n", strings.Join(updatedClient.AllowedScopes, ", "))
-	fmt.Printf("  Audience:       %s\n", updatedClient.Audience)
+	fmt.Printf("  Default Resource: %s\n", internal.DefaultResourceValue(updatedClient.DefaultResource))
 	fmt.Printf("  Confidential:   %v\n", updatedClient.IsConfidential)
 	fmt.Printf("  Updated:        %s\n", updatedClient.UpdatedAt.Format("2006-01-02 15:04:05"))
 	if len(updatedClient.RedirectUris) == 0 {

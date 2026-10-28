@@ -17,13 +17,13 @@ func (s *OAuthFlowSuite) TestEmailVerificationFlow() {
 	// Create a client and register a new user
 	clientCallbackURI := "http://localhost:8080/callback"
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{clientCallbackURI},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "https://api.example.com",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{clientCallbackURI},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("https://api.example.com"),
 	})
 	scv := s.mustCreateStateAndCodeVerifier()
 
@@ -70,13 +70,13 @@ func (s *OAuthFlowSuite) TestEmailVerifiedClaimInJWT() {
 	// Complete OAuth flow and check that email_verified claim is in the token
 	clientCallbackURI := "http://localhost:8080/callback"
 	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{clientCallbackURI},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "https://api.example.com",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{clientCallbackURI},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("https://api.example.com"),
 	})
 
 	// Parse the access token to verify email_verified claim

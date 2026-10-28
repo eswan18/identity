@@ -15,9 +15,15 @@ version: "2"
 # except the .down.sql files sqlc knows to skip. A seed or fixture .sql parked
 # here would silently rewrite what the generated code is built against, so keep
 # the directory to migrations only (`make migrate-new` does the right thing).
+#
+# The one exception is db/sqlc_pending_contract.sql, read after the migrations:
+# it applies, for codegen only, a column drop that a later contract migration
+# will make for real, so the code never names a column that is on its way out.
+# It goes away with that migration; see the file itself.
 sql:
   - schema:
       - "db/migrations"
+      - "db/sqlc_pending_contract.sql"
     queries:
       - "db/queries"
     engine: "postgresql"

@@ -18,13 +18,13 @@ import (
 func (s *OAuthFlowSuite) TestFullOAuthFlow() {
 	clientCallbackURI := "http://localhost:8080/callback"
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{clientCallbackURI},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{clientCallbackURI},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 	user := s.mustRegisterUser(
 		s.mustGenerateRandomString(8),
@@ -144,13 +144,13 @@ func (s *OAuthFlowSuite) TestFullOAuthFlow() {
 func (s *OAuthFlowSuite) TestAuthorizationCodeCannotBeReused() {
 	clientCallbackURI := "http://localhost:8080/callback"
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{clientCallbackURI},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{clientCallbackURI},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 	user := s.mustRegisterUser(
 		s.mustGenerateAlphanumericString(12),
@@ -200,13 +200,13 @@ func (s *OAuthFlowSuite) TestLoginFailedPreservesAllScopes() {
 
 	// Create an OAuth client with multiple scopes
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "https://api.example.com",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("https://api.example.com"),
 	})
 	scv := s.mustCreateStateAndCodeVerifier()
 
@@ -250,13 +250,13 @@ func (s *OAuthFlowSuite) TestLoginSetsLastLoginAt() {
 
 	// Create an OAuth client and complete login
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: false,
-		Audience:       "https://api.example.com",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  false,
+		DefaultResource: testResource("https://api.example.com"),
 	})
 	scv := s.mustCreateStateAndCodeVerifier()
 

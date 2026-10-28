@@ -30,6 +30,35 @@ URI without a port, e.g. `http://localhost/callback` or
 port may differ: the host must be the one registered (`localhost` does not match
 `127.0.0.1`), and https and custom-scheme URIs always match exactly.
 
+A client registered like this, with no `--default-resource`, gets access tokens
+for identity itself (`aud` is identity's issuer). That is right for an app that
+only signs users in and reads their profile from the ID token or
+`/oauth/userinfo`.
+
+If your app sends its access token to an API, register that API as a
+**resource** once, and make it the client's default resource. The resource's
+URI becomes the token's `aud`, which the API checks:
+
+```shell
+./identity-cli resource create \
+  --uri "https://api.myapp.com" \
+  --name "My App API"
+
+./identity-cli client create \
+  --name "My App" \
+  --redirect-uris "https://myapp.com/oauth/callback" \
+  --scopes "openid,profile,email" \
+  --default-resource "https://api.myapp.com"
+```
+
+New resource URIs must be `https`, and are stored in canonical form (lowercase
+scheme and host, no default port, no trailing slash). An existing client's
+default can be changed with `client update --default-resource <uri>` or removed
+with `client update --clear-default-resource`; either affects tokens issued from
+then on, since a refresh keeps the resource its original token was for.
+Register resources and clients in **both** identity databases (staging's is
+periodically replaced by a copy of prod's).
+
 ## Step 2: Implement the OAuth Flow
 
 See the main [README](../README.md#oauth-flow-example) for the full OAuth/PKCE flow. In summary:
@@ -48,19 +77,36 @@ See the main [README](../README.md#oauth-flow-example) for the full OAuth/PKCE f
 
 ## Step 3: Understanding the Access Token
 
-The access token is a JWT containing these claims:
+The access token is a JWT in the RFC 9068 profile. Its header carries
+`"typ": "at+jwt"` (ID tokens do not), and it contains these claims:
 
 | Claim | Description | Example |
 |-------|-------------|---------|
 | `sub` | User's unique ID (UUID) | `550e8400-e29b-41d4-a716-446655440000` |
+| `aud` | The resource the token is for: a one-element array holding your client's default resource URI, or identity's issuer if it has none. **Not** your client_id (that is the ID token's `aud`) | `["https://api.myapp.com"]` |
+| `client_id` | The client_id of the app the token was issued to | `my-app-client-id` |
+| `scope` | Granted scopes (space-separated) | `openid profile email` |
 | `username` | User's username | `alice` |
 | `email` | User's email address | `alice@example.com` |
-| `scope` | Granted scopes (space-separated) | `openid profile email` |
-| `aud` | Audience (your client_id) | `my-app-client-id` |
+| `email_verified` | Whether that address is verified | `true` |
 | `iss` | Issuer URL | `https://identity.example.com` |
-| `exp` | Expiration timestamp | `1699900800` |
+| `exp` / `iat` | Expiry and issue timestamps | `1699900800` |
+| `jti` | Unique token ID | `5f1c…` |
+
+`aud` is always a JSON array, also on client-credentials tokens (which used to
+carry a bare string); standard JWT libraries, PyJWT included, accept either
+form when checking it.
+
+**If you run an API that accepts these tokens:** verify the signature against
+`/.well-known/jwks.json`, then check `iss`, `exp`, and that `aud` contains
+**your** resource URI and nothing you don't expect. Checking `typ` is
+`at+jwt` as well stops an ID token (signed by the same key) being presented
+as an access token.
 
 **Important:** Use the `sub` claim as the stable user identifier. Email and username can change; `sub` never will.
+
+**`/oauth/userinfo`** answers only for an access token whose scope includes
+`openid`. Any other token gets `401` with `error="invalid_token"`.
 
 ## Step 3b: Refreshing Tokens (and when NOT to log the user out)
 
@@ -282,6 +328,11 @@ For server-side operations like user migration or automated tasks, use the OAuth
 
 2. Save both the `client_id` and `client_secret`.
 
+Leave out `--default-resource`: the admin API accepts only tokens whose `aud`
+is identity's own issuer, which is what a client with no default resource
+gets. A token minted for another resource is refused (`401 invalid_token`)
+even if it carries an admin scope.
+
 ### Getting a Service Token
 
 ```bash
@@ -304,7 +355,8 @@ Response:
 **Note:** Client credentials tokens:
 - Expire in 15 minutes (shorter than user tokens)
 - Do not include a refresh token (per OAuth2 spec)
-- Have `client_id` as the `sub` claim (not a user ID)
+- Have `client_id` as the `sub` claim (not a user ID), and as the `client_id` claim
+- Are typed `at+jwt`, with `aud` a one-element array, like user access tokens
 
 ### Admin API: Create Users
 
@@ -335,7 +387,7 @@ Response (201 Created):
 
 Error responses:
 - `400 Bad Request` - Invalid input (weak password, invalid email format, etc.)
-- `401 Unauthorized` - Missing or invalid token
+- `401 Unauthorized` - Missing or invalid token, or a token not issued for identity itself (`aud` is not the issuer)
 - `403 Forbidden` - Token lacks `admin:users:write` scope
 - `409 Conflict` - Username or email already exists
 

@@ -99,12 +99,12 @@ func (s *OAuthFlowSuite) TestAdminCreateUserRejectsInvalidUsername() {
 		ClientID: s.mustGenerateRandomString(8),
 		// mustRegisterOAuthClient hashes this before insert and hands the
 		// plaintext back, so pass the raw secret here.
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"admin:users:write"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"admin:users:write"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 	token := s.mustGetClientCredentialsToken(client.ClientID, clientSecret, "admin:users:write")
 

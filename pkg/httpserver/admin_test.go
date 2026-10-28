@@ -19,13 +19,13 @@ func (s *OAuthFlowSuite) TestAdminCreateUser_WithClientCredentials() {
 	// Create a confidential client with admin scope
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"admin:users:write"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"admin:users:write"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	// Get access token via client credentials
@@ -133,13 +133,13 @@ func (s *OAuthFlowSuite) TestAdminCreateUser_InsufficientScope() {
 	// Create a confidential client with only read scope (not write)
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"admin:users:read"}, // Only read, not write
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"admin:users:read"}, // Only read, not write
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	// Get access token with read scope
@@ -192,13 +192,13 @@ func (s *OAuthFlowSuite) TestAdminCreateUser_DuplicateUsername() {
 	// Create a confidential client with admin scope
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"admin:users:write"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"admin:users:write"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	// Get access token
@@ -254,13 +254,13 @@ func (s *OAuthFlowSuite) TestAdminCreateUser_InvalidPassword() {
 	// Create a confidential client with admin scope
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"admin:users:write"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"admin:users:write"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	// Get access token
@@ -304,13 +304,13 @@ func (s *OAuthFlowSuite) TestAdminListUsers() {
 	// Create a confidential client with read scope
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"admin:users:read", "admin:users:write"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"admin:users:read", "admin:users:write"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	// Create a few users via admin API first
@@ -358,13 +358,13 @@ func (s *OAuthFlowSuite) TestAdminListUsers() {
 func (s *OAuthFlowSuite) TestAdminListUsers_Pagination() {
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"admin:users:read", "admin:users:write"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"admin:users:read", "admin:users:write"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	// Create 5 users
@@ -424,13 +424,13 @@ func (s *OAuthFlowSuite) TestAdminListUsers_MissingAuth() {
 func (s *OAuthFlowSuite) TestAdminListUsers_InsufficientScope() {
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"admin:users:write"}, // Only write, not read
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"admin:users:write"}, // Only write, not read
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	writeToken := s.mustGetClientCredentialsToken(client.ClientID, clientSecret, "admin:users:write")
@@ -447,13 +447,13 @@ func (s *OAuthFlowSuite) TestAdminListUsers_InsufficientScope() {
 func (s *OAuthFlowSuite) TestAdminGetUser() {
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"admin:users:read", "admin:users:write"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"admin:users:read", "admin:users:write"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	// Create a user first
@@ -493,13 +493,13 @@ func (s *OAuthFlowSuite) TestAdminGetUser() {
 func (s *OAuthFlowSuite) TestAdminGetUser_NotFound() {
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"admin:users:read"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"admin:users:read"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	readToken := s.mustGetClientCredentialsToken(client.ClientID, clientSecret, "admin:users:read")
@@ -523,13 +523,13 @@ func (s *OAuthFlowSuite) TestAdminGetUser_NotFound() {
 func (s *OAuthFlowSuite) TestAdminGetUser_InvalidID() {
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"admin:users:read"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"admin:users:read"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	readToken := s.mustGetClientCredentialsToken(client.ClientID, clientSecret, "admin:users:read")

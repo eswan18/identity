@@ -21,6 +21,16 @@ FROM auth_users
 WHERE id = $1
   AND is_active = true;
 
+-- OAuth clients
+--
+-- Every oauth_clients query lists its columns rather than using * so that none
+-- of them names audience, which migration 000012 deprecated and a later
+-- contract migration drops: a running pod whose query named it would break the
+-- moment that migration landed. (sqlc expands * into an explicit list at
+-- generation time, so * would bake the column in.) The order matches the table
+-- so sqlc maps every one of these onto db.OauthClient; see
+-- db/sqlc_pending_contract.sql.
+
 -- name: CreateOAuthClient :one
 INSERT INTO oauth_clients (
   client_id,
@@ -29,41 +39,74 @@ INSERT INTO oauth_clients (
   redirect_uris,
   allowed_scopes,
   is_confidential,
-  audience
+  default_resource
 )
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING *;
+RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
+  is_confidential, created_at, updated_at, default_resource, kind,
+  metadata_fetched_at;
 
 -- name: GetOAuthClientByClientID :one
-SELECT *
+SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
+  is_confidential, created_at, updated_at, default_resource, kind,
+  metadata_fetched_at
 FROM oauth_clients
 WHERE client_id = $1;
 
 -- name: GetOAuthClientByID :one
-SELECT *
+SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
+  is_confidential, created_at, updated_at, default_resource, kind,
+  metadata_fetched_at
 FROM oauth_clients
 WHERE id = $1;
 
 -- name: ListOAuthClients :many
-SELECT *
+SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
+  is_confidential, created_at, updated_at, default_resource, kind,
+  metadata_fetched_at
 FROM oauth_clients
 ORDER BY created_at DESC;
 
 -- name: UpdateOAuthClient :one
+-- default_resource is replaced only when set_default_resource is true, and then
+-- with whatever default_resource holds, NULL included: that is how a client's
+-- default is cleared, which a COALESCE(NULLIF(...)) like the others cannot do.
 UPDATE oauth_clients
 SET
   name = COALESCE(NULLIF(sqlc.narg(name)::text, ''), name),
   redirect_uris = COALESCE(sqlc.narg(redirect_uris)::text[], redirect_uris),
   allowed_scopes = COALESCE(sqlc.narg(allowed_scopes)::text[], allowed_scopes),
   is_confidential = COALESCE(sqlc.narg(is_confidential), is_confidential),
-  audience = COALESCE(NULLIF(sqlc.narg(audience)::text, ''), audience),
+  default_resource = CASE
+    WHEN sqlc.arg(set_default_resource)::boolean THEN sqlc.narg(default_resource)::text
+    ELSE default_resource
+  END,
   updated_at = now()
 WHERE client_id = sqlc.arg(client_id)
-RETURNING *;
+RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
+  is_confidential, created_at, updated_at, default_resource, kind,
+  metadata_fetched_at;
 
 -- name: DeleteOAuthClient :exec
 DELETE FROM oauth_clients
 WHERE client_id = $1;
+
+-- OAuth resources: the APIs tokens are minted for (a token's aud is its uri).
+
+-- name: CreateOAuthResource :one
+INSERT INTO oauth_resources (uri, name, scopes, dynamic_clients)
+VALUES ($1, $2, $3, $4)
+RETURNING *;
+
+-- name: GetOAuthResourceByURI :one
+SELECT *
+FROM oauth_resources
+WHERE uri = $1;
+
+-- name: ListOAuthResources :many
+SELECT *
+FROM oauth_resources
+ORDER BY uri;
 
 -- name: InsertAuthorizationCode :exec
 INSERT INTO oauth_authorization_codes (
@@ -101,9 +144,10 @@ INSERT INTO oauth_tokens (
   scope,
   token_type,
   expires_at,
-  refresh_expires_at
+  refresh_expires_at,
+  resource
 )
-VALUES ($1, $2, $3, $4, $5, COALESCE(sqlc.narg(token_type)::text, 'bearer'), $6, $7)
+VALUES ($1, $2, $3, $4, $5, COALESCE(sqlc.narg(token_type)::text, 'bearer'), $6, $7, sqlc.narg(resource))
 RETURNING *;
 
 -- name: GetTokenByAccessToken :one
@@ -356,12 +400,18 @@ WHERE revoked_at IS NOT NULL
 
 -- Consent queries
 
+-- Consent is keyed by (user, client, resource) since migration 000012. Until
+-- requests can name a resource, every consent is for no resource (NULL), so
+-- these read and write only that row and behave exactly as they did when the
+-- key was (user, client). The upsert names the wider key in ON CONFLICT so it
+-- keeps working once the contract migration drops the old (user, client) one.
+
 -- name: GetUserConsent :one
 SELECT * FROM oauth_user_consents
-WHERE user_id = $1 AND client_id = $2;
+WHERE user_id = $1 AND client_id = $2 AND resource IS NULL;
 
 -- name: UpsertUserConsent :exec
 INSERT INTO oauth_user_consents (user_id, client_id, scopes)
 VALUES ($1, $2, $3)
-ON CONFLICT (user_id, client_id)
+ON CONFLICT (user_id, client_id, resource)
 DO UPDATE SET scopes = $3, updated_at = now();
