@@ -135,12 +135,12 @@ func (s *OAuthFlowSuite) TestMFAThrottleDoesNotAffectOtherAccounts() {
 func (s *OAuthFlowSuite) mustCreateMFAUser() (UserWithPassword, string, db.OauthClient) {
 	s.T().Helper()
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 	user := s.mustRegisterUser(
 		s.mustGenerateAlphanumericString(10),

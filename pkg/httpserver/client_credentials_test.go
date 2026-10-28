@@ -19,13 +19,13 @@ func (s *OAuthFlowSuite) TestClientCredentialsGrant() {
 	// Create a confidential client with admin scopes
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"admin:users:write", "admin:users:read"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"admin:users:write", "admin:users:read"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	// Request token using client credentials
@@ -60,7 +60,9 @@ func (s *OAuthFlowSuite) TestClientCredentialsGrant() {
 	claims := token.Claims.(jwt.MapClaims)
 	s.Equal(client.ClientID, claims["sub"], "subject should be client_id")
 	s.Equal("http://localhost:8080", claims["iss"], "issuer should match")
-	s.Equal("http://localhost:8080", claims["aud"], "audience should match client's audience")
+	s.Equal([]any{"http://localhost:8080"}, claims["aud"], "audience should be a one-element array holding the client's default resource")
+	s.Equal(client.ClientID, claims["client_id"], "client_id claim should be the public client_id")
+	s.Equal("at+jwt", token.Header["typ"], "access tokens are typed at+jwt (RFC 9068)")
 	s.Equal("admin:users:write", claims["scope"], "scope should match requested scope")
 
 	// Verify no user-specific claims
@@ -74,13 +76,13 @@ func (s *OAuthFlowSuite) TestClientCredentialsGrant() {
 func (s *OAuthFlowSuite) TestClientCredentialsGrant_BasicAuth() {
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"admin:users:read"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"admin:users:read"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	// Use Basic auth instead of form values for client credentials
@@ -114,13 +116,13 @@ func (s *OAuthFlowSuite) TestClientCredentialsGrant_BasicAuth() {
 func (s *OAuthFlowSuite) TestClientCredentialsGrant_BasicAuth_WrongSecret() {
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"admin:users:read"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"admin:users:read"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	form := url.Values{
@@ -153,13 +155,13 @@ func (s *OAuthFlowSuite) TestClientCredentialsGrant_BasicAuth_WrongSecret() {
 func (s *OAuthFlowSuite) TestClientCredentialsGrant_PublicClientRejected() {
 	// Create a public client (no secret)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 
 	// Try to use client credentials grant with public client
@@ -187,13 +189,13 @@ func (s *OAuthFlowSuite) TestClientCredentialsGrant_InvalidScope() {
 	// Create a confidential client with limited scopes
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"admin:users:read"}, // Only read, not write
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"admin:users:read"}, // Only read, not write
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	// Request scope that client is not allowed
@@ -221,13 +223,13 @@ func (s *OAuthFlowSuite) TestClientCredentialsGrant_DefaultScopes() {
 	// Create a confidential client with multiple scopes
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"admin:users:read", "admin:users:write"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"admin:users:read", "admin:users:write"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	// Request without specifying scope - should get all allowed scopes

@@ -47,7 +47,7 @@ func ValidateRedirectURIs(uris []string) error {
 //
 //	identity-cli client create --name "Admin Tool" \
 //	  --redirect-uris "https://tool.example.com/callback" \
-//	  --scopes "admin:users:write" --audience "https://identity.example.com"
+//	  --scopes "admin:users:write"
 //
 // --confidential defaults to false, so this registers a public admin client.
 // Before the server bound admin scopes to client_credentials, that was an

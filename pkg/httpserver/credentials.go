@@ -261,30 +261,46 @@ func (s *Server) createSession(ctx context.Context, userID uuid.UUID) (Session, 
 	}, nil
 }
 
+// tokenAudience is the aud of an access token issued for resource: the
+// resource's URI, or identity's own issuer when there is none (a token for
+// identity itself, e.g. userinfo or the admin API). The URI is used exactly as
+// stored -- "ethanswan:fitness" is a live audience a resource server compares
+// byte for byte.
+func (s *Server) tokenAudience(resource sql.NullString) string {
+	if resource.Valid {
+		return resource.String
+	}
+	return s.config.JWTIssuer
+}
+
 // generateTokens creates new access and refresh tokens and stores them in the database.
 // Returns the token pair on success.
-func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID uuid.UUID, scope []string, nonce string) (TokenPair, error) {
+//
+// resource is what the token is for, and becomes its aud (see tokenAudience).
+// It is recorded on the token row, so a refresh reissues for the same resource
+// instead of re-reading the client's default, which may since have changed.
+// The caller decides it: the client's default resource at code exchange, the
+// stored resource at refresh.
+func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID uuid.UUID, scope []string, nonce string, resource sql.NullString) (TokenPair, error) {
 	// Fetch user information for JWT claims
 	user, err := s.datastore.Q.GetUserByID(ctx, userID)
 	if err != nil {
 		return TokenPair{}, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	// Fetch client information for audience
+	// The public client_id goes in the access token's client_id claim and the
+	// ID token's aud.
 	client, err := s.datastore.Q.GetOAuthClientByID(ctx, clientID)
 	if err != nil {
 		return TokenPair{}, fmt.Errorf("failed to get client: %w", err)
 	}
-	if client.Audience == "" {
-		return TokenPair{}, fmt.Errorf("client %s has no audience configured", client.ClientID)
-	}
 
-	// Generate JWT access token with client's audience
 	accessToken, jti, err := s.jwtGenerator.GenerateAccessToken(
 		userID.String(),
 		user.Username,
 		user.Email,
-		client.Audience,
+		s.tokenAudience(resource),
+		client.ClientID,
 		user.EmailVerified,
 		scope,
 		accessTokenExpiresIn,
@@ -312,6 +328,7 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 		TokenType:        sql.NullString{String: "Bearer", Valid: true},
 		ExpiresAt:        accessExpiresAt,
 		RefreshExpiresAt: sql.NullTime{Time: refreshExpiresAt, Valid: true},
+		Resource:         resource,
 	})
 	if err != nil {
 		return TokenPair{}, err
@@ -360,20 +377,15 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 
 // generateServiceAccountTokens creates an access token for service accounts (client credentials grant).
 // No user is involved - the client authenticates as itself. No refresh token is issued per OAuth2 spec.
-func (s *Server) generateServiceAccountTokens(ctx context.Context, clientID uuid.UUID, scope []string) (TokenPair, error) {
-	// Fetch client information for audience
-	client, err := s.datastore.Q.GetOAuthClientByID(ctx, clientID)
-	if err != nil {
-		return TokenPair{}, fmt.Errorf("failed to get client: %w", err)
-	}
-	if client.Audience == "" {
-		return TokenPair{}, fmt.Errorf("client %s has no audience configured", client.ClientID)
-	}
+// The token is for the client's default resource, or for identity itself (aud =
+// issuer, which the admin API requires) when the client has none.
+func (s *Server) generateServiceAccountTokens(ctx context.Context, client db.OauthClient, scope []string) (TokenPair, error) {
+	resource := client.DefaultResource
 
 	// Generate JWT access token with client_id as subject
 	accessToken, jti, err := s.jwtGenerator.GenerateServiceAccountToken(
 		client.ClientID,
-		client.Audience,
+		s.tokenAudience(resource),
 		scope,
 		serviceAccountTokenExpiresIn,
 	)
@@ -388,11 +400,12 @@ func (s *Server) generateServiceAccountTokens(ctx context.Context, clientID uuid
 		AccessToken:      sql.NullString{String: jti, Valid: true},
 		RefreshToken:     sql.NullString{Valid: false}, // No refresh token per OAuth spec
 		UserID:           uuid.NullUUID{Valid: false},  // No user for service accounts
-		ClientID:         clientID,
+		ClientID:         client.ID,
 		Scope:            scope,
 		TokenType:        sql.NullString{String: "Bearer", Valid: true},
 		ExpiresAt:        accessExpiresAt,
 		RefreshExpiresAt: sql.NullTime{Valid: false}, // No refresh token
+		Resource:         resource,
 	})
 	if err != nil {
 		return TokenPair{}, err

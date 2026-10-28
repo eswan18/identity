@@ -142,13 +142,13 @@ func (s *OAuthFlowSuite) TestPasswordResetFlow() {
 	// Verify old password no longer works by trying to login
 	// First, create an OAuth client for testing login
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: false,
-		Audience:       "https://api.example.com",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  false,
+		DefaultResource: testResource("https://api.example.com"),
 	})
 	scv := s.mustCreateStateAndCodeVerifier()
 

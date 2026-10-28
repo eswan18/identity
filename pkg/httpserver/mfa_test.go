@@ -22,13 +22,13 @@ import (
 func (s *OAuthFlowSuite) TestOAuthFlowWithMFA() {
 	clientCallbackURI := "http://localhost:8080/callback"
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{clientCallbackURI},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{clientCallbackURI},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 	user := s.mustRegisterUser(
 		s.mustGenerateRandomString(8),
@@ -150,13 +150,13 @@ func (s *OAuthFlowSuite) TestOAuthFlowWithMFA() {
 func (s *OAuthFlowSuite) TestMFAWithInvalidCode() {
 	clientCallbackURI := "http://localhost:8080/callback"
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{clientCallbackURI},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{clientCallbackURI},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 	user := s.mustRegisterUser(
 		s.mustGenerateRandomString(8),
@@ -218,13 +218,13 @@ func (s *OAuthFlowSuite) TestMFAWithInvalidCode() {
 func (s *OAuthFlowSuite) TestMFAPageRendersOAuthContext() {
 	clientCallbackURI := "http://localhost:8080/callback"
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{clientCallbackURI},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{clientCallbackURI},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 	user := s.mustRegisterUser(
 		s.mustGenerateRandomString(8),
@@ -283,13 +283,13 @@ func (s *OAuthFlowSuite) TestMFAPageRendersOAuthContext() {
 func (s *OAuthFlowSuite) TestMFAPostWithExpiredPendingPreservesContext() {
 	clientCallbackURI := "http://localhost:8080/callback"
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{clientCallbackURI},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{clientCallbackURI},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 	user := s.mustRegisterUser(
 		s.mustGenerateRandomString(8),
@@ -363,13 +363,13 @@ func (s *OAuthFlowSuite) TestMFAPostWithExpiredPendingPreservesContext() {
 func (s *OAuthFlowSuite) TestMFADoubleSubmitPreservesContext() {
 	clientCallbackURI := "http://localhost:8080/callback"
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{clientCallbackURI},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{clientCallbackURI},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 	user := s.mustRegisterUser(
 		s.mustGenerateRandomString(8),
@@ -478,13 +478,13 @@ func (s *OAuthFlowSuite) TestMFALoginSetsLastLoginAt() {
 
 	// Create an OAuth client
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: false,
-		Audience:       "https://api.example.com",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  false,
+		DefaultResource: testResource("https://api.example.com"),
 	})
 	scv := s.mustCreateStateAndCodeVerifier()
 

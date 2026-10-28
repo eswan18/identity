@@ -17,19 +17,24 @@ var (
 	createRedirectURIs   string
 	createAllowedScopes  string
 	createIsConfidential bool
-	createAudience       string
+	createDefaultRes     string
 )
 
 var clientCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new OAuth client",
 	Long: `Create a new OAuth client in the identity service database.
-Generates a client_id and optionally a client_secret for confidential clients.`,
-	Example: `  # Register a public client (web app)
-  identity-client client create --name "My Web App" --redirect-uris "http://localhost:3000/callback" --scopes "openid,profile,email" --audience "https://myapp.com"
+Generates a client_id and optionally a client_secret for confidential clients.
 
-  # Register a confidential client (backend service)
-  identity-client client create --name "My Backend" --redirect-uris "http://localhost:3000/callback" --scopes "openid" --confidential --audience "https://api.myapp.com"`,
+--default-resource names the registered resource (see 'identity-cli resource
+list') the client's access tokens are for when a request names none; it becomes
+the tokens' aud. Without it, the client's access tokens are for identity itself
+(aud = identity's issuer), which is right for a client that only signs users in.`,
+	Example: `  # Register a public client (web app) whose tokens are for an API
+  identity-cli client create --name "My Web App" --redirect-uris "http://localhost:3000/callback" --scopes "openid,profile,email" --default-resource "https://api.myapp.com"
+
+  # Register a confidential client that only signs users in
+  identity-cli client create --name "My Backend" --redirect-uris "http://localhost:3000/callback" --scopes "openid" --confidential`,
 	RunE: runClientCreate,
 }
 
@@ -38,11 +43,10 @@ func init() {
 	clientCreateCmd.Flags().StringVar(&createRedirectURIs, "redirect-uris", "", "Comma-separated list of redirect URIs (required)")
 	clientCreateCmd.Flags().StringVar(&createAllowedScopes, "scopes", "openid", "Comma-separated list of allowed scopes (default: openid)")
 	clientCreateCmd.Flags().BoolVar(&createIsConfidential, "confidential", false, "Whether the client is confidential (requires client_secret)")
-	clientCreateCmd.Flags().StringVar(&createAudience, "audience", "", "JWT audience claim for this client (required)")
+	clientCreateCmd.Flags().StringVar(&createDefaultRes, "default-resource", "", "URI of a registered resource its tokens are for by default (omit: identity itself)")
 
 	clientCreateCmd.MarkFlagRequired("name")
 	clientCreateCmd.MarkFlagRequired("redirect-uris")
-	clientCreateCmd.MarkFlagRequired("audience")
 }
 
 func runClientCreate(cmd *cobra.Command, args []string) error {
@@ -64,6 +68,16 @@ func runClientCreate(cmd *cobra.Command, args []string) error {
 
 	// Get shared datastore
 	datastore := getDatastore()
+	ctx := context.Background()
+
+	var defaultResource sql.NullString
+	if createDefaultRes != "" {
+		var err error
+		defaultResource, err = resolveDefaultResource(ctx, createDefaultRes)
+		if err != nil {
+			return err
+		}
+	}
 
 	// Generate client_id (random 32-byte string, base64 encoded = 44 chars)
 	clientID, err := internal.GenerateRandomString(32)
@@ -86,15 +100,14 @@ func runClientCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create the client
-	ctx := context.Background()
 	client, err := datastore.Q.CreateOAuthClient(ctx, db.CreateOAuthClientParams{
-		ClientID:       clientID,
-		ClientSecret:   clientSecret,
-		Name:           createName,
-		RedirectUris:   redirectURIList,
-		AllowedScopes:  scopeList,
-		IsConfidential: createIsConfidential,
-		Audience:       createAudience,
+		ClientID:        clientID,
+		ClientSecret:    clientSecret,
+		Name:            createName,
+		RedirectUris:    redirectURIList,
+		AllowedScopes:   scopeList,
+		IsConfidential:  createIsConfidential,
+		DefaultResource: defaultResource,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create OAuth client: %w", err)
@@ -114,7 +127,7 @@ func runClientCreate(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("  Redirect URIs:  %s\n", strings.Join(client.RedirectUris, ", "))
 	fmt.Printf("  Allowed Scopes: %s\n", strings.Join(client.AllowedScopes, ", "))
-	fmt.Printf("  Audience:       %s\n", client.Audience)
+	fmt.Printf("  Default Resource: %s\n", internal.DefaultResourceValue(client.DefaultResource))
 	fmt.Printf("  Confidential:   %v\n", client.IsConfidential)
 	fmt.Printf("  Created:        %s\n", client.CreatedAt.Format("2006-01-02 15:04:05"))
 	fmt.Println()

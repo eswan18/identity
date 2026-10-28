@@ -47,6 +47,7 @@ func TestGenerateAccessToken(t *testing.T) {
 		"testuser",
 		"test@example.com",
 		"https://api.example.com",
+		"test-client",
 		true, // emailVerified
 		[]string{"openid", "profile"},
 		time.Hour,
@@ -78,6 +79,7 @@ func TestGenerateAndValidateToken(t *testing.T) {
 		"testuser",
 		"test@example.com",
 		"https://api.example.com",
+		"test-client",
 		true, // emailVerified
 		[]string{"openid", "profile"},
 		time.Hour,
@@ -122,6 +124,7 @@ func TestValidateTokenRejectsExpired(t *testing.T) {
 		"testuser",
 		"test@example.com",
 		"https://api.example.com",
+		"test-client",
 		false, // emailVerified
 		[]string{"openid"},
 		-time.Hour, // negative duration = already expired
@@ -147,6 +150,7 @@ func TestValidateTokenRejectsWrongAudience(t *testing.T) {
 		"testuser",
 		"test@example.com",
 		"https://api.example.com",
+		"test-client",
 		false, // emailVerified
 		[]string{"openid"},
 		time.Hour,
@@ -182,6 +186,7 @@ func TestValidateTokenRejectsWrongIssuer(t *testing.T) {
 		"testuser",
 		"test@example.com",
 		"https://api.example.com",
+		"test-client",
 		false, // emailVerified
 		[]string{"openid"},
 		time.Hour,
@@ -211,6 +216,7 @@ func TestValidateTokenAcceptsEmptyExpectedAudience(t *testing.T) {
 		"testuser",
 		"test@example.com",
 		"https://api.example.com",
+		"test-client",
 		false, // emailVerified
 		[]string{"openid"},
 		time.Hour,
@@ -240,6 +246,7 @@ func TestValidateTokenRejectsInvalidSignature(t *testing.T) {
 		"testuser",
 		"test@example.com",
 		"https://api.example.com",
+		"test-client",
 		false, // emailVerified
 		[]string{"openid"},
 		time.Hour,
@@ -459,5 +466,93 @@ func TestGenerateIDToken_OmitsEmptyClaims(t *testing.T) {
 		if _, ok := rawClaims[key]; !ok {
 			t.Errorf("expected %q to be present", key)
 		}
+	}
+}
+
+// decodeSegment returns one base64url segment of a compact JWT as raw JSON
+// fields, so a test can assert on the exact bytes a resource server would see
+// rather than on what a Go claims struct makes of them.
+func decodeSegment(t *testing.T, token string, index int) map[string]json.RawMessage {
+	t.Helper()
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		t.Fatalf("expected a compact JWT with 3 parts, got %d", len(parts))
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[index])
+	if err != nil {
+		t.Fatalf("decoding JWT segment %d: %v", index, err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatalf("parsing JWT segment %d: %v", index, err)
+	}
+	return fields
+}
+
+// TestAccessTokensFollowRFC9068 pins the access-token profile for both kinds
+// of access token: header typ "at+jwt", a client_id claim, and aud as a
+// one-element array -- including service-account tokens, whose aud used to be
+// a bare string. The aud value is compared as raw JSON because the URN-style
+// "ethanswan:fitness" must reach footstrike-api byte for byte.
+func TestAccessTokensFollowRFC9068(t *testing.T) {
+	g, err := NewGenerator(testPrivateKey, "https://issuer.example.com", "key-1")
+	if err != nil {
+		t.Fatalf("NewGenerator failed: %v", err)
+	}
+
+	userToken, _, err := g.GenerateAccessToken(
+		"user-123", "testuser", "test@example.com", "ethanswan:fitness", "public-client-id",
+		true, []string{"openid"}, time.Hour,
+	)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken failed: %v", err)
+	}
+	serviceToken, _, err := g.GenerateServiceAccountToken(
+		"service-client-id", "https://issuer.example.com", []string{"admin:users:read"}, time.Hour,
+	)
+	if err != nil {
+		t.Fatalf("GenerateServiceAccountToken failed: %v", err)
+	}
+
+	cases := []struct {
+		name, token, wantAud, wantClientID string
+	}{
+		{"user", userToken, `["ethanswan:fitness"]`, `"public-client-id"`},
+		{"service account", serviceToken, `["https://issuer.example.com"]`, `"service-client-id"`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			header := decodeSegment(t, c.token, 0)
+			if got := string(header["typ"]); got != `"at+jwt"` {
+				t.Errorf("header typ = %s, want \"at+jwt\"", got)
+			}
+			claims := decodeSegment(t, c.token, 1)
+			if got := string(claims["aud"]); got != c.wantAud {
+				t.Errorf("aud = %s, want %s", got, c.wantAud)
+			}
+			if got := string(claims["client_id"]); got != c.wantClientID {
+				t.Errorf("client_id = %s, want %s", got, c.wantClientID)
+			}
+
+			parsed, err := g.ValidateToken(c.token, "")
+			if err != nil {
+				t.Fatalf("ValidateToken: %v", err)
+			}
+			if want := strings.Trim(c.wantClientID, `"`); parsed.ClientID != want {
+				t.Errorf("Claims.ClientID = %q, want %q", parsed.ClientID, want)
+			}
+		})
+	}
+
+	// ID tokens are not access tokens and must not claim to be.
+	idToken, err := g.GenerateIDToken("user-123", "public-client-id", userToken, IDTokenClaims{}, time.Hour)
+	if err != nil {
+		t.Fatalf("GenerateIDToken failed: %v", err)
+	}
+	if got := string(decodeSegment(t, idToken, 0)["typ"]); got == `"at+jwt"` {
+		t.Errorf("ID token header typ = %s; only access tokens are at+jwt", got)
+	}
+	if got := string(decodeSegment(t, idToken, 1)["aud"]); got != `["public-client-id"]` {
+		t.Errorf("ID token aud = %s, want the client_id", got)
 	}
 }
