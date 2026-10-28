@@ -9,11 +9,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -162,15 +164,10 @@ func (s *OAuthFlowSuite) mustLoginAndConsent(user UserWithPassword, clientID, re
 
 	// Step 1: Login
 	formValues := url.Values{
-		"username":              {user.Username},
-		"password":              {user.Password},
-		"client_id":             {clientID},
-		"redirect_uri":          {redirectURI},
-		"state":                 {scv.State},
-		"scope":                 {scope},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
-		"csrf_token":            {csrfToken},
+		"username":        {user.Username},
+		"password":        {user.Password},
+		"authorize_query": {authorizeQueryFor(clientID, redirectURI, scope, scv, nil)},
+		"csrf_token":      {csrfToken},
 	}
 	resp, err := httpClient.PostForm("http://localhost:8080/oauth/login", formValues)
 	s.Require().NoError(err)
@@ -188,21 +185,8 @@ func (s *OAuthFlowSuite) mustLoginAndConsent(user UserWithPassword, clientID, re
 	s.Require().Equal(http.StatusFound, resp.StatusCode, "authorize should redirect to consent")
 
 	// Step 3: Approve consent
-	consentLocation := resp.Header.Get("Location")
-	consentURL, err := url.Parse(consentLocation)
-	s.Require().NoError(err)
-	consentForm := url.Values{
-		"decision":              {"allow"},
-		"client_id":             {consentURL.Query().Get("client_id")},
-		"redirect_uri":          {consentURL.Query().Get("redirect_uri")},
-		"response_type":         {consentURL.Query().Get("response_type")},
-		"scope":                 {consentURL.Query().Get("scope")},
-		"state":                 {consentURL.Query().Get("state")},
-		"code_challenge":        {consentURL.Query().Get("code_challenge")},
-		"code_challenge_method": {consentURL.Query().Get("code_challenge_method")},
-		"nonce":                 {consentURL.Query().Get("nonce")},
-		"csrf_token":            {csrfToken},
-	}
+	consentForm := consentFormFrom(s.T(), resp.Header.Get("Location"), "allow")
+	consentForm.Set("csrf_token", csrfToken)
 	resp, err = httpClient.PostForm("http://localhost:8080/oauth/consent", consentForm)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -305,15 +289,10 @@ func (s *OAuthFlowSuite) mustCompleteOAuthFlow(clientParams db.CreateOAuthClient
 
 	// Step 1: Login (establishes session, redirects to /oauth/authorize)
 	formValues := url.Values{
-		"username":              {user.Username},
-		"password":              {user.Password},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {redirectURI},
-		"state":                 {scv.State},
-		"scope":                 {scope},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
-		"csrf_token":            {csrfToken},
+		"username":        {user.Username},
+		"password":        {user.Password},
+		"authorize_query": {authorizeQueryFor(client.ClientID, redirectURI, scope, scv, nil)},
+		"csrf_token":      {csrfToken},
 	}
 	postLoginUrl := fmt.Sprintf("http://%s/oauth/login", host)
 	resp, err := httpClient.PostForm(postLoginUrl, formValues)
@@ -332,21 +311,8 @@ func (s *OAuthFlowSuite) mustCompleteOAuthFlow(clientParams db.CreateOAuthClient
 	s.Require().Equal(http.StatusFound, resp.StatusCode, "authorize should redirect to consent")
 
 	// Step 3: Approve consent (redirects to client with code)
-	consentLocation := resp.Header.Get("Location")
-	consentURL, err := url.Parse(consentLocation)
-	s.Require().NoError(err)
-	consentFormValues := url.Values{
-		"decision":              {"allow"},
-		"client_id":             {consentURL.Query().Get("client_id")},
-		"redirect_uri":          {consentURL.Query().Get("redirect_uri")},
-		"response_type":         {consentURL.Query().Get("response_type")},
-		"scope":                 {consentURL.Query().Get("scope")},
-		"state":                 {consentURL.Query().Get("state")},
-		"code_challenge":        {consentURL.Query().Get("code_challenge")},
-		"code_challenge_method": {consentURL.Query().Get("code_challenge_method")},
-		"nonce":                 {consentURL.Query().Get("nonce")},
-		"csrf_token":            {csrfToken},
-	}
+	consentFormValues := consentFormFrom(s.T(), resp.Header.Get("Location"), "allow")
+	consentFormValues.Set("csrf_token", csrfToken)
 	postConsentUrl := fmt.Sprintf("http://%s/oauth/consent", host)
 	resp, err = httpClient.PostForm(postConsentUrl, consentFormValues)
 	s.Require().NoError(err)
@@ -529,6 +495,49 @@ func (s *OAuthFlowSuite) mustCreateUserViaAdminAPI(token, username, email, passw
 
 func TestOAuthFlowSuite(t *testing.T) {
 	suite.Run(t, new(OAuthFlowSuite))
+}
+
+// authorizeQueryFor is the query string of a code + PKCE /oauth/authorize
+// request: what a client sends, and so what the login, MFA, register and
+// consent forms carry as authorize_query. extra adds or replaces parameters
+// (nonce, say).
+func authorizeQueryFor(clientID, redirectURI, scope string, scv StateAndCodeVerifier, extra url.Values) string {
+	q := url.Values{
+		"response_type":         {"code"},
+		"client_id":             {clientID},
+		"redirect_uri":          {redirectURI},
+		"scope":                 {scope},
+		"state":                 {scv.State},
+		"code_challenge":        {scv.CodeChallenge},
+		"code_challenge_method": {scv.CodeChallengeMethod},
+	}
+	for k, v := range extra {
+		q[k] = v
+	}
+	return q.Encode()
+}
+
+// consentFormFrom is the consent page's form for the consent URL that
+// /oauth/authorize redirected to: the decision plus the authorization request
+// the page carries. Callers add the CSRF token (or post via csrfPostForm*).
+func consentFormFrom(t *testing.T, consentLocation, decision string) url.Values {
+	t.Helper()
+	u, err := url.Parse(consentLocation)
+	require.NoError(t, err)
+	require.Equal(t, "/oauth/consent", u.Path, "expected a redirect to the consent page")
+	request := u.Query().Get("authorize_query")
+	require.NotEmpty(t, request, "the consent URL should carry the authorization request")
+	return url.Values{"decision": {decision}, "authorize_query": {request}}
+}
+
+// renderedAuthorizeQuery returns the authorization request a rendered page
+// carries in its authorize_query hidden input, unescaped, or fails the test
+// if the page has none.
+func renderedAuthorizeQuery(t *testing.T, page string) string {
+	t.Helper()
+	m := regexp.MustCompile(`name="authorize_query" value="([^"]*)"`).FindStringSubmatch(page)
+	require.NotNil(t, m, "page should carry the authorization request in an authorize_query input")
+	return html.UnescapeString(m[1])
 }
 
 // generateCodeChallenge returns the S256 PKCE code challenge for a verifier.

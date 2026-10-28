@@ -2,7 +2,6 @@ package httpserver
 
 import (
 	"net/http"
-	"slices"
 
 	_ "github.com/eswan18/identity/docs"
 	"github.com/eswan18/identity/pkg/views"
@@ -294,6 +293,9 @@ func (s *Server) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	// Redirect to post_logout_redirect_uri if provided and valid, otherwise to login page.
 	// Per OIDC RP-Initiated Logout, the URI must be validated against the client's
 	// registered redirect URIs. A client_id parameter is required to identify the client.
+	// The match is the same one authorize uses (redirectURIAllowed), so a wildcard
+	// preview entry or a loopback URI on another port is honoured here exactly as
+	// it is there, and an entry refused there is refused here.
 	redirectURI := "/oauth/login"
 	postLogoutURI := r.URL.Query().Get("post_logout_redirect_uri")
 	if postLogoutURI == "" {
@@ -303,7 +305,7 @@ func (s *Server) HandleLogout(w http.ResponseWriter, r *http.Request) {
 		clientID := r.URL.Query().Get("client_id")
 		if clientID != "" {
 			client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
-			if err == nil && slices.Contains(client.RedirectUris, postLogoutURI) {
+			if err == nil && redirectURIAllowed(client.RedirectUris, postLogoutURI) {
 				redirectURI = postLogoutURI
 			}
 		}

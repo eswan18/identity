@@ -1,7 +1,5 @@
 package views
 
-import "strings"
-
 // The login page repurposes a single Error field for three "notice" messages
 // that render with success styling instead of error styling - see
 // templates/login.html's original
@@ -14,28 +12,18 @@ const (
 	loginNoticePasswordReset  = "Password reset successfully! Please sign in with your new password."
 )
 
-// LoginView holds everything the login page renders. It replaces
-// httpserver.oauthFlowParams for rendering purposes; the fields are checked at
-// compile time against their use in the component below. Scope is joined
-// with a single space when rendered into the hidden "scope" input, matching
-// templates/login.html's `{{range $i, $s := .Scope}}{{if $i}} {{end}}{{$s}}{{end}}`.
+// LoginView holds everything the login page renders. AuthorizeQuery is the
+// OAuth authorization request this sign-in belongs to (see
+// AuthorizeQueryField), empty for a direct sign-in.
 type LoginView struct {
-	Error               string
-	ClientID            string
-	RedirectURI         string
-	State               string
-	Scope               []string
-	CodeChallenge       string
-	CodeChallengeMethod string
-	Nonce               string
-	CSRFToken           string
+	Error          string
+	AuthorizeQuery string
+	CSRFToken      string
 }
 
-// Login renders the sign-in form. Compare templates/login.html: the OAuth
-// parameters (client_id, redirect_uri, state, scope, code_challenge,
-// code_challenge_method, nonce) travel as hidden inputs so a successful
-// login can resume the OAuth flow, and the same values (scope joined with
-// %20) are echoed into the "Sign up" link's query string.
+// Login renders the sign-in form. The authorization request travels as one
+// hidden input so a successful login can resume the OAuth flow, and rides the
+// "Sign up" link so registering does not lose it either.
 templ Login(data LoginView) {
 	@Layout("Sign In") {
 		<div class="text-center mb-8">
@@ -76,13 +64,7 @@ templ Login(data LoginView) {
 					class="input input-bordered w-full"
 				/>
 			</fieldset>
-			<input type="hidden" name="client_id" value={ data.ClientID }/>
-			<input type="hidden" name="redirect_uri" value={ data.RedirectURI }/>
-			<input type="hidden" name="state" value={ data.State }/>
-			<input type="hidden" name="scope" value={ strings.Join(data.Scope, " ") }/>
-			<input type="hidden" name="code_challenge" value={ data.CodeChallenge }/>
-			<input type="hidden" name="code_challenge_method" value={ data.CodeChallengeMethod }/>
-			<input type="hidden" name="nonce" value={ data.Nonce }/>
+			<input type="hidden" name={ AuthorizeQueryField } value={ data.AuthorizeQuery }/>
 			<button type="submit" class="btn btn-primary w-full">Sign In</button>
 		</form>
 		<div class="text-center mt-4 text-sm space-x-4">
@@ -90,7 +72,7 @@ templ Login(data LoginView) {
 			<a href="/oauth/forgot-username" class="link link-primary">Forgot username?</a>
 		</div>
 		<div class="text-center mt-6 text-sm text-base-content/60">
-			Don't have an account? <a href={ templ.URL("/oauth/register?client_id=" + data.ClientID + "&redirect_uri=" + data.RedirectURI + "&state=" + data.State + "&scope=" + strings.Join(data.Scope, "%20") + "&code_challenge=" + data.CodeChallenge + "&code_challenge_method=" + data.CodeChallengeMethod + "&nonce=" + data.Nonce) } class="link link-primary">Sign up</a>
+			Don't have an account? <a href={ templ.URL(flowURL("/oauth/register", data.AuthorizeQuery)) } class="link link-primary">Sign up</a>
 		</div>
 		@footer()
 	}

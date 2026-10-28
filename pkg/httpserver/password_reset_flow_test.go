@@ -154,14 +154,17 @@ func (s *OAuthFlowSuite) TestPasswordResetFlow() {
 
 	// Try login with old password (should fail)
 	resp, err = csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/login", url.Values{
-		"username":              {username},
-		"password":              {originalPassword},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {client.RedirectUris[0]},
-		"state":                 {scv.State},
-		"scope":                 {"openid"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
+		"username": {username},
+		"password": {originalPassword},
+		"authorize_query": {url.Values{
+			"response_type":         {"code"},
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {client.RedirectUris[0]},
+			"state":                 {scv.State},
+			"scope":                 {"openid"},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+		}.Encode()},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -169,14 +172,17 @@ func (s *OAuthFlowSuite) TestPasswordResetFlow() {
 
 	// Try login with new password (should succeed — redirects to authorize)
 	resp, err = csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/login", url.Values{
-		"username":              {username},
-		"password":              {newPassword},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {client.RedirectUris[0]},
-		"state":                 {scv.State},
-		"scope":                 {"openid"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
+		"username": {username},
+		"password": {newPassword},
+		"authorize_query": {url.Values{
+			"response_type":         {"code"},
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {client.RedirectUris[0]},
+			"state":                 {scv.State},
+			"scope":                 {"openid"},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+		}.Encode()},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()

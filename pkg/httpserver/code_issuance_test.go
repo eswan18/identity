@@ -145,7 +145,9 @@ func TestCheckCodeIssuanceRejectsBadParamsBeforeTouchingTheDatabase(t *testing.T
 	req := httptest.NewRequest(http.MethodGet, "/oauth/authorize", nil)
 
 	// response_type is wrong, so validateAuthorizeParams rejects it.
-	_, denial := srv.checkCodeIssuance(req, testOAuthClient(), "token", "challenge", "S256", []string{"openid"})
+	_, denial := srv.checkCodeIssuance(req, testOAuthClient(), authorizeParams{
+		ResponseType: "token", CodeChallenge: "challenge", CodeChallengeMethod: "S256", Scope: []string{"openid"},
+	})
 
 	if denial == nil {
 		t.Fatal("expected a denial for an unsupported response_type")
@@ -164,7 +166,9 @@ func TestCheckCodeIssuanceRequiresASession(t *testing.T) {
 	srv := newHermeticTestServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/oauth/authorize", nil)
 
-	_, denial := srv.checkCodeIssuance(req, testOAuthClient(), "code", "challenge", "S256", []string{"openid"})
+	_, denial := srv.checkCodeIssuance(req, testOAuthClient(), authorizeParams{
+		ResponseType: "code", CodeChallenge: "challenge", CodeChallengeMethod: "S256", Scope: []string{"openid"},
+	})
 
 	if denial == nil {
 		t.Fatal("expected a denial with no session cookie")

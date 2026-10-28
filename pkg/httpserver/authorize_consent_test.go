@@ -309,14 +309,16 @@ func (s *OAuthFlowSuite) TestConsentApproveGeneratesCode() {
 
 	// POST consent approval
 	resp, err := csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/consent", url.Values{
-		"decision":              {"allow"},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {"http://localhost:8080/callback"},
-		"response_type":         {"code"},
-		"scope":                 {"openid profile email"},
-		"state":                 {scv.State},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
+		"decision": {"allow"},
+		"authorize_query": {url.Values{
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {"http://localhost:8080/callback"},
+			"response_type":         {"code"},
+			"scope":                 {"openid profile email"},
+			"state":                 {scv.State},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+		}.Encode()},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -348,13 +350,15 @@ func (s *OAuthFlowSuite) TestConsentApproveOmitsStateWhenNotSupplied() {
 
 	// POST consent approval without a "state" field at all.
 	resp, err := csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/consent", url.Values{
-		"decision":              {"allow"},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {"http://localhost:8080/callback"},
-		"response_type":         {"code"},
-		"scope":                 {"openid profile email"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
+		"decision": {"allow"},
+		"authorize_query": {url.Values{
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {"http://localhost:8080/callback"},
+			"response_type":         {"code"},
+			"scope":                 {"openid profile email"},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+		}.Encode()},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -381,14 +385,16 @@ func (s *OAuthFlowSuite) TestConsentDenyRedirectsWithError() {
 
 	// POST consent denial
 	resp, err := csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/consent", url.Values{
-		"decision":              {"deny"},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {"http://localhost:8080/callback"},
-		"response_type":         {"code"},
-		"scope":                 {"openid"},
-		"state":                 {scv.State},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
+		"decision": {"deny"},
+		"authorize_query": {url.Values{
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {"http://localhost:8080/callback"},
+			"response_type":         {"code"},
+			"scope":                 {"openid"},
+			"state":                 {scv.State},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+		}.Encode()},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -415,14 +421,16 @@ func (s *OAuthFlowSuite) TestConsentRemembered() {
 
 	// First: approve consent
 	resp, err := csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/consent", url.Values{
-		"decision":              {"allow"},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {"http://localhost:8080/callback"},
-		"response_type":         {"code"},
-		"scope":                 {"openid profile email"},
-		"state":                 {scv.State},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
+		"decision": {"allow"},
+		"authorize_query": {url.Values{
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {"http://localhost:8080/callback"},
+			"response_type":         {"code"},
+			"scope":                 {"openid profile email"},
+			"state":                 {scv.State},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+		}.Encode()},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -464,14 +472,16 @@ func (s *OAuthFlowSuite) TestConsentRePromptedForNewScopes() {
 
 	// First: approve consent for openid only
 	resp, err := csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/consent", url.Values{
-		"decision":              {"allow"},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {"http://localhost:8080/callback"},
-		"response_type":         {"code"},
-		"scope":                 {"openid"},
-		"state":                 {scv.State},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
+		"decision": {"allow"},
+		"authorize_query": {url.Values{
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {"http://localhost:8080/callback"},
+			"response_type":         {"code"},
+			"scope":                 {"openid"},
+			"state":                 {scv.State},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+		}.Encode()},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()

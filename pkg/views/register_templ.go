@@ -8,31 +8,20 @@ package views
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "strings"
-
-// RegisterView holds everything the registration page renders. It replaces
-// httpserver.RegisterPageData; the fields are checked at compile time against
-// their use in the component below. Scope is joined with a single space when
-// rendered into the hidden "scope" input, matching templates/register.html's
-// `{{range $i, $s := .Scope}}{{if $i}} {{end}}{{$s}}{{end}}`.
+// RegisterView holds everything the registration page renders.
+// AuthorizeQuery is the OAuth authorization request this sign-up belongs to
+// (see AuthorizeQueryField), empty outside an OAuth flow.
 type RegisterView struct {
-	Error               string
-	Username            string
-	Email               string
-	ClientID            string
-	RedirectURI         string
-	State               string
-	Scope               []string
-	CodeChallenge       string
-	CodeChallengeMethod string
-	CSRFToken           string
+	Error          string
+	Username       string
+	Email          string
+	AuthorizeQuery string
+	CSRFToken      string
 }
 
-// Register renders the registration form. Compare templates/register.html:
-// the OAuth parameters (client_id, redirect_uri, state, scope,
-// code_challenge, code_challenge_method) travel as hidden inputs so
-// registration can continue the OAuth flow afterward, and the same values are
-// echoed into the "Sign in" link's query string. The inline password-match
+// Register renders the registration form. The authorization request travels
+// as one hidden input so registration can continue the OAuth flow afterward,
+// and rides the "Sign in" link too. The inline password-match
 // script is rendered via registerScript, passed to Layout's scripts slot, and
 // must keep the exact element IDs (registerForm, password, confirm_password,
 // passwordError) that the script references.
@@ -86,7 +75,7 @@ func Register(data RegisterView) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.CSRFToken)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/register.templ`, Line: 41, Col: 64}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/register.templ`, Line: 30, Col: 64}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 			if templ_7745c5c3_Err != nil {
@@ -99,7 +88,7 @@ func Register(data RegisterView) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.Username)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/register.templ`, Line: 52, Col: 26}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/register.templ`, Line: 41, Col: 26}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 			if templ_7745c5c3_Err != nil {
@@ -112,104 +101,52 @@ func Register(data RegisterView) templ.Component {
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.Email)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/register.templ`, Line: 65, Col: 23}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/register.templ`, Line: 54, Col: 23}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\" class=\"input input-bordered w-full\"></fieldset><fieldset class=\"fieldset mb-4\"><label class=\"fieldset-label\" for=\"password\">Password</label> <input type=\"password\" id=\"password\" name=\"password\" placeholder=\"Create a password\" required autocomplete=\"new-password\" minlength=\"8\" class=\"input input-bordered w-full\"></fieldset><fieldset class=\"fieldset mb-4\"><label class=\"fieldset-label\" for=\"confirm_password\">Confirm Password</label> <input type=\"password\" id=\"confirm_password\" name=\"confirm_password\" placeholder=\"Confirm your password\" required autocomplete=\"new-password\" minlength=\"8\" class=\"input input-bordered w-full\"><div class=\"text-error text-sm mt-1.5 hidden\" id=\"passwordError\">Passwords do not match</div></fieldset><input type=\"hidden\" name=\"client_id\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\" class=\"input input-bordered w-full\"></fieldset><fieldset class=\"fieldset mb-4\"><label class=\"fieldset-label\" for=\"password\">Password</label> <input type=\"password\" id=\"password\" name=\"password\" placeholder=\"Create a password\" required autocomplete=\"new-password\" minlength=\"8\" class=\"input input-bordered w-full\"></fieldset><fieldset class=\"fieldset mb-4\"><label class=\"fieldset-label\" for=\"confirm_password\">Confirm Password</label> <input type=\"password\" id=\"confirm_password\" name=\"confirm_password\" placeholder=\"Confirm your password\" required autocomplete=\"new-password\" minlength=\"8\" class=\"input input-bordered w-full\"><div class=\"text-error text-sm mt-1.5 hidden\" id=\"passwordError\">Passwords do not match</div></fieldset><input type=\"hidden\" name=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var6 string
-			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.ClientID)
+			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(AuthorizeQueryField)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/register.templ`, Line: 96, Col: 62}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/register.templ`, Line: 85, Col: 50}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\"> <input type=\"hidden\" name=\"redirect_uri\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var7 string
-			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.RedirectURI)
+			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.AuthorizeQuery)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/register.templ`, Line: 97, Col: 68}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/register.templ`, Line: 85, Col: 80}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "\"> <input type=\"hidden\" name=\"state\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "\"> <button type=\"submit\" class=\"btn btn-primary w-full\">Create Account</button></form><div class=\"text-center mt-6 text-sm text-base-content/60\">Already have an account? <a href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var8 string
-			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.State)
+			var templ_7745c5c3_Var8 templ.SafeURL
+			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(flowURL("/oauth/login", data.AuthorizeQuery)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/register.templ`, Line: 98, Col: 55}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/register.templ`, Line: 89, Col: 93}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var8)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\"> <input type=\"hidden\" name=\"scope\" value=\"")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var9 string
-			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(strings.Join(data.Scope, " "))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/register.templ`, Line: 99, Col: 74}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\"> <input type=\"hidden\" name=\"code_challenge\" value=\"")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var10 string
-			templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.CodeChallenge)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/register.templ`, Line: 100, Col: 72}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\"> <input type=\"hidden\" name=\"code_challenge_method\" value=\"")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var11 string
-			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.CodeChallengeMethod)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/register.templ`, Line: 101, Col: 85}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var11)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "\"> <button type=\"submit\" class=\"btn btn-primary w-full\">Create Account</button></form><div class=\"text-center mt-6 text-sm text-base-content/60\">Already have an account? <a href=\"")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var12 templ.SafeURL
-			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/oauth/login?client_id=" + data.ClientID + "&redirect_uri=" + data.RedirectURI + "&state=" + data.State + "&scope=" + strings.Join(data.Scope, "%20") + "&code_challenge=" + data.CodeChallenge + "&code_challenge_method=" + data.CodeChallengeMethod))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/register.templ`, Line: 105, Col: 296}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "\" class=\"link link-primary\">Sign in</a></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\" class=\"link link-primary\">Sign in</a></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -246,12 +183,12 @@ func registerScript() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var13 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var13 == nil {
-			templ_7745c5c3_Var13 = templ.NopComponent
+		templ_7745c5c3_Var9 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var9 == nil {
+			templ_7745c5c3_Var9 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<script>\n        (function() {\n            const form = document.getElementById('registerForm');\n            const password = document.getElementById('password');\n            const confirmPassword = document.getElementById('confirm_password');\n            const passwordError = document.getElementById('passwordError');\n\n            function validatePasswords() {\n                if (confirmPassword.value && password.value !== confirmPassword.value) {\n                    confirmPassword.classList.add('input-error');\n                    passwordError.classList.remove('hidden');\n                    return false;\n                } else {\n                    confirmPassword.classList.remove('input-error');\n                    passwordError.classList.add('hidden');\n                    return true;\n                }\n            }\n\n            confirmPassword.addEventListener('input', validatePasswords);\n            password.addEventListener('input', function() {\n                if (confirmPassword.value) validatePasswords();\n            });\n\n            form.addEventListener('submit', function(e) {\n                if (!validatePasswords()) {\n                    e.preventDefault();\n                }\n            });\n        })();\n    </script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<script>\n        (function() {\n            const form = document.getElementById('registerForm');\n            const password = document.getElementById('password');\n            const confirmPassword = document.getElementById('confirm_password');\n            const passwordError = document.getElementById('passwordError');\n\n            function validatePasswords() {\n                if (confirmPassword.value && password.value !== confirmPassword.value) {\n                    confirmPassword.classList.add('input-error');\n                    passwordError.classList.remove('hidden');\n                    return false;\n                } else {\n                    confirmPassword.classList.remove('input-error');\n                    passwordError.classList.add('hidden');\n                    return true;\n                }\n            }\n\n            confirmPassword.addEventListener('input', validatePasswords);\n            password.addEventListener('input', function() {\n                if (confirmPassword.value) validatePasswords();\n            });\n\n            form.addEventListener('submit', function(e) {\n                if (!validatePasswords()) {\n                    e.preventDefault();\n                }\n            });\n        })();\n    </script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

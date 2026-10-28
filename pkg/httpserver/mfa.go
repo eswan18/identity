@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
-	"strings"
+	"net/url"
 	"time"
 
 	"github.com/eswan18/identity/pkg/db"
@@ -15,41 +15,21 @@ import (
 
 const mfaPendingExpiresIn = 5 * time.Minute
 
-// oauthParamsFromPending lifts the OAuth authorization parameters stored on a pending
-// MFA row into the common oauthFlowParams carrier.
-func oauthParamsFromPending(p db.AuthMfaPending) oauthFlowParams {
-	return oauthFlowParams{
-		ClientID:            p.ClientID.String,
-		RedirectURI:         p.RedirectUri.String,
-		State:               p.State.String,
-		Scope:               p.Scope,
-		CodeChallenge:       p.CodeChallenge.String,
-		CodeChallengeMethod: p.CodeChallengeMethod.String,
-		Nonce:               p.Nonce.String,
-	}
-}
-
-// mfaPageData assembles the MFA view from the pending ID, the OAuth context,
-// and an optional error message.
+// mfaPageData assembles the MFA view from the pending ID, the authorization
+// request, and an optional error message.
 //
-// The OAuth authorization parameters are carried through the page as hidden form
-// fields so the originating authorization request survives even if the server-side
-// pending row is gone by the time the code is submitted — because it expired during
-// code entry, or a duplicate/replayed submit already consumed it. Without this, a lost
-// pending row strips the OAuth context and the user is bounced to a context-free login
-// (and, after re-authenticating, dumped on the account page instead of the app).
-func mfaPageData(pendingID string, p oauthFlowParams, errMsg, csrfToken string) views.MFAView {
+// The authorization request is carried through the page as a hidden form field so
+// it survives even if the server-side pending row is gone by the time the code is
+// submitted — because it expired during code entry, or a duplicate/replayed submit
+// already consumed it. Without this, a lost pending row strips the OAuth context and
+// the user is bounced to a context-free login (and, after re-authenticating, dumped
+// on the account page instead of the app).
+func mfaPageData(pendingID string, request authorizeRequest, errMsg, csrfToken string) views.MFAView {
 	return views.MFAView{
-		Error:               errMsg,
-		PendingID:           pendingID,
-		ClientID:            p.ClientID,
-		RedirectURI:         p.RedirectURI,
-		State:               p.State,
-		Scope:               p.Scope,
-		CodeChallenge:       p.CodeChallenge,
-		CodeChallengeMethod: p.CodeChallengeMethod,
-		Nonce:               p.Nonce,
-		CSRFToken:           csrfToken,
+		Error:          errMsg,
+		PendingID:      pendingID,
+		AuthorizeQuery: string(request),
+		CSRFToken:      csrfToken,
 	}
 }
 
@@ -61,8 +41,9 @@ func (s *Server) HandleMFAGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify the pending MFA session exists and is valid, and source the OAuth context
-	// from it (server-side, authoritative) so the rendered form can carry it on submit.
+	// Verify the pending MFA session exists and is valid, and source the authorization
+	// request from it (server-side, authoritative) so the rendered form can carry it on
+	// submit.
 	pending, err := s.datastore.Q.GetMFAPending(r.Context(), pendingID)
 	if err != nil {
 		s.debugf("HandleMFAGet: Invalid or expired pending MFA session: %v", err)
@@ -70,7 +51,7 @@ func (s *Server) HandleMFAGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := views.MFA(mfaPageData(pendingID, oauthParamsFromPending(pending), "", s.ensureCSRFToken(w, r))).Render(r.Context(), w); err != nil {
+	if err := views.MFA(mfaPageData(pendingID, authorizeRequest(pending.AuthorizeQuery.String), "", s.ensureCSRFToken(w, r))).Render(r.Context(), w); err != nil {
 		log.Printf("[ERROR] HandleMFAGet: Failed to render MFA page: %v", err)
 	}
 }
@@ -80,23 +61,15 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 	pendingID := r.FormValue("pending_id")
 	code := r.FormValue("code")
 
-	// OAuth context echoed back by the MFA form (rendered there from the pending row).
-	// This is used only as a fallback to keep the flow alive when the pending row can no
-	// longer be found; whenever the row is present it remains the authoritative source.
-	// Either way, /oauth/authorize re-validates client_id, redirect_uri and scope, so a
-	// tampered field cannot escalate — it just produces a validation error.
-	formParams := oauthFlowParams{
-		ClientID:            r.FormValue("client_id"),
-		RedirectURI:         r.FormValue("redirect_uri"),
-		State:               r.FormValue("state"),
-		Scope:               strings.Split(r.FormValue("scope"), " "),
-		CodeChallenge:       r.FormValue("code_challenge"),
-		CodeChallengeMethod: r.FormValue("code_challenge_method"),
-		Nonce:               r.FormValue("nonce"),
-	}
+	// The authorization request echoed back by the MFA form (rendered there from the
+	// pending row). This is used only as a fallback to keep the flow alive when the
+	// pending row can no longer be found; whenever the row is present it remains the
+	// authoritative source. Either way, /oauth/authorize re-validates the whole request,
+	// so a tampered field cannot escalate — it just produces a validation error.
+	formRequest := carriedAuthorizeRequest(r)
 
 	if pendingID == "" {
-		s.resumeMFAFlow(w, r, formParams)
+		s.resumeMFAFlow(w, r, formRequest)
 		return
 	}
 
@@ -108,24 +81,24 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 		// context — resume the flow so the user returns to the originating app instead
 		// of being stranded on a context-free login (and then the account page).
 		s.debugf("HandleMFAPost: pending MFA session missing/expired (%v); resuming with carried OAuth context", err)
-		s.resumeMFAFlow(w, r, formParams)
+		s.resumeMFAFlow(w, r, formRequest)
 		return
 	}
 
-	// With the pending row in hand, it is the authoritative source of OAuth params.
-	pendingParams := oauthParamsFromPending(pending)
+	// With the pending row in hand, it is the authoritative source of the request.
+	pendingRequest := authorizeRequest(pending.AuthorizeQuery.String)
 
 	// Get the user's MFA secret.
 	mfaStatus, err := s.datastore.Q.GetUserMFAStatus(r.Context(), pending.UserID)
 	if err != nil {
 		log.Printf("[ERROR] HandleMFAPost: Failed to get MFA status: %v", err)
-		s.renderMFAError(w, r, http.StatusInternalServerError, "An error occurred", pendingID, pendingParams)
+		s.renderMFAError(w, r, http.StatusInternalServerError, "An error occurred", pendingID, pendingRequest)
 		return
 	}
 
 	if !mfaStatus.MfaEnabled || !mfaStatus.MfaSecret.Valid {
 		log.Printf("[ERROR] HandleMFAPost: MFA not enabled for user")
-		s.resumeMFAFlow(w, r, pendingParams)
+		s.resumeMFAFlow(w, r, pendingRequest)
 		return
 	}
 
@@ -133,7 +106,7 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 	// HandleMFASetupPost already treats it this way; this path did not.
 	if code == "" {
 		s.renderMFAError(w, r, http.StatusBadRequest,
-			"Please enter the verification code from your authenticator app.", pendingID, pendingParams)
+			"Please enter the verification code from your authenticator app.", pendingID, pendingRequest)
 		return
 	}
 
@@ -151,12 +124,12 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 		// Redirect rather than re-render the MFA form. The pending row is gone,
 		// so every field on that form is now dead -- re-rendering it invites the
 		// user to enter a code that cannot be checked and bounces them silently
-		// when they do. Send them to login, carrying the OAuth parameters so a
-		// fresh sign-in still returns them to the app, with a message that names
+		// when they do. Send them to login, carrying the authorization request so
+		// a fresh sign-in still returns them to the app, with a message that names
 		// the most likely innocent cause: a device clock too far out of sync for
 		// the ±1 window totp.Validate allows.
 		http.Redirect(w, r,
-			"/oauth/login?error=mfa_throttled&"+strings.TrimPrefix(buildAuthorizeURL(pendingParams), "/oauth/authorize?"),
+			pendingRequest.loginURL(url.Values{"error": {"mfa_throttled"}}),
 			http.StatusFound)
 		return
 	}
@@ -165,7 +138,7 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 	// retry within the validity window.
 	if !mfa.ValidateCode(mfaStatus.MfaSecret.String, code) {
 		s.debugf("HandleMFAPost: Invalid MFA code for user: %v", pending.UserID)
-		s.renderMFAError(w, r, http.StatusUnauthorized, "Invalid verification code", pendingID, pendingParams)
+		s.renderMFAError(w, r, http.StatusUnauthorized, "Invalid verification code", pendingID, pendingRequest)
 		return
 	}
 	// Correct code: a successful verification clears the failure count.
@@ -180,7 +153,7 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 	session, err := s.createSession(r.Context(), pending.UserID)
 	if err != nil {
 		log.Printf("[ERROR] HandleMFAPost: Failed to create session: %v", err)
-		s.renderMFAError(w, r, http.StatusInternalServerError, "An error occurred", pendingID, pendingParams)
+		s.renderMFAError(w, r, http.StatusInternalServerError, "An error occurred", pendingID, pendingRequest)
 		return
 	}
 
@@ -191,8 +164,8 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 
 	s.setSessionCookie(w, session)
 
-	// Resume using the pending row's authoritative OAuth params.
-	s.redirectAfterAuth(w, r, pendingParams)
+	// Resume using the pending row's authoritative authorization request.
+	s.redirectAfterAuth(w, r, pendingRequest)
 }
 
 // resumeMFAFlow recovers the login flow when the pending MFA row is no longer available
@@ -201,14 +174,14 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 // When a client initiated the flow, the user is routed back through /oauth/authorize:
 //   - if a session already exists (a duplicate submit already completed OTP), authorize
 //     finishes the flow and returns the user to the app;
-//   - otherwise authorize sends them to the login page with the OAuth parameters
+//   - otherwise authorize sends them to the login page with the authorization request
 //     preserved, so a fresh password + OTP still lands them back on the app.
 //
 // For a direct (non-OAuth) login there is no app context to preserve, so the user goes
 // to account settings if already authenticated, or the login page if not.
-func (s *Server) resumeMFAFlow(w http.ResponseWriter, r *http.Request, p oauthFlowParams) {
-	if p.ClientID != "" {
-		http.Redirect(w, r, buildAuthorizeURL(p), http.StatusFound)
+func (s *Server) resumeMFAFlow(w http.ResponseWriter, r *http.Request, request authorizeRequest) {
+	if request.inFlow() {
+		http.Redirect(w, r, request.authorizeURL(), http.StatusFound)
 		return
 	}
 	if _, err := s.getSessionFromCookie(r); err == nil {
@@ -219,23 +192,19 @@ func (s *Server) resumeMFAFlow(w http.ResponseWriter, r *http.Request, p oauthFl
 }
 
 // createMFAPendingSession creates a pending MFA session after password validation.
-func (s *Server) createMFAPendingSession(r *http.Request, userID uuid.UUID, oauthParams oauthFlowParams) (string, error) {
+// The row keeps the authorization request the login form carried, so the flow
+// resumes from the server's copy rather than the browser's.
+func (s *Server) createMFAPendingSession(r *http.Request, userID uuid.UUID, request authorizeRequest) (string, error) {
 	pendingID, err := generateRandomString(32)
 	if err != nil {
 		return "", err
 	}
 
 	params := db.CreateMFAPendingParams{
-		ID:                  pendingID,
-		UserID:              userID,
-		ClientID:            sql.NullString{String: oauthParams.ClientID, Valid: oauthParams.ClientID != ""},
-		RedirectUri:         sql.NullString{String: oauthParams.RedirectURI, Valid: oauthParams.RedirectURI != ""},
-		State:               sql.NullString{String: oauthParams.State, Valid: oauthParams.State != ""},
-		Scope:               oauthParams.Scope,
-		CodeChallenge:       sql.NullString{String: oauthParams.CodeChallenge, Valid: oauthParams.CodeChallenge != ""},
-		CodeChallengeMethod: sql.NullString{String: oauthParams.CodeChallengeMethod, Valid: oauthParams.CodeChallengeMethod != ""},
-		ExpiresAt:           time.Now().Add(mfaPendingExpiresIn),
-		Nonce:               sql.NullString{String: oauthParams.Nonce, Valid: oauthParams.Nonce != ""},
+		ID:             pendingID,
+		UserID:         userID,
+		AuthorizeQuery: sql.NullString{String: string(request), Valid: request != ""},
+		ExpiresAt:      time.Now().Add(mfaPendingExpiresIn),
 	}
 
 	if err := s.datastore.Q.CreateMFAPending(r.Context(), params); err != nil {
@@ -245,12 +214,12 @@ func (s *Server) createMFAPendingSession(r *http.Request, userID uuid.UUID, oaut
 	return pendingID, nil
 }
 
-// renderMFAError renders the MFA page with an error message, preserving the OAuth
-// context so a retry keeps the originating authorization request intact.
-func (s *Server) renderMFAError(w http.ResponseWriter, r *http.Request, statusCode int, errorMsg string, pendingID string, p oauthFlowParams) {
+// renderMFAError renders the MFA page with an error message, preserving the
+// authorization request so a retry keeps it intact.
+func (s *Server) renderMFAError(w http.ResponseWriter, r *http.Request, statusCode int, errorMsg string, pendingID string, request authorizeRequest) {
 	csrfToken := s.ensureCSRFToken(w, r)
 	w.WriteHeader(statusCode)
-	if err := views.MFA(mfaPageData(pendingID, p, errorMsg, csrfToken)).Render(r.Context(), w); err != nil {
+	if err := views.MFA(mfaPageData(pendingID, request, errorMsg, csrfToken)).Render(r.Context(), w); err != nil {
 		log.Printf("[ERROR] renderMFAError: Failed to render MFA page: %v", err)
 	}
 }

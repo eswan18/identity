@@ -92,6 +92,21 @@ func TestValidateIssuerURL(t *testing.T) {
 			issuer:  "https://",
 			wantErr: true,
 		},
+		{
+			name:    "trailing slash",
+			issuer:  "https://identity.example.com/",
+			wantErr: true,
+		},
+		{
+			name:    "trailing slash after a path",
+			issuer:  "https://example.com/auth/",
+			wantErr: true,
+		},
+		{
+			name:    "trailing slash with a port",
+			issuer:  "http://localhost:8080/",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

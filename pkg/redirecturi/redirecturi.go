@@ -1,13 +1,15 @@
 // Package redirecturi implements OAuth redirect_uri matching, including the
-// wildcard form used by preview environments.
+// wildcard form used by preview environments and the any-port rule for
+// loopback redirects that native apps need (RFC 8252 §7.3).
 //
-// It exists as its own package because the same rules have to hold in two
-// places that used to hold them independently:
+// It exists as its own package because the same rules have to hold in places
+// that used to hold them independently:
 //
 //   - identity-cli, which validates a wildcard entry when an operator registers
 //     a client (cmd/identity-cli/internal/validate.go), and
-//   - the authorize/consent request path, which decides whether an incoming
-//     redirect_uri is allowed (pkg/httpserver/redirect_match.go).
+//   - the request path, which decides whether an incoming redirect_uri (on
+//     authorize and consent) or post_logout_redirect_uri (on logout) is allowed
+//     (pkg/httpserver/redirect_match.go).
 //
 // Keeping two copies let them drift: the CLI grew a breadth guard on how wide a
 // wildcard may be, and the request path never had one at all. The CLI is not on
@@ -31,13 +33,18 @@ import (
 // Allowed reports whether candidate is permitted by a client's registered
 // redirect URIs.
 //
-// An entry allows the candidate if it matches byte-for-byte, or if the entry is
-// a valid wildcard pattern (see ValidateWildcardPattern) whose "*" is replaced
-// by exactly one non-empty DNS label in the candidate. Wildcard entries match
-// https candidates only, require identical path and port, and refuse candidates
-// carrying a query string, fragment, or userinfo. The pattern's path must equal
-// the candidate's path exactly, so register the pattern with the full callback
-// path.
+// An entry allows the candidate if it matches byte-for-byte, if it is a
+// loopback entry differing from the candidate only in port (see
+// loopbackMatch), or if the entry is a valid wildcard pattern (see
+// ValidateWildcardPattern) whose "*" is replaced by exactly one non-empty DNS
+// label in the candidate. Wildcard entries match https candidates only, require
+// identical path and port, and refuse candidates carrying a query string,
+// fragment, or userinfo. The pattern's path must equal the candidate's path
+// exactly, so register the pattern with the full callback path.
+//
+// Whatever matched, the caller keeps the candidate itself -- the concrete URI
+// the request used -- so the token endpoint's byte-for-byte comparison against
+// the code's redirect_uri stays exact.
 func Allowed(registered []string, candidate string) bool {
 	// Exact match, except for a wildcard entry that fails validation.
 	//
@@ -61,6 +68,11 @@ func Allowed(registered []string, candidate string) bool {
 		}
 		return true
 	}
+	if slices.ContainsFunc(registered, func(entry string) bool {
+		return loopbackMatch(entry, candidate)
+	}) {
+		return true
+	}
 	cand, err := url.Parse(candidate)
 	if err != nil {
 		return false
@@ -68,6 +80,82 @@ func Allowed(registered []string, candidate string) bool {
 	return slices.ContainsFunc(registered, func(entry string) bool {
 		return wildcardMatch(entry, cand)
 	})
+}
+
+// loopbackHosts are the hosts a native app may listen on with a port chosen at
+// run time. RFC 8252 §7.3 names the IP literals; localhost is added because
+// Claude Code registers http://localhost/callback and calls back on an
+// ephemeral port. Each host matches only itself: localhost is never
+// 127.0.0.1 here, and the spelling must be exactly this one (no uppercase).
+var loopbackHosts = []string{"127.0.0.1", "[::1]", "localhost"}
+
+// loopbackMatch reports whether entry is an http loopback redirect URI that
+// candidate equals in every byte except the port (RFC 8252 §7.3). An entry
+// registered without a port matches a candidate with one, which is the shape
+// Claude Code uses.
+//
+// The comparison is on the strings with the port cut out, not on parsed URLs,
+// so that scheme, host, path and query must match exactly as written: nothing
+// is normalized, decoded or case-folded into a match. It applies only to the
+// http scheme -- https and custom schemes (footstrike://...) keep the exact
+// rule, port included -- and never to a wildcard entry, so an entry refused as
+// a wildcard stays inert.
+func loopbackMatch(entry, candidate string) bool {
+	if isWildcardEntry(entry) {
+		return false
+	}
+	entryRest, entryHost, ok := cutLoopbackPort(entry)
+	if !ok {
+		return false
+	}
+	candRest, candHost, ok := cutLoopbackPort(candidate)
+	if !ok {
+		return false
+	}
+	return entryHost == candHost && entryRest == candRest
+}
+
+// cutLoopbackPort splits an http loopback URI into its host and the URI with
+// the port removed. ok is false unless uri starts with exactly "http://", its
+// authority is one of loopbackHosts optionally followed by ":port", and the
+// port, when present, is a number from 1 to 65535. Anything else in the
+// authority -- userinfo, a trailing dot, a different spelling -- is not a
+// loopback URI for this purpose.
+func cutLoopbackPort(uri string) (withoutPort, host string, ok bool) {
+	rest, ok := strings.CutPrefix(uri, "http://")
+	if !ok {
+		return "", "", false
+	}
+	authority, tail := rest, ""
+	if i := strings.IndexAny(rest, "/?#"); i >= 0 {
+		authority, tail = rest[:i], rest[i:]
+	}
+	for _, h := range loopbackHosts {
+		if authority == h {
+			return "http://" + h + tail, h, true
+		}
+		port, found := strings.CutPrefix(authority, h+":")
+		if found && validPort(port) {
+			return "http://" + h + tail, h, true
+		}
+	}
+	return "", "", false
+}
+
+// validPort reports whether p is a decimal TCP port from 1 to 65535 with no
+// sign, leading zero or other decoration.
+func validPort(p string) bool {
+	if p == "" || len(p) > 5 || p[0] == '0' {
+		return false
+	}
+	n := 0
+	for i := 0; i < len(p); i++ {
+		if p[i] < '0' || p[i] > '9' {
+			return false
+		}
+		n = n*10 + int(p[i]-'0')
+	}
+	return n <= 65535
 }
 
 // InvalidWildcardEntries returns one error per registered entry that looks like

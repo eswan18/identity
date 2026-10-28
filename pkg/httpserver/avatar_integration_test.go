@@ -606,14 +606,6 @@ func (s *AvatarFlowSuite) mustCompleteAuthorizationFlow(
 	scopes []string,
 ) string {
 	scope := strings.Join(scopes, " ")
-	authParams := url.Values{
-		"client_id":             {oauthClient.ClientID},
-		"redirect_uri":          {oauthClient.RedirectUris[0]},
-		"scope":                 {scope},
-		"state":                 {stateAndVerifier.State},
-		"code_challenge":        {stateAndVerifier.CodeChallenge},
-		"code_challenge_method": {stateAndVerifier.CodeChallengeMethod},
-	}
 
 	// Step 1: hit /oauth/authorize. When unauthenticated this redirects to the
 	// login page; when authenticated it redirects to the consent screen (or
@@ -640,7 +632,9 @@ func (s *AvatarFlowSuite) mustCompleteAuthorizationFlow(
 	// Step 2: if we were bounced to login, authenticate and follow the redirect
 	// back to /oauth/authorize, which then redirects to the consent screen.
 	if !strings.Contains(location, "/oauth/consent") {
-		loginURL := "http://localhost:8081/oauth/login?" + authParams.Encode()
+		// The login page URL authorize redirected to carries the authorization
+		// request (authorize_query); posting to it submits the request back.
+		loginURL := "http://localhost:8081" + location
 		form := url.Values{}
 		form.Set("username", user.Username)
 		form.Set("password", password)
@@ -673,16 +667,9 @@ func (s *AvatarFlowSuite) mustCompleteAuthorizationFlow(
 	consentURL, err := url.Parse(location)
 	s.Require().NoError(err)
 	consentForm := url.Values{
-		"decision":              {"allow"},
-		"client_id":             {consentURL.Query().Get("client_id")},
-		"redirect_uri":          {consentURL.Query().Get("redirect_uri")},
-		"response_type":         {consentURL.Query().Get("response_type")},
-		"scope":                 {consentURL.Query().Get("scope")},
-		"state":                 {consentURL.Query().Get("state")},
-		"code_challenge":        {consentURL.Query().Get("code_challenge")},
-		"code_challenge_method": {consentURL.Query().Get("code_challenge_method")},
-		"nonce":                 {consentURL.Query().Get("nonce")},
-		"csrf_token":            {s.csrfTokenFromJar(client)},
+		"decision":        {"allow"},
+		"authorize_query": {consentURL.Query().Get("authorize_query")},
+		"csrf_token":      {s.csrfTokenFromJar(client)},
 	}
 	resp, err = client.PostForm("http://localhost:8081/oauth/consent", consentForm)
 	s.Require().NoError(err)

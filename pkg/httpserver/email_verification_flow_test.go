@@ -37,16 +37,19 @@ func (s *OAuthFlowSuite) TestEmailVerificationFlow() {
 	password := "securepassword123"
 
 	regResp, err := csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/register", url.Values{
-		"username":              {username},
-		"email":                 {emailAddr},
-		"password":              {password},
-		"confirm_password":      {password},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {client.RedirectUris[0]},
-		"state":                 {scv.State},
-		"scope":                 {"openid profile email"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
+		"username":         {username},
+		"email":            {emailAddr},
+		"password":         {password},
+		"confirm_password": {password},
+		"authorize_query": {url.Values{
+			"response_type":         {"code"},
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {client.RedirectUris[0]},
+			"state":                 {scv.State},
+			"scope":                 {"openid profile email"},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+		}.Encode()},
 	})
 	s.Require().NoError(err)
 	defer regResp.Body.Close()

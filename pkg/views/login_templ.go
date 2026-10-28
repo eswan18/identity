@@ -8,8 +8,6 @@ package views
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "strings"
-
 // The login page repurposes a single Error field for three "notice" messages
 // that render with success styling instead of error styling - see
 // templates/login.html's original
@@ -22,28 +20,18 @@ const (
 	loginNoticePasswordReset  = "Password reset successfully! Please sign in with your new password."
 )
 
-// LoginView holds everything the login page renders. It replaces
-// httpserver.oauthFlowParams for rendering purposes; the fields are checked at
-// compile time against their use in the component below. Scope is joined
-// with a single space when rendered into the hidden "scope" input, matching
-// templates/login.html's `{{range $i, $s := .Scope}}{{if $i}} {{end}}{{$s}}{{end}}`.
+// LoginView holds everything the login page renders. AuthorizeQuery is the
+// OAuth authorization request this sign-in belongs to (see
+// AuthorizeQueryField), empty for a direct sign-in.
 type LoginView struct {
-	Error               string
-	ClientID            string
-	RedirectURI         string
-	State               string
-	Scope               []string
-	CodeChallenge       string
-	CodeChallengeMethod string
-	Nonce               string
-	CSRFToken           string
+	Error          string
+	AuthorizeQuery string
+	CSRFToken      string
 }
 
-// Login renders the sign-in form. Compare templates/login.html: the OAuth
-// parameters (client_id, redirect_uri, state, scope, code_challenge,
-// code_challenge_method, nonce) travel as hidden inputs so a successful
-// login can resume the OAuth flow, and the same values (scope joined with
-// %20) are echoed into the "Sign up" link's query string.
+// Login renders the sign-in form. The authorization request travels as one
+// hidden input so a successful login can resume the OAuth flow, and rides the
+// "Sign up" link so registering does not lose it either.
 func Login(data LoginView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -101,117 +89,52 @@ func Login(data LoginView) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.CSRFToken)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/login.templ`, Line: 53, Col: 64}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/login.templ`, Line: 41, Col: 64}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"><fieldset class=\"fieldset mb-4\"><label class=\"fieldset-label\" for=\"username\">Username</label> <input type=\"text\" id=\"username\" name=\"username\" placeholder=\"Enter your username\" required autofocus autocomplete=\"username\" class=\"input input-bordered w-full\"></fieldset><fieldset class=\"fieldset mb-4\"><label class=\"fieldset-label\" for=\"password\">Password</label> <input type=\"password\" id=\"password\" name=\"password\" placeholder=\"Enter your password\" required autocomplete=\"current-password\" class=\"input input-bordered w-full\"></fieldset><input type=\"hidden\" name=\"client_id\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"><fieldset class=\"fieldset mb-4\"><label class=\"fieldset-label\" for=\"username\">Username</label> <input type=\"text\" id=\"username\" name=\"username\" placeholder=\"Enter your username\" required autofocus autocomplete=\"username\" class=\"input input-bordered w-full\"></fieldset><fieldset class=\"fieldset mb-4\"><label class=\"fieldset-label\" for=\"password\">Password</label> <input type=\"password\" id=\"password\" name=\"password\" placeholder=\"Enter your password\" required autocomplete=\"current-password\" class=\"input input-bordered w-full\"></fieldset><input type=\"hidden\" name=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var4 string
-			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.ClientID)
+			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(AuthorizeQueryField)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/login.templ`, Line: 79, Col: 62}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/login.templ`, Line: 67, Col: 50}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\"> <input type=\"hidden\" name=\"redirect_uri\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var5 string
-			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.RedirectURI)
+			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.AuthorizeQuery)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/login.templ`, Line: 80, Col: 68}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/login.templ`, Line: 67, Col: 80}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\"> <input type=\"hidden\" name=\"state\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\"> <button type=\"submit\" class=\"btn btn-primary w-full\">Sign In</button></form><div class=\"text-center mt-4 text-sm space-x-4\"><a href=\"/oauth/forgot-password\" class=\"link link-primary\">Forgot password?</a> <a href=\"/oauth/forgot-username\" class=\"link link-primary\">Forgot username?</a></div><div class=\"text-center mt-6 text-sm text-base-content/60\">Don't have an account? <a href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var6 string
-			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.State)
+			var templ_7745c5c3_Var6 templ.SafeURL
+			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(flowURL("/oauth/register", data.AuthorizeQuery)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/login.templ`, Line: 81, Col: 55}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/login.templ`, Line: 75, Col: 94}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\"> <input type=\"hidden\" name=\"scope\" value=\"")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var7 string
-			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(strings.Join(data.Scope, " "))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/login.templ`, Line: 82, Col: 74}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "\"> <input type=\"hidden\" name=\"code_challenge\" value=\"")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var8 string
-			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.CodeChallenge)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/login.templ`, Line: 83, Col: 72}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var8)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\"> <input type=\"hidden\" name=\"code_challenge_method\" value=\"")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var9 string
-			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.CodeChallengeMethod)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/login.templ`, Line: 84, Col: 85}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\"> <input type=\"hidden\" name=\"nonce\" value=\"")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var10 string
-			templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.Nonce)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/login.templ`, Line: 85, Col: 55}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\"> <button type=\"submit\" class=\"btn btn-primary w-full\">Sign In</button></form><div class=\"text-center mt-4 text-sm space-x-4\"><a href=\"/oauth/forgot-password\" class=\"link link-primary\">Forgot password?</a> <a href=\"/oauth/forgot-username\" class=\"link link-primary\">Forgot username?</a></div><div class=\"text-center mt-6 text-sm text-base-content/60\">Don't have an account? <a href=\"")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var11 templ.SafeURL
-			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/oauth/register?client_id=" + data.ClientID + "&redirect_uri=" + data.RedirectURI + "&state=" + data.State + "&scope=" + strings.Join(data.Scope, "%20") + "&code_challenge=" + data.CodeChallenge + "&code_challenge_method=" + data.CodeChallengeMethod + "&nonce=" + data.Nonce))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/login.templ`, Line: 93, Col: 322}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "\" class=\"link link-primary\">Sign up</a></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\" class=\"link link-primary\">Sign up</a></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

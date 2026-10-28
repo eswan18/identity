@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -65,9 +66,14 @@ func TestHandleLoginGet_DoesNotOpenRedirectOnUnvalidatedRedirectURI(t *testing.T
 	s := newHermeticTestServer(t)
 
 	const evilRedirect = "https://evil.example/cb"
+	authorizeQuery := url.Values{
+		"client_id":             {"some-client"},
+		"redirect_uri":          {evilRedirect},
+		"code_challenge_method": {"plain"},
+		"state":                 {"xyz"},
+	}.Encode()
 	req := httptest.NewRequest(http.MethodGet,
-		"/oauth/login?client_id=some-client&redirect_uri="+evilRedirect+
-			"&code_challenge_method=plain&state=xyz", nil)
+		"/oauth/login?"+url.Values{"authorize_query": {authorizeQuery}}.Encode(), nil)
 	rec := httptest.NewRecorder()
 
 	s.HandleLoginGet(rec, req)
@@ -94,7 +100,7 @@ func TestHandleLoginGet_DoesNotOpenRedirectOnUnvalidatedRedirectURI(t *testing.T
 func TestHandleLoginGet_NoRedirectURIStillRendersLocalError(t *testing.T) {
 	s := newHermeticTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/oauth/login?code_challenge_method=plain", nil)
+	req := httptest.NewRequest(http.MethodGet, "/oauth/login?authorize_query=code_challenge_method%3Dplain", nil)
 	rec := httptest.NewRecorder()
 
 	s.HandleLoginGet(rec, req)

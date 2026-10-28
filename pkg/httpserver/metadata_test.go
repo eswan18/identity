@@ -109,19 +109,27 @@ func TestAuthorizationServerMetadata_NoEmptyArrays(t *testing.T) {
 	}
 }
 
-// These flags promise behavior that ships later: iss on every authorization
-// response (with the helper that adds it), and client ID metadata documents.
-// Advertising either early makes compliant clients fail.
+// These flags promise behavior that ships later: client ID metadata
+// documents. Advertising one early makes compliant clients fail.
 func TestAuthorizationServerMetadata_NoPrematureFlags(t *testing.T) {
 	doc := metadataJSON(t, "https://identity.example.com")
 	for _, key := range []string{
-		"authorization_response_iss_parameter_supported",
 		"client_id_metadata_document_supported",
 		"registration_endpoint",
 	} {
 		if _, present := doc[key]; present {
 			t.Errorf("%s is advertised but not yet supported", key)
 		}
+	}
+}
+
+// iss is on every authorization response (authorization_response.go), so the
+// flag that tells clients to require it is advertised.
+func TestAuthorizationServerMetadata_AdvertisesIssParameter(t *testing.T) {
+	doc := metadataJSON(t, "https://identity.example.com")
+	if doc["authorization_response_iss_parameter_supported"] != true {
+		t.Errorf("authorization_response_iss_parameter_supported = %v, want true",
+			doc["authorization_response_iss_parameter_supported"])
 	}
 }
 

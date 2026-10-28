@@ -32,7 +32,7 @@ type TokenResponse struct {
 
 // handleOauthAuthorize godoc
 // @Summary      OAuth2 authorization endpoint
-// @Description  Validates OAuth2 parameters, checks if user is authenticated (via session cookie), renders login page if not authenticated, or generates authorization code and redirects to redirect_uri if authenticated
+// @Description  Validates OAuth2 parameters, checks if user is authenticated (via session cookie), renders login page if not authenticated, or generates authorization code and redirects to redirect_uri if authenticated. Every redirect back to the client carries iss (RFC 9207).
 // @Tags         oauth2
 // @Produce      html
 // @Param        response_type        query     string  true  "Must be 'code'"
@@ -42,67 +42,48 @@ type TokenResponse struct {
 // @Param        state               query     string  false "CSRF protection token. Recommended for OAuth flow."
 // @Param        code_challenge      query     string  false "PKCE code challenge (SHA256 hash). Required for OAuth flow."
 // @Param        code_challenge_method query   string  false "PKCE challenge method (must be 'S256'). Required for OAuth flow."
-// @Success      302 {string} string "Redirect to redirect_uri with authorization code and state"
-// @Failure      302 {string} string "Redirect to redirect_uri with error parameters"
+// @Success      302 {string} string "Redirect to redirect_uri with authorization code, state and iss"
+// @Failure      302 {string} string "Redirect to redirect_uri with error parameters, state and iss"
 // @Router       /oauth/authorize [get]
 func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
-	responseType := r.URL.Query().Get("response_type")
-	clientID := r.URL.Query().Get("client_id")
-	redirectURI := r.URL.Query().Get("redirect_uri")
-	scopeParam := r.URL.Query().Get("scope")
-	var scope []string
-	if scopeParam == "" {
-		scope = []string{"openid"}
-	} else {
-		scope = strings.Split(scopeParam, " ")
-	}
-	codeChallenge := r.URL.Query().Get("code_challenge")
-	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
-	state := r.URL.Query().Get("state")
-	nonce := r.URL.Query().Get("nonce")
+	p := parseAuthorizeParams(r.URL.Query())
+	// The request as the client sent it, for the pages that may interrupt the
+	// flow (login, consent) to carry and hand back unchanged.
+	request := authorizeRequest(r.URL.RawQuery)
 
 	// Phase 1: Validate client_id and redirect_uri first.
 	// Per RFC 6749 4.1.2.1, if these are invalid we MUST NOT redirect — show error directly.
-	if clientID == "" {
+	if p.ClientID == "" {
 		http.Error(w, "Client ID is required", http.StatusBadRequest)
 		return
 	}
-	if redirectURI == "" {
+	if p.RedirectURI == "" {
 		http.Error(w, "Redirect URI is required", http.StatusBadRequest)
 		return
 	}
-	client, err := s.validateOAuthClientRedirect(r.Context(), clientID, redirectURI)
+	client, err := s.validateOAuthClientRedirect(r.Context(), p.ClientID, p.RedirectURI)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// redirectError is a helper that redirects OAuth errors to the client per RFC 6749 4.1.2.1.
+	// redirectError hands an OAuth error back to the client per RFC 6749 4.1.2.1.
 	// Only safe to use after client_id and redirect_uri have been validated above.
 	redirectError := func(errorCode, description string) {
-		redirectURL, _ := url.Parse(redirectURI)
-		q := redirectURL.Query()
-		q.Set("error", errorCode)
-		q.Set("error_description", description)
-		// Per RFC 6749 §4.1.2.1, state is only echoed back if the client sent it.
-		if state != "" {
-			q.Set("state", state)
-		}
-		redirectURL.RawQuery = q.Encode()
-		http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+		s.respondWithError(w, r, p, errorCode, description)
 	}
 
 	// Phase 2: Every precondition for issuing a code. These live in
 	// checkCodeIssuance so HandleConsentPost -- the other code-minting path --
 	// enforces exactly the same set; see code_issuance.go.
-	grant, denial := s.checkCodeIssuance(r, client, responseType, codeChallenge, codeChallengeMethod, scope)
+	grant, denial := s.checkCodeIssuance(r, client, p)
 	if denial != nil {
 		s.denyCodeIssuance(w, r, denial, codeIssuanceRedirects{
 			ToClient: redirectError,
-			// Preserve the OAuth parameters across the login so the user lands
+			// Carry the authorization request across the login so the user lands
 			// back in this flow afterwards.
-			Unauthenticated: "/oauth/login?" + r.URL.RawQuery,
-			Deactivated:     "/oauth/login?error=account_deactivated&" + r.URL.RawQuery,
+			Unauthenticated: request.loginURL(nil),
+			Deactivated:     request.loginURL(url.Values{"error": {"account_deactivated"}}),
 		})
 		return
 	}
@@ -113,34 +94,19 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		UserID:   session.UserID,
 		ClientID: client.ID,
 	})
-	scopesOK, _ := containsAll(consent.Scopes, scope)
+	scopesOK, _ := containsAll(consent.Scopes, p.Scope)
 	if err != nil || !scopesOK {
-		// Need consent — redirect to consent page with all OAuth params
-		consentURL := "/oauth/consent?" + r.URL.RawQuery
-		http.Redirect(w, r, consentURL, http.StatusFound)
+		http.Redirect(w, r, request.consentURL(), http.StatusFound)
 		return
 	}
 
 	// Phase 5: Generate authorization code and redirect.
-	authorizationCode, err := s.generateAuthorizationCode(r.Context(), session.UserID, client.ID, redirectURI, scope, codeChallenge, codeChallengeMethod, nonce)
+	authorizationCode, err := s.generateAuthorizationCode(r.Context(), session.UserID, client.ID, p.RedirectURI, p.Scope, p.CodeChallenge, p.CodeChallengeMethod, p.Nonce)
 	if err != nil {
 		redirectError("server_error", "An error occurred")
 		return
 	}
-	redirectURL, err := url.Parse(redirectURI)
-	if err != nil {
-		http.Error(w, "Invalid redirect URI", http.StatusBadRequest)
-		return
-	}
-	q := redirectURL.Query()
-	q.Set("code", authorizationCode)
-	// Per RFC 6749 §4.1.2, state is only returned to the client if it was present
-	// in the authorization request.
-	if state != "" {
-		q.Set("state", state)
-	}
-	redirectURL.RawQuery = q.Encode()
-	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+	s.respondWithCode(w, r, p, authorizationCode)
 }
 
 // handleOauthToken godoc
@@ -1059,7 +1025,25 @@ var scopeDescriptionMap = map[string]string{
 }
 
 // HandleConsentGet renders the consent page.
+//
+// Like every page, it is served with X-Frame-Options: DENY and
+// Content-Security-Policy: frame-ancestors 'none' (securityHeadersMiddleware),
+// which matters most here: a consent screen in an invisible frame is the
+// classic clickjacking target.
 func (s *Server) HandleConsentGet(w http.ResponseWriter, r *http.Request) {
+	request := carriedAuthorizeRequest(r)
+	p := request.params()
+
+	// The client and redirect_uri are validated together before anything else,
+	// as on the POST: the page names the client and promises where the answer
+	// goes, so it must not render for a redirect_uri the client never
+	// registered. The POST validates again; this is not a substitute.
+	client, err := s.validateOAuthClientRedirect(r.Context(), p.ClientID, p.RedirectURI)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	// Verify session. A deactivated account is bounced here rather than being
 	// shown a consent screen it could never submit: HandleConsentPost refuses it
 	// via checkCodeIssuance, so rendering the form would only walk the user up to
@@ -1067,34 +1051,18 @@ func (s *Server) HandleConsentGet(w http.ResponseWriter, r *http.Request) {
 	// the POST, where a code could actually be minted.
 	session, err := s.getSessionFromCookie(r)
 	if err != nil {
-		http.Redirect(w, r, "/oauth/login?"+r.URL.RawQuery, http.StatusFound)
+		http.Redirect(w, r, request.loginURL(nil), http.StatusFound)
 		return
 	}
 	user, err := s.datastore.Q.GetUserByIDIncludingInactive(r.Context(), session.UserID)
 	if err != nil || !user.IsActive {
-		http.Redirect(w, r, "/oauth/login?error=account_deactivated&"+r.URL.RawQuery, http.StatusFound)
-		return
-	}
-
-	clientID := r.URL.Query().Get("client_id")
-	scopeParam := r.URL.Query().Get("scope")
-	var scope []string
-	if scopeParam == "" {
-		scope = []string{"openid"}
-	} else {
-		scope = strings.Split(scopeParam, " ")
-	}
-
-	// Look up client name
-	client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
-	if err != nil {
-		http.Error(w, "Invalid client", http.StatusBadRequest)
+		http.Redirect(w, r, request.loginURL(url.Values{"error": {"account_deactivated"}}), http.StatusFound)
 		return
 	}
 
 	// Build scope descriptions
 	var descriptions []views.ScopeDescription
-	for _, sc := range scope {
+	for _, sc := range p.Scope {
 		desc, ok := scopeDescriptionMap[sc]
 		if ok {
 			descriptions = append(descriptions, views.ScopeDescription{Scope: sc, Description: desc})
@@ -1104,17 +1072,10 @@ func (s *Server) HandleConsentGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := views.ConsentView{
-		ClientName:          client.Name,
-		ClientID:            clientID,
-		RedirectURI:         r.URL.Query().Get("redirect_uri"),
-		State:               r.URL.Query().Get("state"),
-		Scope:               scope,
-		ScopeDescriptions:   descriptions,
-		CodeChallenge:       r.URL.Query().Get("code_challenge"),
-		CodeChallengeMethod: r.URL.Query().Get("code_challenge_method"),
-		Nonce:               r.URL.Query().Get("nonce"),
-		ResponseType:        r.URL.Query().Get("response_type"),
-		CSRFToken:           s.ensureCSRFToken(w, r),
+		ClientName:        client.Name,
+		ScopeDescriptions: descriptions,
+		AuthorizeQuery:    string(request),
+		CSRFToken:         s.ensureCSRFToken(w, r),
 	}
 
 	if err := views.Consent(data).Render(r.Context(), w); err != nil {
@@ -1125,22 +1086,14 @@ func (s *Server) HandleConsentGet(w http.ResponseWriter, r *http.Request) {
 // HandleConsentPost processes the consent decision.
 func (s *Server) HandleConsentPost(w http.ResponseWriter, r *http.Request) {
 	decision := r.FormValue("decision")
-	clientID := r.FormValue("client_id")
-	redirectURI := r.FormValue("redirect_uri")
-	state := r.FormValue("state")
-	scopeParam := r.FormValue("scope")
-	var scope []string
-	if scopeParam == "" {
-		scope = []string{"openid"}
-	} else {
-		scope = strings.Split(scopeParam, " ")
-	}
-	codeChallenge := r.FormValue("code_challenge")
-	codeChallengeMethod := r.FormValue("code_challenge_method")
-	nonce := r.FormValue("nonce")
+	// The authorization request the consent page carried. It came back through
+	// a form the user controls, so it is re-validated below exactly as
+	// /oauth/authorize validates a request that arrives directly.
+	request := carriedAuthorizeRequest(r)
+	p := request.params()
 
 	// Validate the client and redirect URI
-	client, err := s.validateOAuthClientRedirect(r.Context(), clientID, redirectURI)
+	client, err := s.validateOAuthClientRedirect(r.Context(), p.ClientID, p.RedirectURI)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1148,16 +1101,7 @@ func (s *Server) HandleConsentPost(w http.ResponseWriter, r *http.Request) {
 
 	// Helper to redirect errors to the client
 	redirectError := func(errorCode, description string) {
-		redirectURL, _ := url.Parse(redirectURI)
-		q := redirectURL.Query()
-		q.Set("error", errorCode)
-		q.Set("error_description", description)
-		// Per RFC 6749 §4.1.2.1, state is only echoed back if the client sent it.
-		if state != "" {
-			q.Set("state", state)
-		}
-		redirectURL.RawQuery = q.Encode()
-		http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+		s.respondWithError(w, r, p, errorCode, description)
 	}
 
 	// The same preconditions the authorize endpoint enforces, from the same
@@ -1175,28 +1119,17 @@ func (s *Server) HandleConsentPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	responseType := r.FormValue("response_type")
 	// Re-entering /oauth/authorize is how a user who cannot proceed here is
-	// routed onward: it sends them to login carrying the OAuth parameters, so
-	// once they can proceed they land back at the app instead of being stranded
-	// on the account page. Both the unauthenticated and the deactivated case
-	// need that, which is why they share it -- the deactivated one only adds the
-	// error that tells the login page what to say.
-	resumeURL := buildAuthorizeURL(oauthFlowParams{
-		ClientID:            clientID,
-		RedirectURI:         redirectURI,
-		State:               state,
-		Scope:               scope,
-		CodeChallenge:       codeChallenge,
-		CodeChallengeMethod: codeChallengeMethod,
-		Nonce:               nonce,
-	})
-	grant, denial := s.checkCodeIssuance(r, client, responseType, codeChallenge, codeChallengeMethod, scope)
+	// routed onward: it sends them to login carrying the authorization request,
+	// so once they can proceed they land back at the app instead of being
+	// stranded on the account page. The deactivated case goes straight to login
+	// with the error that tells the page what to say.
+	grant, denial := s.checkCodeIssuance(r, client, p)
 	if denial != nil {
 		s.denyCodeIssuance(w, r, denial, codeIssuanceRedirects{
 			ToClient:        redirectError,
-			Unauthenticated: resumeURL,
-			Deactivated:     "/oauth/login?error=account_deactivated&" + strings.TrimPrefix(resumeURL, "/oauth/authorize?"),
+			Unauthenticated: request.authorizeURL(),
+			Deactivated:     request.loginURL(url.Values{"error": {"account_deactivated"}}),
 		})
 		return
 	}
@@ -1206,7 +1139,7 @@ func (s *Server) HandleConsentPost(w http.ResponseWriter, r *http.Request) {
 	err = s.datastore.Q.UpsertUserConsent(r.Context(), db.UpsertUserConsentParams{
 		UserID:   session.UserID,
 		ClientID: client.ID,
-		Scopes:   scope,
+		Scopes:   p.Scope,
 	})
 	if err != nil {
 		log.Printf("HandleConsentPost: failed to store consent: %v", err)
@@ -1215,24 +1148,10 @@ func (s *Server) HandleConsentPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate authorization code and redirect to client
-	authorizationCode, err := s.generateAuthorizationCode(r.Context(), session.UserID, client.ID, redirectURI, scope, codeChallenge, codeChallengeMethod, nonce)
+	authorizationCode, err := s.generateAuthorizationCode(r.Context(), session.UserID, client.ID, p.RedirectURI, p.Scope, p.CodeChallenge, p.CodeChallengeMethod, p.Nonce)
 	if err != nil {
 		redirectError("server_error", "An error occurred")
 		return
 	}
-
-	redirectURL, err := url.Parse(redirectURI)
-	if err != nil {
-		http.Error(w, "Invalid redirect URI", http.StatusBadRequest)
-		return
-	}
-	q := redirectURL.Query()
-	q.Set("code", authorizationCode)
-	// Per RFC 6749 §4.1.2, state is only returned to the client if it was present
-	// in the authorization request.
-	if state != "" {
-		q.Set("state", state)
-	}
-	redirectURL.RawQuery = q.Encode()
-	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+	s.respondWithCode(w, r, p, authorizationCode)
 }

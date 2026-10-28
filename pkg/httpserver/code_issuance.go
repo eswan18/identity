@@ -91,13 +91,16 @@ type codeIssuanceGrant struct {
 // belong here: it would be charged twice for one code and charged for requests
 // that produced none. Those belong at the generateAuthorizationCode call sites,
 // which really are one-per-code.
+//
+// It takes the whole parsed request (authorizeParams) rather than the
+// parameters it checks today, so a check on a parameter added later (resource,
+// say) is a change here and in parseAuthorizeParams, not to every caller.
 func (s *Server) checkCodeIssuance(
 	r *http.Request,
 	client db.OauthClient,
-	responseType, codeChallenge, codeChallengeMethod string,
-	scope []string,
+	p authorizeParams,
 ) (*codeIssuanceGrant, *codeIssuanceDenial) {
-	if authErr := validateAuthorizeParams(client, responseType, codeChallenge, codeChallengeMethod, scope); authErr != nil {
+	if authErr := validateAuthorizeParams(client, p.ResponseType, p.CodeChallenge, p.CodeChallengeMethod, p.Scope); authErr != nil {
 		return nil, &codeIssuanceDenial{Kind: denialInvalidParams, OAuthError: authErr}
 	}
 
@@ -121,11 +124,13 @@ func (s *Server) checkCodeIssuance(
 
 // codeIssuanceRedirects is where a caller wants each class of denial to go.
 // The two handlers differ here and only here: authorize is a browser navigation
-// carrying the OAuth parameters in its query string, consent is a form POST that
-// has to rebuild them.
+// carrying the authorization request in its query string, consent is a form
+// POST carrying it in a hidden field.
 type codeIssuanceRedirects struct {
 	// ToClient hands an OAuth error back to the client's redirect_uri per RFC
 	// 6749 §4.1.2.1. Only safe once client_id and redirect_uri are validated.
+	// Callers pass a closure over respondWithError, so the response carries iss
+	// like every other authorization response.
 	ToClient func(errorCode, description string)
 	// Unauthenticated is where to send a user with no valid session.
 	Unauthenticated string

@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/eswan18/identity/pkg/auth"
 	"github.com/eswan18/identity/pkg/db"
@@ -14,29 +13,18 @@ import (
 
 // handleRegisterGet godoc
 // @Summary      Show registration page
-// @Description  Displays the registration form for creating a new user account. Accepts OAuth parameters to preserve them through the registration flow.
+// @Description  Displays the registration form for creating a new user account, carrying the OAuth authorization request (if any) through the registration flow.
 // @Tags         authentication
 // @Produce      html
-// @Param        client_id           query     string  false "OAuth client identifier (preserved through flow)"
-// @Param        redirect_uri        query     string  false "OAuth redirect URI (preserved through flow)"
-// @Param        state               query     string  false "OAuth state parameter (preserved through flow)"
-// @Param        scope               query     string  false "OAuth scope (preserved through flow)"
-// @Param        code_challenge      query     string  false "PKCE code challenge (preserved through flow)"
-// @Param        code_challenge_method query   string  false "PKCE challenge method (preserved through flow)"
+// @Param        authorize_query     query     string  false "The original /oauth/authorize query string, when sign-up is part of an OAuth flow"
 // @Success      200 {string} string "HTML registration page"
 // @Router       /register [get]
 func (s *Server) HandleRegisterGet(w http.ResponseWriter, r *http.Request) {
-	// Extract OAuth parameters from query string to preserve them
-	oauthParams := views.RegisterView{
-		ClientID:            r.URL.Query().Get("client_id"),
-		RedirectURI:         r.URL.Query().Get("redirect_uri"),
-		State:               r.URL.Query().Get("state"),
-		Scope:               strings.Split(r.URL.Query().Get("scope"), " "),
-		CodeChallenge:       r.URL.Query().Get("code_challenge"),
-		CodeChallengeMethod: r.URL.Query().Get("code_challenge_method"),
-		CSRFToken:           s.ensureCSRFToken(w, r),
+	view := views.RegisterView{
+		AuthorizeQuery: string(carriedAuthorizeRequest(r)),
+		CSRFToken:      s.ensureCSRFToken(w, r),
 	}
-	if err := views.Register(oauthParams).Render(r.Context(), w); err != nil {
+	if err := views.Register(view).Render(r.Context(), w); err != nil {
 		http.Error(w, "An error occurred while rendering the registration page", http.StatusInternalServerError)
 	}
 }
@@ -51,6 +39,7 @@ func (s *Server) HandleRegisterGet(w http.ResponseWriter, r *http.Request) {
 // @Param        email             formData  string  true  "User email address"
 // @Param        password          formData  string  true  "User password (min 8 characters)"
 // @Param        confirm_password  formData  string  true  "Password confirmation"
+// @Param        authorize_query   formData  string  false "The original /oauth/authorize query string, when sign-up is part of an OAuth flow"
 // @Success      302 {string} string "Redirect to login page on success"
 // @Failure      400 {string} string "Invalid request parameters or validation error"
 // @Failure      409 {string} string "Username or email already exists"
@@ -60,13 +49,23 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 	email := r.FormValue("email")
 	password := r.FormValue("password")
 	confirmPassword := r.FormValue("confirm_password")
+	// The authorization request, carried whole so every re-render below and the
+	// redirect to login keep all of it.
+	request := carriedAuthorizeRequest(r)
+
+	// refuse re-renders the form with an error, keeping what the user typed and
+	// the authorization request.
+	refuse := func(status int, msg string) {
+		s.renderRegisterError(w, r, status, msg, views.RegisterView{
+			Username:       username,
+			Email:          email,
+			AuthorizeQuery: string(request),
+		})
+	}
 
 	// Validate required fields
 	if username == "" || email == "" || password == "" {
-		s.renderRegisterError(w, r, http.StatusBadRequest, "All fields are required", views.RegisterView{
-			Username: username,
-			Email:    email,
-		})
+		refuse(http.StatusBadRequest, "All fields are required")
 		return
 	}
 
@@ -75,48 +74,28 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 	// including HTML that would later be interpolated into the verification
 	// email sent to this address (see sendVerificationEmail below).
 	if err := auth.ValidateUsername(username); err != nil {
-		s.renderRegisterError(w, r, http.StatusBadRequest, err.Error(), views.RegisterView{
-			Username: username,
-			Email:    email,
-		})
+		refuse(http.StatusBadRequest, err.Error())
 		return
 	}
 
 	// Validate password match
 	if password != confirmPassword {
-		s.renderRegisterError(w, r, http.StatusBadRequest, "Passwords do not match", views.RegisterView{
-			Username: username,
-			Email:    email,
-		})
+		refuse(http.StatusBadRequest, "Passwords do not match")
 		return
 	}
 
 	// Validate password requirements
 	if err := auth.ValidatePassword(password, username); err != nil {
-		s.renderRegisterError(w, r, http.StatusBadRequest, err.Error(), views.RegisterView{
-			Username: username,
-			Email:    email,
-		})
+		refuse(http.StatusBadRequest, err.Error())
 		return
 	}
 
 	// Hash password
 	hash, err := auth.HashPassword(password)
 	if err != nil {
-		s.renderRegisterError(w, r, http.StatusInternalServerError, "An error occurred while creating your account", views.RegisterView{
-			Username: username,
-			Email:    email,
-		})
+		refuse(http.StatusInternalServerError, "An error occurred while creating your account")
 		return
 	}
-
-	// Extract OAuth parameters from form to preserve them
-	clientID := r.FormValue("client_id")
-	redirectURI := r.FormValue("redirect_uri")
-	state := r.FormValue("state")
-	scope := r.FormValue("scope")
-	codeChallenge := r.FormValue("code_challenge")
-	codeChallengeMethod := r.FormValue("code_challenge_method")
 
 	// Create user
 	user, err := s.datastore.Q.CreateUser(context.Background(), db.CreateUserParams{
@@ -126,16 +105,7 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Println("Error creating user:", err)
-		s.renderRegisterError(w, r, http.StatusInternalServerError, "An error occurred while creating your account", views.RegisterView{
-			Username:            username,
-			Email:               email,
-			ClientID:            clientID,
-			RedirectURI:         redirectURI,
-			State:               state,
-			Scope:               strings.Split(scope, " "),
-			CodeChallenge:       codeChallenge,
-			CodeChallengeMethod: codeChallengeMethod,
-		})
+		refuse(http.StatusInternalServerError, "An error occurred while creating your account")
 		return
 	}
 
@@ -145,41 +115,21 @@ func (s *Server) HandleRegisterPost(w http.ResponseWriter, r *http.Request) {
 		// Continue with registration - user can request new verification email later
 	}
 
-	// Build redirect URL to login with OAuth params preserved
-	q := url.Values{}
-	q.Set("registered", "true")
-	for k, v := range map[string]string{
-		"redirect_uri":          redirectURI,
-		"client_id":             clientID,
-		"state":                 state,
-		"scope":                 scope,
-		"code_challenge":        codeChallenge,
-		"code_challenge_method": codeChallengeMethod,
-	} {
-		if v != "" {
-			q.Set(k, v)
-		}
-	}
-
-	http.Redirect(w, r, "/oauth/login?"+q.Encode(), http.StatusFound)
+	// On to sign-in, still carrying the authorization request.
+	http.Redirect(w, r, request.loginURL(url.Values{"registered": {"true"}}), http.StatusFound)
 }
 
-// renderRegisterError renders the registration page with an error message, preserving user input and OAuth parameters.
+// renderRegisterError renders the registration page with an error message, preserving user input and the authorization request.
 // It handles template execution errors gracefully by falling back to the error template.
 func (s *Server) renderRegisterError(w http.ResponseWriter, r *http.Request, statusCode int, errorMsg string, data views.RegisterView) {
 	csrfToken := s.ensureCSRFToken(w, r)
 	w.WriteHeader(statusCode)
 	err := views.Register(views.RegisterView{
-		Error:               errorMsg,
-		Username:            data.Username,
-		Email:               data.Email,
-		ClientID:            data.ClientID,
-		RedirectURI:         data.RedirectURI,
-		State:               data.State,
-		Scope:               data.Scope,
-		CodeChallenge:       data.CodeChallenge,
-		CodeChallengeMethod: data.CodeChallengeMethod,
-		CSRFToken:           csrfToken,
+		Error:          errorMsg,
+		Username:       data.Username,
+		Email:          data.Email,
+		AuthorizeQuery: data.AuthorizeQuery,
+		CSRFToken:      csrfToken,
 	}).Render(r.Context(), w)
 	if err != nil {
 		// Fallback to error template if register template fails
