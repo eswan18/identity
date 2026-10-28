@@ -238,6 +238,14 @@ func (f *fetcher) fetch(ctx context.Context, url string) (*fetched, error) {
 	if len(body) > MaxDocumentBytes {
 		return nil, fmt.Errorf("%w: document is more than %d bytes", ErrFetch, MaxDocumentBytes)
 	}
+	// A body that ended only after the deadline is not trusted as complete.
+	// Cancelling the request closes the TLS connection with a close_notify,
+	// and a server that reacts to it by ending its response can get a cleanly
+	// terminated -- but cut short -- body to the reader before the socket
+	// closes. It was always going to be a timeout; report it as one.
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("%w: reading body: %w", ErrFetch, err)
+	}
 	return &fetched{body: body, cacheControl: strings.Join(resp.Header.Values("Cache-Control"), ",")}, nil
 }
 
