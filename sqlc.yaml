@@ -16,14 +16,14 @@ version: "2"
 # here would silently rewrite what the generated code is built against, so keep
 # the directory to migrations only (`make migrate-new` does the right thing).
 #
-# The one exception is db/sqlc_pending_contract.sql, read after the migrations:
-# it applies, for codegen only, a column drop that a later contract migration
-# will make for real, so the code never names a column that is on its way out.
-# It goes away with that migration; see the file itself.
+# During an expand/contract change, a second schema entry after the migrations
+# can apply, for codegen only, a column drop the contract migration will make
+# for real, so the code never names a column that is on its way out. 000012-14
+# did this with db/sqlc_pending_contract.sql (see its history); it was deleted
+# with the contract migration, at which point `make sqlc` produced no diff.
 sql:
   - schema:
       - "db/migrations"
-      - "db/sqlc_pending_contract.sql"
     queries:
       - "db/queries"
     engine: "postgresql"

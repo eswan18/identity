@@ -23,13 +23,11 @@ WHERE id = $1
 
 -- OAuth clients
 --
--- Every oauth_clients query lists its columns rather than using * so that none
--- of them names audience, which migration 000012 deprecated and a later
--- contract migration drops: a running pod whose query named it would break the
--- moment that migration landed. (sqlc expands * into an explicit list at
--- generation time, so * would bake the column in.) The order matches the table
--- so sqlc maps every one of these onto db.OauthClient; see
--- db/sqlc_pending_contract.sql.
+-- Every oauth_clients query lists its columns rather than using *. sqlc expands
+-- * into an explicit list at generation time, so * bakes in every column the
+-- table has, and a running pod whose query names a column breaks the moment a
+-- migration drops it (as 000014 dropped audience, which 000012 deprecated). The
+-- order matches the table so sqlc maps every one of these onto db.OauthClient.
 
 -- name: CreateOAuthClient :one
 INSERT INTO oauth_clients (

@@ -276,14 +276,12 @@ func (s *Server) tokenAudience(resource sql.NullString) string {
 // storedResource is what a token row records as the resource it was issued
 // for: the aud itself, so the issuer for a token for identity itself.
 //
-// This code never stores NULL. Migration 000012's oauth_tokens_fill_resource
-// trigger fills a NULL resource from the client's current default, which is
-// right only for rows the previous release inserts (it doesn't know the
-// column). If this code stored NULL for "identity itself", the trigger would
-// re-point such a token at whatever default the client has by then -- on a
-// refresh, after the client gained one -- and every later refresh would carry
-// that wrong aud forward. Storing the issuer keeps NULL meaning "the previous
-// release wrote this row" and nothing else.
+// This code never stores NULL, so a row says exactly which aud it was minted
+// with. (It had to while migration 000012's oauth_tokens_fill_resource trigger
+// existed: that filled a NULL from the client's current default, and would have
+// re-pointed a token for identity itself at whatever default the client had
+// gained. 000014 dropped the trigger; NULL now appears only on rows from before
+// 000012, and tokenAudience reads it as the issuer.)
 func (s *Server) storedResource(resource sql.NullString) sql.NullString {
 	return sql.NullString{String: s.tokenAudience(resource), Valid: true}
 }
