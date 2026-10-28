@@ -59,6 +59,71 @@ then on, since a refresh keeps the resource its original token was for.
 Register resources and clients in **both** identity databases (staging's is
 periodically replaced by a copy of prod's).
 
+### Asking for a resource by name (RFC 8707)
+
+A client that needs tokens for more than one API, or for an API that is not its
+default (an MCP client such as Claude Code, say), names the API with the
+`resource` parameter. The API must be a registered resource, and the client
+must be allowed it: its default resource always is, and others are listed on
+the client's allow-list. A resource can also define **scopes** of its own, each
+with the sentence the consent screen shows for it:
+
+```shell
+./identity-cli resource create \
+  --uri "https://sensibility.money/mcp" --name "Sensibility" \
+  --scope "sensibility:read=Read your accounts and balances" \
+  --scope "sensibility:write=Change your accounts and balances"
+
+./identity-cli client create \
+  --name "Claude Code" \
+  --redirect-uris "http://localhost/callback" \
+  --scopes "sensibility:read,sensibility:write" \
+  --resources "https://sensibility.money/mcp"
+```
+
+`client update` edits the allow-list with `--resources` (replace),
+`--add-resources` and `--remove-resources`; `resource update` changes a
+resource's name, scopes (`--scope`, `--add-scope`, `--remove-scope`) and
+`--dynamic-clients`; `resource delete` refuses while any client still names
+the resource. `client get` and `resource get` show who uses what.
+
+On the wire:
+
+- **`/oauth/authorize`**: add `resource=<uri>`. At most one value. It is
+  compared in canonical form, so `HTTPS://Sensibility.money/mcp/` names
+  `https://sensibility.money/mcp`. Without it, the request is for the client's
+  default resource (or for identity itself if it has none) -- exactly what
+  every client got before this parameter existed.
+- **Scopes**: each requested scope must be one of identity's own (`openid`,
+  `profile`, `email`, `offline_access`) or one the requested resource defines,
+  and, apart from `offline_access`, also be in the client's `--scopes`. A
+  request for no resource may ask only for identity's scopes. A scope another
+  resource defines does not count, even under the same name.
+- **`/oauth/token`, code exchange and refresh**: the resource was fixed when
+  the user consented. `resource` is optional here; if sent, it must name that
+  same resource (for a grant with no resource it must be left out). A refresh
+  can never move a grant to another resource.
+- **`/oauth/token`, `client_credentials`**: `resource` is resolved as on
+  authorize (allow-list, else the default, else identity itself).
+- The access token's `aud` is `["<resource uri>"]`.
+
+Errors:
+
+| Where | Error | When |
+|-------|-------|------|
+| authorize (redirected to you, with `state` and `iss`) | `invalid_target` | more than one `resource`; not an absolute URI, or has a fragment; not registered; not allowed for your client (unknown and not-allowed look the same) |
+| authorize | `invalid_scope` | a scope that is neither identity's nor the requested resource's, or not in your client's allowed scopes |
+| token (400 JSON) | `invalid_target` | `resource` differs from the code's or refresh token's resource, or is sent for a grant with none; for `client_credentials`, as on authorize |
+
+A rejected token request does not spend the code or refresh token; retry it
+without the bad `resource`.
+
+Consent is remembered per resource: a user who approved your app for one
+resource is asked again the first time it asks for another. The consent screen
+shows the resource's name and host, each scope's description, and the host the
+answer is sent to; when **every** redirect URI of the client is a loopback one
+it also warns the user that the app runs on their computer.
+
 ## Step 2: Implement the OAuth Flow
 
 See the main [README](../README.md#oauth-flow-example) for the full OAuth/PKCE flow. In summary:
@@ -83,7 +148,7 @@ The access token is a JWT in the RFC 9068 profile. Its header carries
 | Claim | Description | Example |
 |-------|-------------|---------|
 | `sub` | User's unique ID (UUID) | `550e8400-e29b-41d4-a716-446655440000` |
-| `aud` | The resource the token is for: a one-element array holding your client's default resource URI, or identity's issuer if it has none. **Not** your client_id (that is the ID token's `aud`) | `["https://api.myapp.com"]` |
+| `aud` | The resource the token is for: a one-element array holding the resource the request named, else your client's default resource URI, or identity's issuer if it has neither. **Not** your client_id (that is the ID token's `aud`) | `["https://api.myapp.com"]` |
 | `client_id` | The client_id of the app the token was issued to | `my-app-client-id` |
 | `scope` | Granted scopes (space-separated) | `openid profile email` |
 | `username` | User's username | `alice` |

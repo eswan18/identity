@@ -99,6 +99,11 @@ type authorizeParams struct {
 	CodeChallenge       string
 	CodeChallengeMethod string
 	Nonce               string
+	// Resource is every resource parameter the request carried (RFC 8707),
+	// as sent. More than one is refused, and the one is canonicalized and
+	// resolved, by checkCodeIssuance (see resolveResource); nothing else reads
+	// it.
+	Resource []string
 }
 
 // parseAuthorizeParams reads an authorization request's parameters. scope
@@ -117,5 +122,6 @@ func parseAuthorizeParams(q url.Values) authorizeParams {
 		CodeChallenge:       q.Get("code_challenge"),
 		CodeChallengeMethod: q.Get("code_challenge_method"),
 		Nonce:               q.Get("nonce"),
+		Resource:            q["resource"],
 	}
 }

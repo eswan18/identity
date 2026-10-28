@@ -18,6 +18,7 @@ var (
 	createAllowedScopes  string
 	createIsConfidential bool
 	createDefaultRes     string
+	createResources      string
 )
 
 var clientCreateCmd = &cobra.Command{
@@ -29,9 +30,17 @@ Generates a client_id and optionally a client_secret for confidential clients.
 --default-resource names the registered resource (see 'identity-cli resource
 list') the client's access tokens are for when a request names none; it becomes
 the tokens' aud. Without it, the client's access tokens are for identity itself
-(aud = identity's issuer), which is right for a client that only signs users in.`,
+(aud = identity's issuer), which is right for a client that only signs users in.
+
+--resources is the client's allow-list: other registered resources it may ask
+for by name with the resource parameter (RFC 8707). Its default is always
+allowed and need not be listed. A requested scope that is not one of identity's
+own must be defined by the resource the request is for AND be in --scopes.`,
 	Example: `  # Register a public client (web app) whose tokens are for an API
   identity-cli client create --name "My Web App" --redirect-uris "http://localhost:3000/callback" --scopes "openid,profile,email" --default-resource "https://api.myapp.com"
+
+  # Register Claude Code (a native app on loopback) for an MCP server
+  identity-cli client create --name "Claude Code" --redirect-uris "http://localhost/callback" --scopes "sensibility:read,sensibility:write" --resources "https://sensibility.money/mcp"
 
   # Register a confidential client that only signs users in
   identity-cli client create --name "My Backend" --redirect-uris "http://localhost:3000/callback" --scopes "openid" --confidential`,
@@ -44,6 +53,7 @@ func init() {
 	clientCreateCmd.Flags().StringVar(&createAllowedScopes, "scopes", "openid", "Comma-separated list of allowed scopes (default: openid)")
 	clientCreateCmd.Flags().BoolVar(&createIsConfidential, "confidential", false, "Whether the client is confidential (requires client_secret)")
 	clientCreateCmd.Flags().StringVar(&createDefaultRes, "default-resource", "", "URI of a registered resource its tokens are for by default (omit: identity itself)")
+	clientCreateCmd.Flags().StringVar(&createResources, "resources", "", "Comma-separated URIs of registered resources it may request by name (its allow-list)")
 
 	clientCreateCmd.MarkFlagRequired("name")
 	clientCreateCmd.MarkFlagRequired("redirect-uris")
@@ -78,6 +88,10 @@ func runClientCreate(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
+	allowedResources, err := resolveResourceList(ctx, datastore.Q, "--resources", createResources)
+	if err != nil {
+		return err
+	}
 
 	// Generate client_id (random 32-byte string, base64 encoded = 44 chars)
 	clientID, err := internal.GenerateRandomString(32)
@@ -99,8 +113,15 @@ func runClientCreate(cmd *cobra.Command, args []string) error {
 		clientSecret = sql.NullString{String: auth.HashClientSecret(secret), Valid: true}
 	}
 
-	// Create the client
-	client, err := datastore.Q.CreateOAuthClient(ctx, db.CreateOAuthClientParams{
+	// Create the client and its allow-list together, so a failure can't leave
+	// a client that is missing resources the operator asked for.
+	tx, err := datastore.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to start a transaction: %w", err)
+	}
+	defer tx.Rollback()
+	q := datastore.Q.WithTx(tx)
+	client, err := q.CreateOAuthClient(ctx, db.CreateOAuthClientParams{
 		ClientID:        clientID,
 		ClientSecret:    clientSecret,
 		Name:            createName,
@@ -111,6 +132,12 @@ func runClientCreate(cmd *cobra.Command, args []string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create OAuth client: %w", err)
+	}
+	if err := addClientResources(ctx, q, client.ID, allowedResources); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit: %w", err)
 	}
 
 	// Output credentials
@@ -128,6 +155,7 @@ func runClientCreate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Redirect URIs:  %s\n", strings.Join(client.RedirectUris, ", "))
 	fmt.Printf("  Allowed Scopes: %s\n", strings.Join(client.AllowedScopes, ", "))
 	fmt.Printf("  Default Resource: %s\n", internal.DefaultResourceValue(client.DefaultResource))
+	fmt.Printf("  Allowed Resources: %s\n", allowedResourcesValue(allowedResources))
 	fmt.Printf("  Confidential:   %v\n", client.IsConfidential)
 	fmt.Printf("  Created:        %s\n", client.CreatedAt.Format("2006-01-02 15:04:05"))
 	fmt.Println()

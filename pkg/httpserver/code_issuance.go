@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/eswan18/identity/pkg/db"
@@ -57,6 +58,9 @@ const (
 	denialUserLookupFailed
 	// denialUserInactive: the account is deactivated.
 	denialUserInactive
+	// denialResourceLookupFailed: the registry could not be read to resolve
+	// the request's resource. A server error, never a verdict on the request.
+	denialResourceLookupFailed
 )
 
 // codeIssuanceDenial is the reason a code may not be issued.
@@ -70,6 +74,10 @@ type codeIssuanceDenial struct {
 type codeIssuanceGrant struct {
 	Session Session
 	User    db.AuthUser
+	// Resource is what the code, and the tokens it is exchanged for, will be
+	// for: the request's resource parameter resolved against the registry, or
+	// the client's default. nil means none (a token for identity itself).
+	Resource *resolvedResource
 }
 
 // checkCodeIssuance reports whether this request may be issued an authorization
@@ -104,6 +112,24 @@ func (s *Server) checkCodeIssuance(
 		return nil, &codeIssuanceDenial{Kind: denialInvalidParams, OAuthError: authErr}
 	}
 
+	// Which resource the request is for (RFC 8707), and whether its scopes
+	// are ones identity or that resource defines. Checked before the session
+	// so a bad request is refused at once rather than after a sign-in, and
+	// after the pure checks above so a malformed request costs no lookup (a
+	// request naming no resource for a client with no default costs none
+	// either).
+	resource, targetErr, err := s.resolveResource(r.Context(), client, p.Resource)
+	if err != nil {
+		log.Printf("checkCodeIssuance: %v", err)
+		return nil, &codeIssuanceDenial{Kind: denialResourceLookupFailed}
+	}
+	if targetErr != nil {
+		return nil, &codeIssuanceDenial{Kind: denialInvalidParams, OAuthError: targetErr}
+	}
+	if scopeErr := checkScopesAgainstResource(p.Scope, resource); scopeErr != nil {
+		return nil, &codeIssuanceDenial{Kind: denialInvalidParams, OAuthError: scopeErr}
+	}
+
 	session, err := s.getSessionFromCookie(r)
 	if err != nil {
 		return nil, &codeIssuanceDenial{Kind: denialNoSession}
@@ -119,7 +145,7 @@ func (s *Server) checkCodeIssuance(
 		return nil, &codeIssuanceDenial{Kind: denialUserInactive}
 	}
 
-	return &codeIssuanceGrant{Session: session, User: user}, nil
+	return &codeIssuanceGrant{Session: session, User: user, Resource: resource}, nil
 }
 
 // codeIssuanceRedirects is where a caller wants each class of denial to go.
@@ -152,7 +178,8 @@ func (s *Server) denyCodeIssuance(w http.ResponseWriter, r *http.Request, d *cod
 	case d.Kind == denialUserInactive:
 		http.Redirect(w, r, to.Deactivated, http.StatusFound)
 	default:
-		// denialUserLookupFailed, denialUnspecified, a kind added later that no
+		// denialUserLookupFailed, denialResourceLookupFailed,
+		// denialUnspecified, a kind added later that no
 		// caller renders, and denialInvalidParams with no error attached all
 		// land here. Denying is always a safe answer; issuing a code is not.
 		to.ToClient("server_error", "An error occurred")

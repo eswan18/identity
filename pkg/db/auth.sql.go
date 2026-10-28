@@ -15,6 +15,45 @@ import (
 	"github.com/lib/pq"
 )
 
+const addClientResource = `-- name: AddClientResource :exec
+INSERT INTO oauth_client_resources (client_id, resource_id)
+VALUES ($1, $2)
+ON CONFLICT DO NOTHING
+`
+
+type AddClientResourceParams struct {
+	ClientID   uuid.UUID `json:"client_id"`
+	ResourceID uuid.UUID `json:"resource_id"`
+}
+
+func (q *Queries) AddClientResource(ctx context.Context, arg AddClientResourceParams) error {
+	_, err := q.db.ExecContext(ctx, addClientResource, arg.ClientID, arg.ResourceID)
+	return err
+}
+
+const clientMayRequestResource = `-- name: ClientMayRequestResource :one
+
+SELECT EXISTS (
+  SELECT 1
+  FROM oauth_client_resources
+  WHERE client_id = $1 AND resource_id = $2
+)
+`
+
+type ClientMayRequestResourceParams struct {
+	ClientID   uuid.UUID `json:"client_id"`
+	ResourceID uuid.UUID `json:"resource_id"`
+}
+
+// Client resource allow-lists: the resources a registered client may request
+// by name, beyond its default (which is always allowed).
+func (q *Queries) ClientMayRequestResource(ctx context.Context, arg ClientMayRequestResourceParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, clientMayRequestResource, arg.ClientID, arg.ResourceID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const consumeAuthorizationCode = `-- name: ConsumeAuthorizationCode :execrows
 UPDATE oauth_authorization_codes
 SET consumed_at = now()
@@ -416,6 +455,19 @@ WHERE client_id = $1
 func (q *Queries) DeleteOAuthClient(ctx context.Context, clientID string) error {
 	_, err := q.db.ExecContext(ctx, deleteOAuthClient, clientID)
 	return err
+}
+
+const deleteOAuthResource = `-- name: DeleteOAuthResource :execrows
+DELETE FROM oauth_resources
+WHERE uri = $1
+`
+
+func (q *Queries) DeleteOAuthResource(ctx context.Context, uri string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteOAuthResource, uri)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const deleteSession = `-- name: DeleteSession :exec
@@ -954,22 +1006,24 @@ const getUserConsent = `-- name: GetUserConsent :one
 
 
 SELECT id, user_id, client_id, scopes, created_at, updated_at, resource FROM oauth_user_consents
-WHERE user_id = $1 AND client_id = $2 AND resource IS NULL
+WHERE user_id = $1
+  AND client_id = $2
+  AND resource IS NOT DISTINCT FROM $3::text
 `
 
 type GetUserConsentParams struct {
-	UserID   uuid.UUID `json:"user_id"`
-	ClientID uuid.UUID `json:"client_id"`
+	UserID   uuid.UUID      `json:"user_id"`
+	ClientID uuid.UUID      `json:"client_id"`
+	Resource sql.NullString `json:"resource"`
 }
 
 // Consent queries
-// Consent is keyed by (user, client, resource) since migration 000012. Until
-// requests can name a resource, every consent is for no resource (NULL), so
-// these read and write only that row and behave exactly as they did when the
-// key was (user, client). The upsert names the wider key in ON CONFLICT so it
-// keeps working once the contract migration drops the old (user, client) one.
+// Consent is remembered per (user, client, resource): approving one resource
+// for a client does not approve another. resource is the URI the grant is for,
+// or NULL for a grant for identity itself, and IS NOT DISTINCT FROM makes NULL
+// match NULL, like the unique index (NULLS NOT DISTINCT) that the upsert names.
 func (q *Queries) GetUserConsent(ctx context.Context, arg GetUserConsentParams) (OauthUserConsent, error) {
-	row := q.db.QueryRowContext(ctx, getUserConsent, arg.UserID, arg.ClientID)
+	row := q.db.QueryRowContext(ctx, getUserConsent, arg.UserID, arg.ClientID, arg.Resource)
 	var i OauthUserConsent
 	err := row.Scan(
 		&i.ID,
@@ -1012,9 +1066,10 @@ INSERT INTO oauth_authorization_codes (
   code_challenge,
   code_challenge_method,
   expires_at,
-  nonce
+  nonce,
+  resource
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 `
 
 type InsertAuthorizationCodeParams struct {
@@ -1027,6 +1082,7 @@ type InsertAuthorizationCodeParams struct {
 	CodeChallengeMethod sql.NullString `json:"code_challenge_method"`
 	ExpiresAt           time.Time      `json:"expires_at"`
 	Nonce               sql.NullString `json:"nonce"`
+	Resource            sql.NullString `json:"resource"`
 }
 
 func (q *Queries) InsertAuthorizationCode(ctx context.Context, arg InsertAuthorizationCodeParams) error {
@@ -1040,6 +1096,7 @@ func (q *Queries) InsertAuthorizationCode(ctx context.Context, arg InsertAuthori
 		arg.CodeChallengeMethod,
 		arg.ExpiresAt,
 		arg.Nonce,
+		arg.Resource,
 	)
 	return err
 }
@@ -1108,6 +1165,89 @@ func (q *Queries) InsertToken(ctx context.Context, arg InsertTokenParams) (Oauth
 		&i.RevokedReason,
 	)
 	return i, err
+}
+
+const listClientResources = `-- name: ListClientResources :many
+SELECT r.id, r.uri, r.name, r.scopes, r.dynamic_clients, r.created_at
+FROM oauth_client_resources cr
+JOIN oauth_resources r ON r.id = cr.resource_id
+WHERE cr.client_id = $1
+ORDER BY r.uri
+`
+
+func (q *Queries) ListClientResources(ctx context.Context, clientID uuid.UUID) ([]OauthResource, error) {
+	rows, err := q.db.QueryContext(ctx, listClientResources, clientID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OauthResource
+	for rows.Next() {
+		var i OauthResource
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uri,
+			&i.Name,
+			&i.Scopes,
+			&i.DynamicClients,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listClientsReferencingResource = `-- name: ListClientsReferencingResource :many
+SELECT c.client_id, c.name,
+       (c.default_resource IS NOT NULL AND c.default_resource = r.uri)::boolean AS is_default
+FROM oauth_resources r
+JOIN oauth_clients c
+  ON c.default_resource = r.uri
+  OR EXISTS (
+       SELECT 1 FROM oauth_client_resources cr
+       WHERE cr.client_id = c.id AND cr.resource_id = r.id
+     )
+WHERE r.uri = $1
+ORDER BY c.name, c.client_id
+`
+
+type ListClientsReferencingResourceRow struct {
+	ClientID  string `json:"client_id"`
+	Name      string `json:"name"`
+	IsDefault bool   `json:"is_default"`
+}
+
+// The clients that name a resource, as their default or on their allow-list.
+// A resource is not deleted while this is non-empty.
+func (q *Queries) ListClientsReferencingResource(ctx context.Context, uri string) ([]ListClientsReferencingResourceRow, error) {
+	rows, err := q.db.QueryContext(ctx, listClientsReferencingResource, uri)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListClientsReferencingResourceRow
+	for rows.Next() {
+		var i ListClientsReferencingResourceRow
+		if err := rows.Scan(&i.ClientID, &i.Name, &i.IsDefault); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listOAuthClients = `-- name: ListOAuthClients :many
@@ -1279,6 +1419,24 @@ WHERE id = $1
 func (q *Queries) ReactivateUser(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.ExecContext(ctx, reactivateUser, id)
 	return err
+}
+
+const removeClientResource = `-- name: RemoveClientResource :execrows
+DELETE FROM oauth_client_resources
+WHERE client_id = $1 AND resource_id = $2
+`
+
+type RemoveClientResourceParams struct {
+	ClientID   uuid.UUID `json:"client_id"`
+	ResourceID uuid.UUID `json:"resource_id"`
+}
+
+func (q *Queries) RemoveClientResource(ctx context.Context, arg RemoveClientResourceParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, removeClientResource, arg.ClientID, arg.ResourceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const revokeAllUserTokens = `-- name: RevokeAllUserTokens :exec
@@ -1466,6 +1624,44 @@ func (q *Queries) UpdateOAuthClient(ctx context.Context, arg UpdateOAuthClientPa
 	return i, err
 }
 
+const updateOAuthResource = `-- name: UpdateOAuthResource :one
+UPDATE oauth_resources
+SET name = $1,
+    scopes = $2,
+    dynamic_clients = $3
+WHERE uri = $4
+RETURNING id, uri, name, scopes, dynamic_clients, created_at
+`
+
+type UpdateOAuthResourceParams struct {
+	Name           string          `json:"name"`
+	Scopes         json.RawMessage `json:"scopes"`
+	DynamicClients bool            `json:"dynamic_clients"`
+	Uri            string          `json:"uri"`
+}
+
+// Every field is replaced: the CLI reads the row, applies the flags it was
+// given, and writes the whole result back. The uri is the key and never
+// changes here (it is every token's aud; see the spec, section 1).
+func (q *Queries) UpdateOAuthResource(ctx context.Context, arg UpdateOAuthResourceParams) (OauthResource, error) {
+	row := q.db.QueryRowContext(ctx, updateOAuthResource,
+		arg.Name,
+		arg.Scopes,
+		arg.DynamicClients,
+		arg.Uri,
+	)
+	var i OauthResource
+	err := row.Scan(
+		&i.ID,
+		&i.Uri,
+		&i.Name,
+		&i.Scopes,
+		&i.DynamicClients,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const updateUserEmail = `-- name: UpdateUserEmail :exec
 UPDATE auth_users
 SET email = $1, email_verified = false, updated_at = now()
@@ -1562,19 +1758,25 @@ func (q *Queries) UpdateUserUsername(ctx context.Context, arg UpdateUserUsername
 }
 
 const upsertUserConsent = `-- name: UpsertUserConsent :exec
-INSERT INTO oauth_user_consents (user_id, client_id, scopes)
-VALUES ($1, $2, $3)
+INSERT INTO oauth_user_consents (user_id, client_id, resource, scopes)
+VALUES ($1, $2, $3::text, $4)
 ON CONFLICT (user_id, client_id, resource)
-DO UPDATE SET scopes = $3, updated_at = now()
+DO UPDATE SET scopes = EXCLUDED.scopes, updated_at = now()
 `
 
 type UpsertUserConsentParams struct {
-	UserID   uuid.UUID `json:"user_id"`
-	ClientID uuid.UUID `json:"client_id"`
-	Scopes   []string  `json:"scopes"`
+	UserID   uuid.UUID      `json:"user_id"`
+	ClientID uuid.UUID      `json:"client_id"`
+	Resource sql.NullString `json:"resource"`
+	Scopes   []string       `json:"scopes"`
 }
 
 func (q *Queries) UpsertUserConsent(ctx context.Context, arg UpsertUserConsentParams) error {
-	_, err := q.db.ExecContext(ctx, upsertUserConsent, arg.UserID, arg.ClientID, pq.Array(arg.Scopes))
+	_, err := q.db.ExecContext(ctx, upsertUserConsent,
+		arg.UserID,
+		arg.ClientID,
+		arg.Resource,
+		pq.Array(arg.Scopes),
+	)
 	return err
 }

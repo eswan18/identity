@@ -42,6 +42,7 @@ type TokenResponse struct {
 // @Param        state               query     string  false "CSRF protection token. Recommended for OAuth flow."
 // @Param        code_challenge      query     string  false "PKCE code challenge (SHA256 hash). Required for OAuth flow."
 // @Param        code_challenge_method query   string  false "PKCE challenge method (must be 'S256'). Required for OAuth flow."
+// @Param        resource            query     string  false "RFC 8707 resource indicator: the API the token is for. At most one; must be a registered resource the client may request. Defaults to the client's default resource."
 // @Success      302 {string} string "Redirect to redirect_uri with authorization code, state and iss"
 // @Failure      302 {string} string "Redirect to redirect_uri with error parameters, state and iss"
 // @Router       /oauth/authorize [get]
@@ -89,10 +90,13 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 	session := grant.Session
 
-	// Phase 4: Check consent. If user hasn't consented to these scopes, redirect to consent page.
+	// Phase 4: Check consent. If user hasn't consented to these scopes for this
+	// resource, redirect to consent page. Consent is remembered per (user,
+	// client, resource): approving one resource does not approve another.
 	consent, err := s.datastore.Q.GetUserConsent(r.Context(), db.GetUserConsentParams{
 		UserID:   session.UserID,
 		ClientID: client.ID,
+		Resource: grant.Resource.uri(),
 	})
 	scopesOK, _ := containsAll(consent.Scopes, p.Scope)
 	if err != nil || !scopesOK {
@@ -101,7 +105,7 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Phase 5: Generate authorization code and redirect.
-	authorizationCode, err := s.generateAuthorizationCode(r.Context(), session.UserID, client.ID, p.RedirectURI, p.Scope, p.CodeChallenge, p.CodeChallengeMethod, p.Nonce)
+	authorizationCode, err := s.generateAuthorizationCode(r.Context(), session.UserID, client.ID, p.RedirectURI, p.Scope, p.CodeChallenge, p.CodeChallengeMethod, p.Nonce, grant.Resource.uri())
 	if err != nil {
 		redirectError("server_error", "An error occurred")
 		return
@@ -122,8 +126,9 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 // @Param        client_secret       formData  string  true  "OAuth client secret"
 // @Param        code_verifier       formData  string  false "PKCE code verifier (required for authorization_code grant)"
 // @Param        refresh_token       formData  string  false "Refresh token (required for refresh_token grant)"
+// @Param        resource            formData  string  false "RFC 8707 resource indicator. authorization_code and refresh_token: optional, and must name the resource the grant is for. client_credentials: a resource the client may request (defaults to its default resource)."
 // @Success      200 {object} map[string]interface{} "Token response with access_token, token_type, expires_in, refresh_token, scope, and id_token (when openid scope requested)"
-// @Failure      400 {object} map[string]string "OAuth2 error response (invalid_request, invalid_grant, unsupported_grant_type, etc.)"
+// @Failure      400 {object} map[string]string "OAuth2 error response (invalid_request, invalid_grant, invalid_target, unsupported_grant_type, etc.)"
 // @Failure      401 {object} map[string]string "OAuth2 error response (invalid_client)"
 // @Failure      500 {object} map[string]string "OAuth2 error response for a failure on our side (server_error) - retryable, and not a verdict on the grant"
 // @Router       /oauth/token [post]
@@ -210,6 +215,16 @@ func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// The resource was resolved at authorize time and recorded on the code.
+	// A resource parameter here is optional and may only repeat it (RFC 8707
+	// §2.2). Checked before the code is consumed, like the checks above, so a
+	// client that sent a wrong one can retry with the code still good.
+	resource := s.grantedResource(authCode.Resource, client.DefaultResource)
+	if description := checkTokenRequestResource(tokenRequestResource(r), resource); description != "" {
+		s.writeTokenError(w, errInvalidTarget, description)
+		return
+	}
+
 	// Verify PKCE code_verifier
 	if authCode.CodeChallenge.Valid {
 		if codeVerifier == "" {
@@ -264,11 +279,17 @@ func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Req
 		s.writeTokenError(w, "server_error", "Failed to generate tokens")
 		return
 	}
-	// The token is for the client's default resource (none: identity itself).
-	// Requests can't name a resource yet, so this is the only resource a code
-	// can be for; once they can, it is resolved at authorize time and read from
-	// the code instead.
-	s.writeTokenResponse(w, r, client.ID, authCode.UserID, authCode.Scope, nonce, client.DefaultResource, family)
+	// The token is for the resource the code was issued for (none: identity
+	// itself), never the client's current default.
+	s.writeTokenResponse(w, r, client.ID, authCode.UserID, authCode.Scope, nonce, resource, family)
+}
+
+// tokenRequestResource is every resource parameter a token request carried.
+func tokenRequestResource(r *http.Request) []string {
+	if err := r.ParseForm(); err != nil {
+		return nil
+	}
+	return r.Form["resource"]
 }
 
 // handleRefreshTokenGrant exchanges a refresh token for new tokens, spending it
@@ -350,6 +371,16 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 			adminScopes, client.ClientID)
 		s.writeTokenError(w, "invalid_scope",
 			"Refresh tokens may not carry admin scopes; use the client_credentials grant")
+		return
+	}
+
+	// The resource is the one stored on the token, and a resource parameter
+	// may only repeat it (spec, section 3): a refresh never widens a grant or
+	// re-points it. A stored issuer is a token for identity itself, for which
+	// no resource may be named. Checked before anything is minted or spent, so
+	// a refused request leaves the refresh token usable.
+	if description := checkTokenRequestResource(tokenRequestResource(r), s.grantedResource(token.Resource, sql.NullString{})); description != "" {
+		s.writeTokenError(w, errInvalidTarget, description)
 		return
 	}
 
@@ -470,14 +501,30 @@ func (s *Server) handleClientCredentialsGrant(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// The resource is resolved as on /oauth/authorize: one the client may
+	// request, else its default, else none (aud = issuer, which the admin API
+	// requires). Scopes stay governed by allowed_scopes alone here: a service
+	// client acts as itself, and its scopes (admin:* among them) are
+	// registered against it, not defined by the resource.
+	resource, targetErr, err := s.resolveResource(r.Context(), client, tokenRequestResource(r))
+	if err != nil {
+		log.Printf("handleClientCredentialsGrant: %v", err)
+		s.writeTokenError(w, "server_error", "Failed to resolve resource")
+		return
+	}
+	if targetErr != nil {
+		s.writeTokenError(w, targetErr.Code, targetErr.Description)
+		return
+	}
+
 	// Generate service account token (no user, no refresh token)
-	s.writeClientCredentialsTokenResponse(w, r, client, requestedScopes)
+	s.writeClientCredentialsTokenResponse(w, r, client, requestedScopes, resource.uri())
 }
 
 // writeClientCredentialsTokenResponse generates service account tokens and writes the JSON response.
 // Per OAuth2 spec, client_credentials does not include a refresh token.
-func (s *Server) writeClientCredentialsTokenResponse(w http.ResponseWriter, r *http.Request, client db.OauthClient, scope []string) {
-	tokens, err := s.generateServiceAccountTokens(r.Context(), client, scope)
+func (s *Server) writeClientCredentialsTokenResponse(w http.ResponseWriter, r *http.Request, client db.OauthClient, scope []string, resource sql.NullString) {
+	tokens, err := s.generateServiceAccountTokens(r.Context(), client, scope, resource)
 	if err != nil {
 		log.Printf("writeClientCredentialsTokenResponse: failed to generate tokens: %v", err)
 		s.writeTokenError(w, "server_error", "Failed to generate tokens")
@@ -1135,39 +1182,31 @@ func (s *Server) HandleConsentGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify session. A deactivated account is bounced here rather than being
-	// shown a consent screen it could never submit: HandleConsentPost refuses it
-	// via checkCodeIssuance, so rendering the form would only walk the user up to
-	// a wall. This is a rendering courtesy, not the control -- the control is on
-	// the POST, where a code could actually be minted.
-	session, err := s.getSessionFromCookie(r)
-	if err != nil {
-		http.Redirect(w, r, request.loginURL(nil), http.StatusFound)
-		return
-	}
-	user, err := s.datastore.Q.GetUserByIDIncludingInactive(r.Context(), session.UserID)
-	if err != nil || !user.IsActive {
-		http.Redirect(w, r, request.loginURL(url.Values{"error": {"account_deactivated"}}), http.StatusFound)
+	// The page is only rendered for a request the POST would accept, so it
+	// runs the same checks (checkCodeIssuance), and gets from them the
+	// resource the request resolved to, which the page describes. That also
+	// keeps an unknown scope string from ever reaching the page: one is
+	// refused here with invalid_scope rather than shown raw.
+	//
+	// A deactivated account is bounced to login rather than being shown a
+	// consent screen it could never submit. This is a rendering courtesy, not
+	// the control -- the control is on the POST, where a code could actually
+	// be minted.
+	grant, denial := s.checkCodeIssuance(r, client, p)
+	if denial != nil {
+		s.denyCodeIssuance(w, r, denial, codeIssuanceRedirects{
+			ToClient: func(errorCode, description string) {
+				s.respondWithError(w, r, p, errorCode, description)
+			},
+			Unauthenticated: request.loginURL(nil),
+			Deactivated:     request.loginURL(url.Values{"error": {"account_deactivated"}}),
+		})
 		return
 	}
 
-	// Build scope descriptions
-	var descriptions []views.ScopeDescription
-	for _, sc := range p.Scope {
-		desc, ok := scopeDescriptionMap[sc]
-		if ok {
-			descriptions = append(descriptions, views.ScopeDescription{Scope: sc, Description: desc})
-		} else {
-			descriptions = append(descriptions, views.ScopeDescription{Scope: sc, Description: sc})
-		}
-	}
-
-	data := views.ConsentView{
-		ClientName:        client.Name,
-		ScopeDescriptions: descriptions,
-		AuthorizeQuery:    string(request),
-		CSRFToken:         s.ensureCSRFToken(w, r),
-	}
+	data := consentView(client, p, grant.Resource)
+	data.AuthorizeQuery = string(request)
+	data.CSRFToken = s.ensureCSRFToken(w, r)
 
 	if err := views.Consent(data).Render(r.Context(), w); err != nil {
 		http.Error(w, "An error occurred", http.StatusInternalServerError)
@@ -1226,10 +1265,11 @@ func (s *Server) HandleConsentPost(w http.ResponseWriter, r *http.Request) {
 	}
 	session := grant.Session
 
-	// Store consent
+	// Store consent, for this resource only.
 	err = s.datastore.Q.UpsertUserConsent(r.Context(), db.UpsertUserConsentParams{
 		UserID:   session.UserID,
 		ClientID: client.ID,
+		Resource: grant.Resource.uri(),
 		Scopes:   p.Scope,
 	})
 	if err != nil {
@@ -1239,7 +1279,7 @@ func (s *Server) HandleConsentPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate authorization code and redirect to client
-	authorizationCode, err := s.generateAuthorizationCode(r.Context(), session.UserID, client.ID, p.RedirectURI, p.Scope, p.CodeChallenge, p.CodeChallengeMethod, p.Nonce)
+	authorizationCode, err := s.generateAuthorizationCode(r.Context(), session.UserID, client.ID, p.RedirectURI, p.Scope, p.CodeChallenge, p.CodeChallengeMethod, p.Nonce, grant.Resource.uri())
 	if err != nil {
 		redirectError("server_error", "An error occurred")
 		return

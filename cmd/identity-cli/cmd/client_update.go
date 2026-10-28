@@ -21,6 +21,9 @@ var (
 	updateIsConfidential     bool
 	updateDefaultResource    string
 	updateClearDefaultRes    bool
+	updateResources          string
+	updateAddResources       string
+	updateRemoveResources    string
 )
 
 var clientUpdateCmd = &cobra.Command{
@@ -36,7 +39,13 @@ like a successful revocation.
 --default-resource points the client's tokens at another registered resource;
 --clear-default-resource removes the default, so its tokens are for identity
 itself. Either affects tokens issued from then on: a refresh keeps the resource
-the original token was issued for.`,
+the original token was issued for.
+--resources REPLACES the client's resource allow-list (the resources it may
+request by name; "" empties it), --add-resources appends to it and
+--remove-resources drops entries, like the redirect-URI flags: removing a
+resource the client does not have is an error and changes nothing. Removing a
+resource stops new grants for it; tokens already issued keep it until they
+expire, and a refresh keeps it too.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runClientUpdate,
 	Example: `  # Update client name
@@ -55,6 +64,9 @@ the original token was issued for.`,
   identity-client client update abc123 --default-resource "https://api.example.com"
   identity-client client update abc123 --clear-default-resource
 
+  # Let the client request another registered resource by name
+  identity-client client update abc123 --add-resources "https://staging.sensibility.money/mcp"
+
   # Update multiple fields
   identity-client client update abc123 --name "New Name" --scopes "openid,profile"`,
 }
@@ -69,7 +81,11 @@ func init() {
 	clientUpdateCmd.Flags().StringVar(&updateDefaultResource, "default-resource", "", "URI of a registered resource its tokens are for by default")
 	clientUpdateCmd.Flags().BoolVar(&updateClearDefaultRes, "clear-default-resource", false, "Remove the default resource (tokens are for identity itself)")
 	clientUpdateCmd.MarkFlagsMutuallyExclusive("redirect-uris", "add-redirect-uris", "remove-redirect-uris")
+	clientUpdateCmd.Flags().StringVar(&updateResources, "resources", "", "Comma-separated resource URIs it may request by name (replaces the allow-list)")
+	clientUpdateCmd.Flags().StringVar(&updateAddResources, "add-resources", "", "Comma-separated resource URIs to add to the allow-list")
+	clientUpdateCmd.Flags().StringVar(&updateRemoveResources, "remove-resources", "", "Comma-separated resource URIs to remove from the allow-list")
 	clientUpdateCmd.MarkFlagsMutuallyExclusive("default-resource", "clear-default-resource")
+	clientUpdateCmd.MarkFlagsMutuallyExclusive("resources", "add-resources", "remove-resources")
 }
 
 func runClientUpdate(cmd *cobra.Command, args []string) error {
@@ -178,9 +194,59 @@ func runClientUpdate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	updatedClient, err := datastore.Q.UpdateOAuthClient(ctx, params)
+	// The allow-list edit is resolved before anything is written, so an
+	// unknown URI changes nothing.
+	var resourcesFlag, resourcesList string
+	switch {
+	case flags.Changed("resources"):
+		resourcesFlag, resourcesList = "--resources", updateResources
+	case flags.Changed("add-resources"):
+		resourcesFlag, resourcesList = "--add-resources", updateAddResources
+	case flags.Changed("remove-resources"):
+		resourcesFlag, resourcesList = "--remove-resources", updateRemoveResources
+	}
+	var resources []db.OauthResource
+	if resourcesFlag != "" {
+		if resources, err = resolveResourceList(ctx, datastore.Q, resourcesFlag, resourcesList); err != nil {
+			return err
+		}
+	}
+
+	// The client row and its allow-list change together or not at all.
+	tx, err := datastore.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to start a transaction: %w", err)
+	}
+	defer tx.Rollback()
+	q := datastore.Q.WithTx(tx)
+
+	updatedClient, err := q.UpdateOAuthClient(ctx, params)
 	if err != nil {
 		return fmt.Errorf("failed to update OAuth client: %w", err)
+	}
+
+	switch resourcesFlag {
+	case "--resources":
+		err = replaceClientResources(ctx, q, updatedClient.ID, resources)
+	case "--add-resources":
+		err = addClientResources(ctx, q, updatedClient.ID, resources)
+	case "--remove-resources":
+		var notFound []string
+		notFound, err = removeClientResources(ctx, q, updatedClient.ID, resources)
+		if err == nil && len(notFound) > 0 {
+			err = fmt.Errorf("client %s does not have resource %s on its allow-list - nothing was changed",
+				clientID, strings.Join(notFound, ", "))
+		}
+	}
+	if err != nil {
+		return err
+	}
+	allowed, err := q.ListClientResources(ctx, updatedClient.ID)
+	if err != nil {
+		return fmt.Errorf("reading the client's allowed resources: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit: %w", err)
 	}
 
 	fmt.Println("\n✅ OAuth client updated successfully!")
@@ -190,6 +256,7 @@ func runClientUpdate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Redirect URIs:  %s\n", strings.Join(updatedClient.RedirectUris, ", "))
 	fmt.Printf("  Allowed Scopes: %s\n", strings.Join(updatedClient.AllowedScopes, ", "))
 	fmt.Printf("  Default Resource: %s\n", internal.DefaultResourceValue(updatedClient.DefaultResource))
+	fmt.Printf("  Allowed Resources: %s\n", allowedResourcesValue(allowed))
 	fmt.Printf("  Confidential:   %v\n", updatedClient.IsConfidential)
 	fmt.Printf("  Updated:        %s\n", updatedClient.UpdatedAt.Format("2006-01-02 15:04:05"))
 	if len(updatedClient.RedirectUris) == 0 {
