@@ -294,7 +294,11 @@ func (s *Server) storedResource(resource sql.NullString) sql.NullString {
 // reissues for the same audience instead of re-reading the client's default,
 // which may since have changed. The caller decides it: the client's default
 // resource at code exchange, the stored resource at refresh.
-func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID uuid.UUID, scope []string, nonce string, resource sql.NullString) (TokenPair, error) {
+//
+// family is the refresh-token family the row joins (a new one at code exchange,
+// the presented token's at refresh); the refresh token expires no later than
+// the family's absolute lifetime allows (see refresh_families.go).
+func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID uuid.UUID, scope []string, nonce string, resource sql.NullString, family uuid.UUID) (TokenPair, error) {
 	// Fetch user information for JWT claims
 	user, err := s.datastore.Q.GetUserByID(ctx, userID)
 	if err != nil {
@@ -327,8 +331,9 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 		return TokenPair{}, err
 	}
 
-	accessExpiresAt := time.Now().Add(accessTokenExpiresIn)
-	refreshExpiresAt := time.Now().Add(refreshTokenExpiresIn)
+	now := time.Now()
+	accessExpiresAt := now.Add(accessTokenExpiresIn)
+	refreshExpiresAt := refreshTokenExpiry(family, now)
 
 	// Store token record in database
 	// Note: Store JTI (JWT ID) in access_token column for audit/revocation tracking
@@ -342,6 +347,7 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 		ExpiresAt:        accessExpiresAt,
 		RefreshExpiresAt: sql.NullTime{Time: refreshExpiresAt, Valid: true},
 		Resource:         s.storedResource(resource),
+		FamilyID:         uuid.NullUUID{UUID: family, Valid: true},
 	})
 	if err != nil {
 		return TokenPair{}, err

@@ -120,6 +120,19 @@ revokes the old. Store the new one before the next request goes out, and
 serialise concurrent refreshes so two in-flight requests do not both spend the
 same token.
 
+Presenting a refresh token that a refresh **already spent** is treated as theft
+(RFC 9700 §4.14.2): identity cannot tell which holder is legitimate, so it
+revokes every token descended from that sign-in — the newest refresh token and
+its access token included — and answers `invalid_grant`. There is no grace
+window. So two concurrent refreshes of one token end the sign-in (one succeeds,
+the other trips this and revokes what the first got), and so does retrying a
+refresh whose first attempt actually completed but whose response you never
+received. Keep one refresh in flight per token, and give it a generous timeout.
+A token revoked any other way (sign-out, `/oauth/revoke`) is just refused.
+
+However often it is refreshed, a sign-in's tokens stop refreshing **90 days**
+after the sign-in (`invalid_grant`); the user signs in again.
+
 ### Deciding whether a failed refresh ends the session
 
 This is the part clients get wrong, and getting it wrong is expensive: treat
@@ -131,7 +144,7 @@ code in the response body — not the HTTP status alone:
 
 | Response | Meaning | End the session? |
 |----------|---------|------------------|
-| `400` + `invalid_grant` | Token revoked, expired, already used, or issued to another client | **Yes** |
+| `400` + `invalid_grant` | Token revoked, expired, already used (which also revokes the rest of its sign-in), past its sign-in's 90 days, or issued to another client | **Yes** |
 | `400` + `invalid_scope` | Token carries scopes it may not refresh with; it is refused without being consumed, so it will never succeed | **Yes** |
 | `400` + `invalid_request` | The `refresh_token` field was missing | **Yes** — only a fresh sign-in can supply one |
 | `401` + `invalid_client` | *Your* client id or secret is wrong | **No** — ending sessions will not fix your configuration, and users cannot sign back in either |

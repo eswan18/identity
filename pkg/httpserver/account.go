@@ -185,7 +185,7 @@ func (s *Server) HandleChangePasswordPost(w http.ResponseWriter, r *http.Request
 	// Revoke all OAuth tokens and delete all sessions (including the current
 	// one) for this user, same as account deactivation does.
 	userIDNullable := uuid.NullUUID{UUID: user.ID, Valid: true}
-	if err := s.datastore.Q.RevokeAllUserTokens(r.Context(), userIDNullable); err != nil {
+	if err := s.datastore.Q.RevokeAllUserTokens(r.Context(), db.RevokeAllUserTokensParams{UserID: userIDNullable, Reason: string(revokedLogout)}); err != nil {
 		log.Printf("[ERROR] HandleChangePasswordPost: Failed to revoke tokens: %v", err)
 		// Continue anyway - the password was already changed successfully.
 	}
@@ -631,7 +631,7 @@ func (s *Server) HandleDeactivateAccountPost(w http.ResponseWriter, r *http.Requ
 
 	// Revoke all OAuth tokens for this user
 	userIDNullable := uuid.NullUUID{UUID: user.ID, Valid: true}
-	if err := s.datastore.Q.RevokeAllUserTokens(r.Context(), userIDNullable); err != nil {
+	if err := s.datastore.Q.RevokeAllUserTokens(r.Context(), db.RevokeAllUserTokensParams{UserID: userIDNullable, Reason: string(revokedLogout)}); err != nil {
 		log.Printf("[ERROR] HandleDeactivateAccountPost: Failed to revoke tokens: %v", err)
 		// Continue anyway - account is deactivated, tokens will be rejected on use
 	}

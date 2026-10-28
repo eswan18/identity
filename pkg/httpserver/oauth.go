@@ -258,14 +258,23 @@ func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Req
 	if authCode.Nonce.Valid {
 		nonce = authCode.Nonce.String
 	}
+	// A code exchange is a sign-in, so it starts a refresh-token family.
+	family, err := newFamilyID()
+	if err != nil {
+		s.writeTokenError(w, "server_error", "Failed to generate tokens")
+		return
+	}
 	// The token is for the client's default resource (none: identity itself).
 	// Requests can't name a resource yet, so this is the only resource a code
 	// can be for; once they can, it is resolved at authorize time and read from
 	// the code instead.
-	s.writeTokenResponse(w, r, client.ID, authCode.UserID, authCode.Scope, nonce, client.DefaultResource)
+	s.writeTokenResponse(w, r, client.ID, authCode.UserID, authCode.Scope, nonce, client.DefaultResource, family)
 }
 
-// handleRefreshTokenGrant exchanges a refresh token for new tokens
+// handleRefreshTokenGrant exchanges a refresh token for new tokens, spending it
+// (rotation). Presenting a refresh token that was already spent revokes its
+// whole family (reuse detection; see refresh_families.go). Every refusal of a
+// dead refresh token is invalid_grant.
 func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request, client db.OauthClient) {
 	refreshToken := r.FormValue("refresh_token")
 
@@ -274,8 +283,9 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// Look up the token by refresh token
-	token, err := s.datastore.Q.GetTokenByRefreshToken(r.Context(), sql.NullString{String: refreshToken, Valid: true})
+	// Look up the token by refresh token, revoked or not: how a revoked token
+	// died decides what presenting it again means.
+	token, err := s.datastore.Q.GetTokenByRefreshTokenIncludingRevoked(r.Context(), sql.NullString{String: refreshToken, Valid: true})
 	if err != nil {
 		code, description := lookupFailure(err, "refresh token")
 		s.writeTokenError(w, code, description)
@@ -288,9 +298,25 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// Check if refresh token has expired
+	// Check if refresh token has expired. This comes before the revocation
+	// check, so an expired token is refused as expired whether or not it was
+	// rotated: the cleanup sweep deletes rotated rows once they expire, and the
+	// answer must not depend on whether it has run yet.
 	if token.RefreshExpiresAt.Valid && token.RefreshExpiresAt.Time.Before(time.Now()) {
 		s.writeTokenError(w, "invalid_grant", "Refresh token has expired")
+		return
+	}
+
+	if token.RevokedAt.Valid {
+		s.refuseRevokedRefreshToken(r.Context(), w, client, token)
+		return
+	}
+
+	// The family this refresh continues, which may not go on past its absolute
+	// lifetime however recently it was refreshed.
+	family := tokenFamily(token)
+	if familyExpired(family, time.Now()) {
+		s.writeTokenError(w, "invalid_grant", "Refresh token has reached the maximum lifetime of its sign-in")
 		return
 	}
 
@@ -327,45 +353,75 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// Atomically revoke the old refresh token before minting new tokens. The
-	// WHERE clause (refresh_token = $1 AND revoked_at IS NULL) guards against
-	// TOCTOU: if two concurrent requests both pass the validation above using
-	// the same refresh token, only one of these UPDATEs can affect a row —
-	// whoever "wins" the atomic revoke is the only one allowed to proceed to
-	// token issuance. This mirrors ConsumeAuthorizationCode's handling of the
-	// same race for authorization codes (RFC 6749 §10.5 requires that tokens
-	// not be replayable).
-	rowsAffected, err := s.datastore.Q.RevokeTokenByRefreshToken(r.Context(), sql.NullString{String: refreshToken, Valid: true})
-	if err != nil {
-		s.writeTokenError(w, "server_error", "Failed to revoke old token")
-		return
-	}
-	if rowsAffected == 0 {
-		s.writeTokenError(w, "invalid_grant", "Refresh token has already been used")
-		return
-	}
-
-	// Issue new tokens with the same user, scope and resource (no nonce on
-	// refresh). The resource is the one stored on the token being refreshed,
-	// never the client's current default: changing a client's default must not
-	// re-point tokens already granted, and a refresh must never widen a grant.
+	// Mint the replacement tokens (same user, scope and resource, same family;
+	// no nonce on refresh), then spend the presented token. The resource is the
+	// one stored on the token being refreshed, never the client's current
+	// default: changing a client's default must not re-point tokens already
+	// granted, and a refresh must never widen a grant.
 	var userID uuid.UUID
 	if token.UserID.Valid {
 		userID = token.UserID.UUID
 	}
-	s.writeTokenResponse(w, r, client.ID, userID, token.Scope, "", token.Resource)
-}
-
-// writeTokenResponse generates tokens and writes the JSON response.
-// nonce is included in the ID token if non-empty (per OIDC Core 3.1.2.1).
-// resource is what the access token is for (see generateTokens).
-func (s *Server) writeTokenResponse(w http.ResponseWriter, r *http.Request, clientID uuid.UUID, userID uuid.UUID, scope []string, nonce string, resource sql.NullString) {
-	tokens, err := s.generateTokens(r.Context(), clientID, userID, scope, nonce, resource)
+	tokens, err := s.generateTokens(r.Context(), client.ID, userID, token.Scope, "", token.Resource, family)
 	if err != nil {
 		s.writeTokenError(w, "server_error", "Failed to generate tokens")
 		return
 	}
 
+	// Atomically spend the presented token. The WHERE clause (refresh_token =
+	// $1 AND revoked_at IS NULL) guards against TOCTOU: if two concurrent
+	// requests both pass the validation above with the same refresh token, only
+	// one UPDATE affects a row, and only that request hands out its tokens
+	// (RFC 6749 §10.5; ConsumeAuthorizationCode does the same for codes).
+	//
+	// The loser is a reuse, and with no grace window (spec decision 2) it
+	// revokes the family -- the winner's new tokens included. That only works if
+	// the loser can see them, which is why the replacement is inserted BEFORE
+	// the rotation rather than after. The winner's insert commits before its
+	// rotation, and the loser learns it lost only once that rotation has
+	// committed (its own UPDATE waits on the row lock and re-checks, or its
+	// lookup already saw the token rotated), so the loser's family revocation,
+	// a later statement, always sees the winner's row. Inserted after the
+	// rotation instead, the winner's tokens could land just after the loser's
+	// family revocation had looked, and survive it. No transaction needed, and
+	// no round trip added.
+	rowsAffected, err := s.datastore.Q.RotateRefreshToken(r.Context(), db.RotateRefreshTokenParams{
+		RefreshToken: sql.NullString{String: refreshToken, Valid: true},
+		FamilyID:     family,
+	})
+	if err != nil {
+		if _, revokeErr := s.datastore.Q.RevokeTokenByRefreshToken(r.Context(), db.RevokeTokenByRefreshTokenParams{
+			RefreshToken: sql.NullString{String: tokens.RefreshToken, Valid: true},
+			Reason:       string(revokedRevoked),
+		}); revokeErr != nil {
+			log.Printf("[ERROR] handleRefreshTokenGrant: client %s: failed to revoke unissued tokens: %v", client.ClientID, revokeErr)
+		}
+		s.writeTokenError(w, "server_error", "Failed to revoke old token")
+		return
+	}
+	if rowsAffected == 0 {
+		s.refuseLostRotation(r.Context(), w, client, refreshToken, tokens.RefreshToken)
+		return
+	}
+
+	s.writeTokens(w, tokens)
+}
+
+// writeTokenResponse generates tokens and writes the JSON response.
+// nonce is included in the ID token if non-empty (per OIDC Core 3.1.2.1).
+// resource is what the access token is for (see generateTokens).
+// family is the refresh-token family the tokens join.
+func (s *Server) writeTokenResponse(w http.ResponseWriter, r *http.Request, clientID uuid.UUID, userID uuid.UUID, scope []string, nonce string, resource sql.NullString, family uuid.UUID) {
+	tokens, err := s.generateTokens(r.Context(), clientID, userID, scope, nonce, resource, family)
+	if err != nil {
+		s.writeTokenError(w, "server_error", "Failed to generate tokens")
+		return
+	}
+	s.writeTokens(w, tokens)
+}
+
+// writeTokens writes a successful token response.
+func (s *Server) writeTokens(w http.ResponseWriter, tokens TokenPair) {
 	response := TokenResponse{
 		AccessToken:  tokens.AccessToken,
 		TokenType:    "Bearer",
@@ -908,7 +964,10 @@ func (s *Server) revokeAccessTokenByLookupIfOwned(ctx context.Context, accessTok
 		// revoke a token this client doesn't own (RFC 7009 §2.1).
 		return
 	}
-	s.datastore.Q.RevokeTokenByAccessToken(ctx, sql.NullString{String: accessToken, Valid: true})
+	s.datastore.Q.RevokeTokenByAccessToken(ctx, db.RevokeTokenByAccessTokenParams{
+		AccessToken: sql.NullString{String: accessToken, Valid: true},
+		Reason:      string(revokedRevoked),
+	})
 }
 
 // revokeRefreshTokenIfOwnedByClient looks up the refresh token and revokes it only if it
@@ -924,11 +983,15 @@ func (s *Server) revokeRefreshTokenIfOwnedByClient(ctx context.Context, token st
 		// Token belongs to a different client — do not revoke it (RFC 7009 §2.1).
 		return
 	}
-	// RevokeTokenByRefreshToken now reports rows affected (see handleRefreshTokenGrant's
-	// use of the same method for the replay-prevention fix); the revocation endpoint
-	// doesn't need it — per RFC 7009 it returns 200 OK regardless of whether the token
-	// was found or already revoked, so the row count is intentionally ignored here.
-	_, _ = s.datastore.Q.RevokeTokenByRefreshToken(ctx, sql.NullString{String: token, Valid: true})
+	// The row count is intentionally ignored: per RFC 7009 the endpoint returns
+	// 200 OK regardless of whether the token was found or already revoked.
+	//
+	// The reason is "revoked", not "rotated": presenting this token again later
+	// is refused, but is not reuse and revokes nothing else.
+	_, _ = s.datastore.Q.RevokeTokenByRefreshToken(ctx, db.RevokeTokenByRefreshTokenParams{
+		RefreshToken: sql.NullString{String: token, Valid: true},
+		Reason:       string(revokedRevoked),
+	})
 }
 
 // extractJTIFromToken extracts the JTI claim from a JWT without validating it.

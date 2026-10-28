@@ -134,6 +134,9 @@ SET consumed_at = now()
 WHERE code = $1 AND consumed_at IS NULL;
 
 -- name: InsertToken :one
+-- family_id is the refresh-token family (lineage) the row belongs to: started
+-- by the code exchange, copied by every refresh. NULL for rows with no refresh
+-- token (client_credentials). See handleRefreshTokenGrant.
 INSERT INTO oauth_tokens (
   access_token,
   refresh_token,
@@ -143,9 +146,10 @@ INSERT INTO oauth_tokens (
   token_type,
   expires_at,
   refresh_expires_at,
-  resource
+  resource,
+  family_id
 )
-VALUES ($1, $2, $3, $4, $5, COALESCE(sqlc.narg(token_type)::text, 'bearer'), $6, $7, sqlc.narg(resource))
+VALUES ($1, $2, $3, $4, $5, COALESCE(sqlc.narg(token_type)::text, 'bearer'), $6, $7, sqlc.narg(resource), sqlc.narg(family_id))
 RETURNING *;
 
 -- name: GetTokenByAccessToken :one
@@ -161,26 +165,61 @@ FROM oauth_tokens
 WHERE refresh_token = $1
   AND revoked_at IS NULL;
 
--- name: RevokeTokenByRefreshToken :execrows
--- Atomically revoke a refresh token. Returns 1 if the token was revoked, 0 if
--- it was already revoked (or doesn't exist). Callers MUST check the row count
--- and refuse to issue new tokens on a 0 result — otherwise two concurrent
--- refreshes presenting the same refresh token could both pass validation and
--- both mint new token pairs (refresh-token replay).
+-- name: GetTokenByRefreshTokenIncludingRevoked :one
+-- The refresh grant's lookup. Unlike GetTokenByRefreshToken it returns revoked
+-- rows too, because how a refresh token died decides what presenting it again
+-- means: one revoked because it was rotated is a replay (reuse detection), any
+-- other is just dead.
+SELECT *
+FROM oauth_tokens
+WHERE refresh_token = $1;
+
+-- name: RotateRefreshToken :execrows
+-- Atomically spend a refresh token on a refresh. Returns 1 if this call spent
+-- it, 0 if it was already revoked (or doesn't exist). Callers MUST check the row
+-- count and refuse to hand out new tokens on a 0 result -- otherwise two
+-- concurrent refreshes presenting the same refresh token could both succeed.
+--
+-- A row from before reuse detection has no family; it gets the one its
+-- replacement was minted into, so replaying it later finds that family.
 UPDATE oauth_tokens
-SET revoked_at = now()
+SET revoked_at = now(),
+    revoked_reason = 'rotated',
+    family_id = COALESCE(family_id, sqlc.arg(family_id)::uuid)
+WHERE refresh_token = $1
+  AND revoked_at IS NULL;
+
+-- name: RevokeTokenFamily :execrows
+-- Revoke every live token in a refresh-token family (access tokens included:
+-- they share the row). Returns how many were live.
+UPDATE oauth_tokens
+SET revoked_at = now(),
+    revoked_reason = sqlc.arg(reason)::text
+WHERE family_id = sqlc.arg(family_id)::uuid
+  AND revoked_at IS NULL;
+
+-- name: RevokeTokenByRefreshToken :execrows
+-- Every revocation records why in revoked_reason (see revocationReason in
+-- pkg/httpserver); rows revoked before reasons were recorded have NULL.
+-- Returns 1 if the token was revoked, 0 if it was already revoked (or doesn't
+-- exist). A refresh spends its token with RotateRefreshToken, not this.
+UPDATE oauth_tokens
+SET revoked_at = now(),
+    revoked_reason = sqlc.arg(reason)::text
 WHERE refresh_token = $1
   AND revoked_at IS NULL;
 
 -- name: RevokeTokenByAccessToken :exec
 UPDATE oauth_tokens
-SET revoked_at = now()
+SET revoked_at = now(),
+    revoked_reason = sqlc.arg(reason)::text
 WHERE access_token = $1
   AND revoked_at IS NULL;
 
 -- name: RevokeAllUserTokens :exec
 UPDATE oauth_tokens
-SET revoked_at = now()
+SET revoked_at = now(),
+    revoked_reason = sqlc.arg(reason)::text
 WHERE user_id = $1
   AND revoked_at IS NULL;
 
@@ -390,8 +429,15 @@ WHERE expires_at <= now() OR consumed_at IS NOT NULL;
 -- token is also expired (never delete just because expires_at passed -- a
 -- non-revoked row whose refresh token is still valid, or non-expiring, must
 -- be kept since it can still mint new access tokens).
+--
+-- Except a refresh token revoked because it was rotated: it is kept until it
+-- would have expired, because presenting it again is how reuse is detected,
+-- and a deleted row can only answer "unknown token". Past its expiry a replay
+-- is refused as expired and detects nothing, so the row can go then.
 DELETE FROM oauth_tokens
-WHERE revoked_at IS NOT NULL
+WHERE (revoked_at IS NOT NULL
+       AND NOT (revoked_reason IS NOT DISTINCT FROM 'rotated'
+                AND (refresh_expires_at IS NULL OR refresh_expires_at > now())))
    OR (expires_at <= now()
        AND refresh_expires_at IS NOT NULL
        AND refresh_expires_at <= now());

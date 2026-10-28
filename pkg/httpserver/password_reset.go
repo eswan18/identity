@@ -337,7 +337,7 @@ func (s *Server) HandleResetPasswordPost(w http.ResponseWriter, r *http.Request)
 	// session tied to this request (the user isn't logged in during a reset),
 	// so there's no cookie to clear here.
 	userIDNullable := uuid.NullUUID{UUID: tokenRecord.UserID, Valid: true}
-	if err := s.datastore.Q.RevokeAllUserTokens(r.Context(), userIDNullable); err != nil {
+	if err := s.datastore.Q.RevokeAllUserTokens(r.Context(), db.RevokeAllUserTokensParams{UserID: userIDNullable, Reason: string(revokedLogout)}); err != nil {
 		log.Printf("[ERROR] HandleResetPasswordPost: Failed to revoke tokens: %v", err)
 		// Continue anyway - the password was already reset successfully.
 	}

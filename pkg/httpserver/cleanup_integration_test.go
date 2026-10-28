@@ -240,7 +240,10 @@ func (s *OAuthFlowSuite) TestExpiryCleanup_DeletesDeadTokensOnly() {
 		RefreshExpiresAt: sql.NullTime{Time: future, Valid: true},
 	})
 	s.Require().NoError(err)
-	err = s.datastore.Q.RevokeTokenByAccessToken(ctx, revoked.AccessToken)
+	err = s.datastore.Q.RevokeTokenByAccessToken(ctx, db.RevokeTokenByAccessTokenParams{
+		AccessToken: revoked.AccessToken,
+		Reason:      string(revokedRevoked),
+	})
 	s.Require().NoError(err)
 
 	// (b) Access expired AND refresh expired -- dead, must be deleted.
@@ -265,6 +268,35 @@ func (s *OAuthFlowSuite) TestExpiryCleanup_DeletesDeadTokensOnly() {
 	})
 	s.Require().NoError(err)
 
+	// (f) Rotated (spent by a refresh) while its refresh token has not expired --
+	// must survive: presenting it again is how reuse is detected.
+	rotate := func(tok db.OauthToken) {
+		family, err := newFamilyID()
+		s.Require().NoError(err)
+		n, err := s.datastore.Q.RotateRefreshToken(ctx, db.RotateRefreshTokenParams{
+			RefreshToken: tok.RefreshToken,
+			FamilyID:     family,
+		})
+		s.Require().NoError(err)
+		s.Require().EqualValues(1, n)
+	}
+	rotatedLive := insert(sql.NullTime{Time: future, Valid: true})
+	rotate(rotatedLive)
+
+	// (g) Rotated, refresh token expired -- a replay is refused as expired, so
+	// it is dead: must be deleted.
+	rotatedExpired := insert(sql.NullTime{Time: past, Valid: true})
+	rotate(rotatedExpired)
+
+	// (h) Revoked for reuse, refresh token unexpired -- any other reason is just
+	// revoked: must be deleted.
+	reuseRevoked := insert(sql.NullTime{Time: future, Valid: true})
+	_, err = s.datastore.Q.RevokeTokenByRefreshToken(ctx, db.RevokeTokenByRefreshTokenParams{
+		RefreshToken: reuseRevoked.RefreshToken,
+		Reason:       string(revokedReuseDetected),
+	})
+	s.Require().NoError(err)
+
 	s.assertRowCount("oauth_tokens", "id = $1", revoked.ID, 1)
 	s.assertRowCount("oauth_tokens", "id = $1", bothExpired.ID, 1)
 	s.assertRowCount("oauth_tokens", "id = $1", refreshStillValid.ID, 1)
@@ -276,6 +308,9 @@ func (s *OAuthFlowSuite) TestExpiryCleanup_DeletesDeadTokensOnly() {
 
 	s.assertRowCount("oauth_tokens", "id = $1", revoked.ID, 0)
 	s.assertRowCount("oauth_tokens", "id = $1", bothExpired.ID, 0)
+	s.assertRowCount("oauth_tokens", "id = $1", rotatedLive.ID, 1)
+	s.assertRowCount("oauth_tokens", "id = $1", rotatedExpired.ID, 0)
+	s.assertRowCount("oauth_tokens", "id = $1", reuseRevoked.ID, 0)
 	s.assertRowCount("oauth_tokens", "id = $1", refreshStillValid.ID, 1)
 	s.assertRowCount("oauth_tokens", "id = $1", refreshNonExpiring.ID, 1)
 	s.assertRowCount("oauth_tokens", "id = $1", fullyValid.ID, 1)
