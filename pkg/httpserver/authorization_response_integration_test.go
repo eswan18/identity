@@ -140,7 +140,6 @@ func (s *OAuthFlowSuite) TestEveryAuthorizationResponseCarriesIss() {
 					Name:          "Iss Client",
 					RedirectUris:  []string{callback},
 					AllowedScopes: []string{"openid", "profile", "email"},
-					Audience:      "test-audience",
 				})
 				scv := s.mustCreateStateAndCodeVerifier()
 				q, err := url.ParseQuery(authorizeQueryFor(client.ClientID, callback, "openid profile", scv, nil))
@@ -187,7 +186,6 @@ func (s *OAuthFlowSuite) TestErrorsShownByIdentityAreNotRedirects() {
 		Name:          "Direct Error Client",
 		RedirectUris:  []string{"http://localhost:8080/callback"},
 		AllowedScopes: []string{"openid"},
-		Audience:      "test-audience",
 	})
 	scv := s.mustCreateStateAndCodeVerifier()
 
@@ -244,7 +242,6 @@ func (s *OAuthFlowSuite) TestConsentPageCannotBeFramed() {
 		Name:          "Frame Client",
 		RedirectUris:  []string{"http://localhost:8080/callback"},
 		AllowedScopes: []string{"openid"},
-		Audience:      "test-audience",
 	})
 	scv := s.mustCreateStateAndCodeVerifier()
 	resp, err := httpClient.Get("http://localhost:8080/oauth/consent?" + url.Values{
@@ -280,7 +277,6 @@ func (s *OAuthFlowSuite) TestRegisterCarriesTheWholeRequest() {
 		Name:          "Register Flow Client",
 		RedirectUris:  []string{callback},
 		AllowedScopes: []string{"openid", "profile", "email"},
-		Audience:      "test-audience",
 	})
 	scv := s.mustCreateStateAndCodeVerifier()
 	nonce := s.mustGenerateRandomString(24)
@@ -377,7 +373,6 @@ func (s *OAuthFlowSuite) TestLoopbackRedirectOnAnyPort() {
 		Name:          "Loopback Client",
 		RedirectUris:  []string{"http://localhost/callback", "https://app.example.com/callback"},
 		AllowedScopes: []string{"openid"},
-		Audience:      "test-audience",
 	})
 	scv := s.mustCreateStateAndCodeVerifier()
 	const ephemeral = "http://localhost:54321/callback"
@@ -443,7 +438,6 @@ func (s *OAuthFlowSuite) TestLogoutHonorsWildcardAndLoopback() {
 			"http://localhost/callback",
 		},
 		AllowedScopes: []string{"openid"},
-		Audience:      "test-audience",
 	})
 
 	cases := []struct {
