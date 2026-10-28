@@ -34,19 +34,40 @@ const docTemplate = `{
                 }
             }
         },
-        "/.well-known/openid-configuration": {
+        "/.well-known/oauth-authorization-server": {
             "get": {
-                "description": "Returns OpenID Connect Provider Configuration (RFC 8414). Allows clients to discover all necessary endpoints and provider capabilities.",
+                "description": "Returns the authorization server's metadata. The same document is served at /.well-known/openid-configuration (OpenID Connect Discovery 1.0) and /.well-known/oauth-authorization-server (RFC 8414).",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "oauth2"
                 ],
-                "summary": "OIDC Discovery endpoint",
+                "summary": "Authorization server metadata",
                 "responses": {
                     "200": {
-                        "description": "OIDC provider configuration",
+                        "description": "Authorization server metadata",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/.well-known/openid-configuration": {
+            "get": {
+                "description": "Returns the authorization server's metadata. The same document is served at /.well-known/openid-configuration (OpenID Connect Discovery 1.0) and /.well-known/oauth-authorization-server (RFC 8414).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "oauth2"
+                ],
+                "summary": "Authorization server metadata",
+                "responses": {
+                    "200": {
+                        "description": "Authorization server metadata",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +44,37 @@ type Config struct {
 	// CLEANUP_INTERVAL as a Go duration string (e.g. "1h", "30m"); defaults to
 	// 1 hour when unset or unparseable (see parseCleanupInterval).
 	CleanupInterval time.Duration
+
+	// ProtocolRateLimitPerMinute is the per-IP budget for the protocol
+	// endpoints machines call: both metadata documents, JWKS and the token
+	// endpoint. It is separate from, and higher than, the 20/min budget every
+	// other route shares, because one IP can front many legitimate users there
+	// (Claude's backend calls from a shared range for every Claude user). Read
+	// from PROTOCOL_RATE_LIMIT_PER_MINUTE; zero means
+	// DefaultProtocolRateLimitPerMinute (see parseProtocolRateLimit).
+	ProtocolRateLimitPerMinute int
+}
+
+// DefaultProtocolRateLimitPerMinute is ProtocolRateLimitPerMinute when
+// PROTOCOL_RATE_LIMIT_PER_MINUTE is unset or invalid, and what the server uses
+// for a Config that leaves the field zero.
+const DefaultProtocolRateLimitPerMinute = 300
+
+// parseProtocolRateLimit reads PROTOCOL_RATE_LIMIT_PER_MINUTE as a positive
+// integer. It falls back to DefaultProtocolRateLimitPerMinute when the variable
+// is unset, and also, with a warning so a typo is visible, when it is not a
+// positive integer.
+func parseProtocolRateLimit() int {
+	raw := os.Getenv("PROTOCOL_RATE_LIMIT_PER_MINUTE")
+	if raw == "" {
+		return DefaultProtocolRateLimitPerMinute
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		log.Printf("PROTOCOL_RATE_LIMIT_PER_MINUTE=%q is not a positive integer; using default of %d", raw, DefaultProtocolRateLimitPerMinute)
+		return DefaultProtocolRateLimitPerMinute
+	}
+	return n
 }
 
 // defaultCleanupInterval is the fallback for CleanupInterval when CLEANUP_INTERVAL
@@ -89,6 +121,8 @@ func NewFromEnv() *Config {
 			StorageRegion:    os.Getenv("STORAGE_REGION"),
 			Debug:            os.Getenv("DEBUG") == "true",
 			CleanupInterval:  parseCleanupInterval(),
+
+			ProtocolRateLimitPerMinute: parseProtocolRateLimit(),
 		}
 	} else {
 		// Local development: load from .env files
@@ -116,6 +150,8 @@ func NewFromEnv() *Config {
 			StorageRegion:    os.Getenv("STORAGE_REGION"),
 			Debug:            os.Getenv("DEBUG") == "true",
 			CleanupInterval:  parseCleanupInterval(),
+
+			ProtocolRateLimitPerMinute: parseProtocolRateLimit(),
 		}
 	}
 

@@ -101,11 +101,13 @@ status alone signed users out on transient database failures — it now carries
 
 Keeping the session alive means retries are no longer stopped by a logout, so
 bound them yourself: a few seconds of backoff after a failure, and a timeout on
-the refresh request. `/oauth/token` shares a 20 request/minute per-IP limit with JWKS fetches and the
-login code exchange. The IP is taken from `CF-Connecting-IP` where present and
+the refresh request. `/oauth/token` shares a per-IP limit (300 requests/minute by
+default) with the JWKS and the two metadata documents; the login, consent and
+registration forms and every other route share a separate, much smaller one (20
+requests/minute). The IP is taken from `CF-Connecting-IP` where present and
 the socket address otherwise — so a **server-side** client calling us from inside
 the cluster shares one bucket across all of its users, and an unbounded retry
-loop there can lock your own users out of signing in.
+loop there can still exhaust it for every one of them.
 
 ## Step 4: Store Users in Your Application
 

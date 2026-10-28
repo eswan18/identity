@@ -420,9 +420,18 @@ func (s *Server) handleClientCredentialsGrant(w http.ResponseWriter, r *http.Req
 	scopeParam := r.FormValue("scope")
 	var requestedScopes []string
 	if scopeParam == "" {
-		requestedScopes = client.AllowedScopes
+		// offline_access means "on the user's behalf while they are away"; a
+		// client acting as itself has no user to be away. Leave it out of the
+		// default even if a registration lists it.
+		requestedScopes = slices.DeleteFunc(slices.Clone(client.AllowedScopes), func(sc string) bool {
+			return sc == auth.OfflineAccessScope
+		})
 	} else {
 		requestedScopes = strings.Split(scopeParam, " ")
+	}
+	if slices.Contains(requestedScopes, auth.OfflineAccessScope) {
+		s.writeTokenError(w, "invalid_scope", "offline_access is not available with the client_credentials grant")
+		return
 	}
 
 	// Validate requested scopes against client's allowed_scopes
@@ -972,49 +981,6 @@ func (s *Server) getSessionFromCookie(r *http.Request) (Session, error) {
 	}, nil
 }
 
-// HandleOIDCDiscovery godoc
-// @Summary      OIDC Discovery endpoint
-// @Description  Returns OpenID Connect Provider Configuration (RFC 8414). Allows clients to discover all necessary endpoints and provider capabilities.
-// @Tags         oauth2
-// @Produce      json
-// @Success      200 {object} map[string]interface{} "OIDC provider configuration"
-// @Router       /.well-known/openid-configuration [get]
-func (s *Server) HandleOIDCDiscovery(w http.ResponseWriter, r *http.Request) {
-	issuer := s.config.JWTIssuer
-
-	discovery := map[string]interface{}{
-		// Required fields per OpenID Connect Discovery 1.0
-		"issuer":                 issuer,
-		"authorization_endpoint": issuer + "/oauth/authorize",
-		"token_endpoint":         issuer + "/oauth/token",
-		"jwks_uri":               issuer + "/.well-known/jwks.json",
-
-		// Recommended fields
-		"userinfo_endpoint":                     issuer + "/oauth/userinfo",
-		"scopes_supported":                      []string{"openid", "profile", "email"},
-		"response_types_supported":              []string{"code"},
-		"response_modes_supported":              []string{"query"},
-		"grant_types_supported":                 []string{"authorization_code", "refresh_token", "client_credentials"},
-		"token_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic"},
-		"subject_types_supported":               []string{"public"},
-		"id_token_signing_alg_values_supported": []string{"ES256"},
-		"claims_supported": []string{
-			"sub", "iss", "aud", "exp", "iat", "at_hash",
-			"email", "email_verified",
-			"preferred_username", "given_name", "family_name", "picture",
-		},
-		"code_challenge_methods_supported": []string{"S256"},
-
-		// Additional endpoints
-		"introspection_endpoint": issuer + "/oauth/introspect",
-		"revocation_endpoint":    issuer + "/oauth/revoke",
-		"end_session_endpoint":   issuer + "/oauth/logout",
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(discovery)
-}
-
 // oauthAuthorizeError describes an OAuth error that should be redirected back to
 // the client's redirect_uri per RFC 6749 4.1.2.1.
 type oauthAuthorizeError struct {
@@ -1040,7 +1006,11 @@ func validateAuthorizeParams(client db.OauthClient, responseType, codeChallenge,
 	if codeChallengeMethod != "S256" {
 		return &oauthAuthorizeError{"invalid_request", "Code challenge method must be S256"}
 	}
-	if scopesAllowed, invalidScopes := containsAll(client.AllowedScopes, scope); !scopesAllowed {
+	// offline_access (auth.IsAlwaysGrantableScope) is grantable to every client
+	// without registration, so only the remaining scopes are held to
+	// allowed_scopes.
+	gatedScopes := slices.DeleteFunc(slices.Clone(scope), auth.IsAlwaysGrantableScope)
+	if scopesAllowed, invalidScopes := containsAll(client.AllowedScopes, gatedScopes); !scopesAllowed {
 		return &oauthAuthorizeError{"invalid_scope", fmt.Sprintf("Scopes %v not allowed for this client", invalidScopes)}
 	}
 	// Admin scopes may never ride a user-delegated token.
@@ -1083,6 +1053,9 @@ var scopeDescriptionMap = map[string]string{
 	"openid":  "Verify your identity",
 	"profile": "View your profile information (name, username, avatar)",
 	"email":   "View your email address",
+	// Refresh tokens are issued on every code exchange, so this describes
+	// what the app gets either way; the scope just lets it say so.
+	auth.OfflineAccessScope: "Stay signed in: keep access when you're not using the app",
 }
 
 // HandleConsentGet renders the consent page.
