@@ -216,7 +216,28 @@ func (s *OAuthFlowSuite) mustLoginAndConsent(user UserWithPassword, clientID, re
 	return code
 }
 
+// testResource is how a test gives a client a default resource: the URI its
+// access tokens' aud will be. The register helpers create the resource if no
+// test has yet, so tests can name any URI without setting up the registry.
+func testResource(uri string) sql.NullString {
+	return sql.NullString{String: uri, Valid: true}
+}
+
+// mustEnsureDefaultResource registers params.DefaultResource as a resource, if
+// it is set and not yet registered, so the client row's foreign key holds.
+func mustEnsureDefaultResource(t *testing.T, datastore *store.Store, params db.CreateOAuthClientParams) {
+	t.Helper()
+	if !params.DefaultResource.Valid {
+		return
+	}
+	_, err := datastore.DB.ExecContext(t.Context(),
+		`INSERT INTO oauth_resources (uri, name) VALUES ($1, $1) ON CONFLICT (uri) DO NOTHING`,
+		params.DefaultResource.String)
+	require.NoError(t, err)
+}
+
 func (s *OAuthFlowSuite) mustRegisterOAuthClient(params db.CreateOAuthClientParams) db.OauthClient {
+	mustEnsureDefaultResource(s.T(), s.datastore, params)
 	// The server stores only a hash of the client secret, so hash it before
 	// insert. Preserve the plaintext on the returned struct so callers can
 	// still present it when authenticating.

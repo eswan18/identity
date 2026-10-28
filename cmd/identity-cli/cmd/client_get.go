@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/eswan18/identity/cmd/identity-cli/internal"
 	"github.com/spf13/cobra"
 )
 
@@ -38,7 +39,8 @@ func runClientGet(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("  Redirect URIs:  %s\n", strings.Join(client.RedirectUris, ", "))
 	fmt.Printf("  Allowed Scopes: %s\n", strings.Join(client.AllowedScopes, ", "))
-	fmt.Printf("  Audience:       %s\n", client.Audience)
+	fmt.Printf("  Default Resource: %s\n", internal.DefaultResourceValue(client.DefaultResource))
+	fmt.Printf("  Kind:           %s\n", client.Kind)
 	fmt.Printf("  Confidential:   %v\n", client.IsConfidential)
 	fmt.Printf("  Created:        %s\n", client.CreatedAt.Format("2006-01-02 15:04:05"))
 	fmt.Printf("  Updated:        %s\n", client.UpdatedAt.Format("2006-01-02 15:04:05"))

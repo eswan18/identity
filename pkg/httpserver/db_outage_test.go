@@ -156,13 +156,13 @@ func (s *OAuthFlowSuite) withTableHidden(table string, fn func()) {
 // reverted to a literal "invalid_grant" and the entire suite still passes.
 func (s *OAuthFlowSuite) TestRefreshTokenLookupFailureIsNotAGrantVerdict() {
 	flow := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	s.withTableHidden("oauth_tokens", func() {
@@ -184,13 +184,13 @@ func (s *OAuthFlowSuite) TestRefreshTokenLookupFailureIsNotAGrantVerdict() {
 // exchange, where it costs a sign-in rather than a session.
 func (s *OAuthFlowSuite) TestAuthorizationCodeLookupFailureIsNotAGrantVerdict() {
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	s.withTableHidden("oauth_authorization_codes", func() {
@@ -212,13 +212,13 @@ func (s *OAuthFlowSuite) TestAuthorizationCodeLookupFailureIsNotAGrantVerdict() 
 // retryable, or reuse detection stops logging anyone out.
 func (s *OAuthFlowSuite) TestUnknownRefreshTokenStillEndsTheSession() {
 	flow := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	status, body := s.postToken(s.server, url.Values{

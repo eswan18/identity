@@ -21,11 +21,20 @@ func (s *Server) AdminAuthMiddleware(requiredScopes ...string) func(http.Handler
 			}
 			accessToken := strings.TrimPrefix(authHeader, "Bearer ")
 
-			// Validate JWT - use empty audience since this is the identity provider itself
+			// Validate the JWT (signature, issuer, expiry).
 			claims, err := s.jwtGenerator.ValidateToken(accessToken, "")
 			if err != nil {
 				log.Printf("Admin auth: JWT validation failed: %v", err)
 				s.writeAdminError(w, http.StatusUnauthorized, "invalid_token", "Invalid or expired access token")
+				return
+			}
+
+			// The admin API is identity's own, so it accepts only tokens issued
+			// for identity itself: aud is exactly [issuer]. A token minted for
+			// some other API is not a key to this one, whatever scopes it holds.
+			if !isAudienceExactly(claims.Audience, s.config.JWTIssuer) {
+				log.Printf("Admin auth: token audience %v is not this issuer", []string(claims.Audience))
+				s.writeAdminError(w, http.StatusUnauthorized, "invalid_token", "Access token was not issued for this server")
 				return
 			}
 
@@ -59,6 +68,13 @@ func (s *Server) AdminAuthMiddleware(requiredScopes ...string) func(http.Handler
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// isAudienceExactly reports whether aud names want and nothing else. Tokens this
+// service issues always carry exactly one audience, so anything else is not one
+// of ours for this purpose.
+func isAudienceExactly(aud []string, want string) bool {
+	return len(aud) == 1 && aud[0] == want
 }
 
 // writeAdminError writes an OAuth2-format error response for admin endpoints

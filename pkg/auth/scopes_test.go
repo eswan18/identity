@@ -35,6 +35,19 @@ func TestIsAdminScope(t *testing.T) {
 	}
 }
 
+func TestIsIdentityScope(t *testing.T) {
+	for _, scope := range []string{"openid", "profile", "email", "offline_access", "admin:users:read", "admin:"} {
+		if !IsIdentityScope(scope) {
+			t.Errorf("IsIdentityScope(%q) = false, want true", scope)
+		}
+	}
+	for _, scope := range []string{"sensibility:read", "read", "admin", "OpenID", "", "openid profile"} {
+		if IsIdentityScope(scope) {
+			t.Errorf("IsIdentityScope(%q) = true, want false", scope)
+		}
+	}
+}
+
 func TestAdminScopesIn(t *testing.T) {
 	tests := []struct {
 		name   string

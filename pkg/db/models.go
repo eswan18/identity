@@ -6,6 +6,7 @@ package db
 
 import (
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -81,19 +82,36 @@ type OauthAuthorizationCode struct {
 	ConsumedAt          sql.NullTime   `json:"consumed_at"`
 	CreatedAt           time.Time      `json:"created_at"`
 	Nonce               sql.NullString `json:"nonce"`
+	Resource            sql.NullString `json:"resource"`
 }
 
 type OauthClient struct {
-	ID             uuid.UUID      `json:"id"`
-	ClientID       string         `json:"client_id"`
-	ClientSecret   sql.NullString `json:"client_secret"`
-	Name           string         `json:"name"`
-	RedirectUris   []string       `json:"redirect_uris"`
-	AllowedScopes  []string       `json:"allowed_scopes"`
-	IsConfidential bool           `json:"is_confidential"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
-	Audience       string         `json:"audience"`
+	ID                uuid.UUID      `json:"id"`
+	ClientID          string         `json:"client_id"`
+	ClientSecret      sql.NullString `json:"client_secret"`
+	Name              string         `json:"name"`
+	RedirectUris      []string       `json:"redirect_uris"`
+	AllowedScopes     []string       `json:"allowed_scopes"`
+	IsConfidential    bool           `json:"is_confidential"`
+	CreatedAt         time.Time      `json:"created_at"`
+	UpdatedAt         time.Time      `json:"updated_at"`
+	DefaultResource   sql.NullString `json:"default_resource"`
+	Kind              string         `json:"kind"`
+	MetadataFetchedAt sql.NullTime   `json:"metadata_fetched_at"`
+}
+
+type OauthClientResource struct {
+	ClientID   uuid.UUID `json:"client_id"`
+	ResourceID uuid.UUID `json:"resource_id"`
+}
+
+type OauthResource struct {
+	ID             uuid.UUID       `json:"id"`
+	Uri            string          `json:"uri"`
+	Name           string          `json:"name"`
+	Scopes         json.RawMessage `json:"scopes"`
+	DynamicClients bool            `json:"dynamic_clients"`
+	CreatedAt      time.Time       `json:"created_at"`
 }
 
 type OauthToken struct {
@@ -108,13 +126,17 @@ type OauthToken struct {
 	RefreshExpiresAt sql.NullTime   `json:"refresh_expires_at"`
 	RevokedAt        sql.NullTime   `json:"revoked_at"`
 	CreatedAt        time.Time      `json:"created_at"`
+	Resource         sql.NullString `json:"resource"`
+	FamilyID         uuid.NullUUID  `json:"family_id"`
+	RevokedReason    sql.NullString `json:"revoked_reason"`
 }
 
 type OauthUserConsent struct {
-	ID        uuid.UUID `json:"id"`
-	UserID    uuid.UUID `json:"user_id"`
-	ClientID  uuid.UUID `json:"client_id"`
-	Scopes    []string  `json:"scopes"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        uuid.UUID      `json:"id"`
+	UserID    uuid.UUID      `json:"user_id"`
+	ClientID  uuid.UUID      `json:"client_id"`
+	Scopes    []string       `json:"scopes"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	Resource  sql.NullString `json:"resource"`
 }

@@ -23,9 +23,18 @@ type Generator struct {
 	keyID      string
 }
 
+// AccessTokenType is the JWT header "typ" of every access token this service
+// issues (RFC 9068 §2.1). It is what lets a resource server tell an access token
+// from an ID token signed by the same key: ID tokens keep the library's default
+// "JWT".
+const AccessTokenType = "at+jwt"
+
 // Claims represents the JWT claims structure
 type Claims struct {
 	jwt.RegisteredClaims
+	// ClientID is the public client_id of the client the token was issued to
+	// (RFC 9068 §2.2). Absent on access tokens minted before it was added.
+	ClientID      string `json:"client_id,omitempty"`
 	Username      string `json:"username"`
 	Email         string `json:"email"`
 	EmailVerified bool   `json:"email_verified"`
@@ -54,9 +63,12 @@ func NewGenerator(privateKeyPEM, issuer, keyID string) (*Generator, error) {
 	}, nil
 }
 
-// GenerateAccessToken creates a signed JWT access token
+// GenerateAccessToken creates a signed JWT access token for a user, in the
+// RFC 9068 profile: header typ "at+jwt", a client_id claim naming the public
+// client_id it was issued to, and aud as a one-element array holding audience
+// (the resource the token is for, or the issuer when it is for identity itself).
 func (g *Generator) GenerateAccessToken(
-	userID, username, email, audience string,
+	userID, username, email, audience, clientID string,
 	emailVerified bool,
 	scope []string,
 	expiresIn time.Duration,
@@ -73,6 +85,7 @@ func (g *Generator) GenerateAccessToken(
 			IssuedAt:  jwt.NewNumericDate(now),
 			ID:        jti,
 		},
+		ClientID:      clientID,
 		Username:      username,
 		Email:         email,
 		EmailVerified: emailVerified,
@@ -82,6 +95,7 @@ func (g *Generator) GenerateAccessToken(
 	// Create token with ES256 signing method
 	jwtToken := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
 	jwtToken.Header["kid"] = g.keyID
+	jwtToken.Header["typ"] = AccessTokenType
 
 	// Sign the token
 	signedToken, err := jwtToken.SignedString(g.privateKey)
@@ -187,7 +201,9 @@ func (g *Generator) GenerateIDToken(
 }
 
 // GenerateServiceAccountToken creates a signed JWT for service accounts (client credentials grant).
-// Uses client_id as subject, omits user-specific claims (username, email).
+// Uses client_id as subject, omits user-specific claims (username, email). Same
+// RFC 9068 profile as GenerateAccessToken: typ "at+jwt", a client_id claim, and
+// aud as a one-element array (it used to be a bare string here).
 func (g *Generator) GenerateServiceAccountToken(
 	clientID, audience string,
 	scope []string,
@@ -198,18 +214,20 @@ func (g *Generator) GenerateServiceAccountToken(
 
 	// For service accounts, we use a simpler claim structure without user info
 	claims := jwt.MapClaims{
-		"iss":   g.issuer,
-		"sub":   clientID, // Client ID as subject for service accounts
-		"aud":   audience,
-		"exp":   now.Add(expiresIn).Unix(),
-		"iat":   now.Unix(),
-		"jti":   jti,
-		"scope": joinScope(scope),
+		"iss":       g.issuer,
+		"sub":       clientID, // Client ID as subject for service accounts
+		"client_id": clientID,
+		"aud":       []string{audience},
+		"exp":       now.Add(expiresIn).Unix(),
+		"iat":       now.Unix(),
+		"jti":       jti,
+		"scope":     joinScope(scope),
 		// Note: No username, email, email_verified for service accounts
 	}
 
 	jwtToken := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
 	jwtToken.Header["kid"] = g.keyID
+	jwtToken.Header["typ"] = AccessTokenType
 
 	signedToken, err := jwtToken.SignedString(g.privateKey)
 	if err != nil {

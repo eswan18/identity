@@ -31,12 +31,12 @@ import (
 // one takes a single plausible-looking command.
 func (s *OAuthFlowSuite) TestAdminScopeUnreachableViaAuthorizationCode() {
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "admin:users:write"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "admin:users:write"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	username := s.mustGenerateAlphanumericString(10)
@@ -82,12 +82,12 @@ func (s *OAuthFlowSuite) TestAdminScopeUnreachableViaAuthorizationCode() {
 // diverged from authorize.
 func (s *OAuthFlowSuite) TestAdminScopeUnreachableViaConsent() {
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "admin:users:write"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "admin:users:write"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	username := s.mustGenerateAlphanumericString(10)
@@ -126,13 +126,13 @@ func (s *OAuthFlowSuite) TestAdminScopeUnreachableViaConsent() {
 func (s *OAuthFlowSuite) TestAdminScopeStillReachableViaClientCredentials() {
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"admin:users:read", "admin:users:write"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"admin:users:read", "admin:users:write"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	token := s.mustGetClientCredentialsToken(client.ClientID, clientSecret, "admin:users:read")
@@ -159,13 +159,13 @@ func (s *OAuthFlowSuite) TestAdminScopeStillReachableViaClientCredentials() {
 func (s *OAuthFlowSuite) TestRefreshTokenCarryingAdminScopeRejected() {
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "admin:users:write"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "admin:users:write"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	username := s.mustGenerateAlphanumericString(10)

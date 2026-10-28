@@ -451,13 +451,13 @@ func (s *AvatarFlowSuite) TestUserInfoReturnsPicture() {
 	// Create a test user and OAuth client
 	user, password := s.mustRegisterUser()
 	oauthClient := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(16),
-		ClientSecret:   sql.NullString{String: s.mustGenerateRandomString(32), Valid: true},
-		Name:           "Test Client",
-		RedirectUris:   []string{"http://localhost:3000/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: true,
-		Audience:       "test-audience",
+		ClientID:        s.mustGenerateRandomString(16),
+		ClientSecret:    sql.NullString{String: s.mustGenerateRandomString(32), Valid: true},
+		Name:            "Test Client",
+		RedirectUris:    []string{"http://localhost:3000/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  true,
+		DefaultResource: testResource("test-audience"),
 	})
 
 	// First, upload an avatar for the user
@@ -553,6 +553,7 @@ func (s *AvatarFlowSuite) mustGenerateAlphanumericString(length int) string {
 
 // mustRegisterOAuthClient creates an OAuth client for testing
 func (s *AvatarFlowSuite) mustRegisterOAuthClient(params db.CreateOAuthClientParams) db.OauthClient {
+	mustEnsureDefaultResource(s.T(), s.datastore, params)
 	// The server stores only a hash of the client secret, so hash it before
 	// insert. Preserve the plaintext on the returned struct so callers can
 	// still present it when authenticating.

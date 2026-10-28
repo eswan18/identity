@@ -73,12 +73,12 @@ func (s *OAuthFlowSuite) TestSuccessPageRendersWhenAuthenticated() {
 
 func (s *OAuthFlowSuite) TestAuthorizeInvalidScopeRedirectsErrorToClient() {
 	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
-		ClientID:       "authz-error-scope-client",
-		Name:           "Authz Error Scope Client",
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: false,
-		Audience:       "test-audience",
+		ClientID:        "authz-error-scope-client",
+		Name:            "Authz Error Scope Client",
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  false,
+		DefaultResource: testResource("test-audience"),
 	})
 	scv := s.mustCreateStateAndCodeVerifier()
 
@@ -112,12 +112,12 @@ func (s *OAuthFlowSuite) TestAuthorizeInvalidScopeRedirectsErrorToClient() {
 // bogus "state=" in the redirect URL when the client never sent one.
 func (s *OAuthFlowSuite) TestAuthorizeErrorRedirectOmitsStateWhenNotSupplied() {
 	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
-		ClientID:       "authz-error-no-state-client",
-		Name:           "Authz Error No State Client",
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: false,
-		Audience:       "test-audience",
+		ClientID:        "authz-error-no-state-client",
+		Name:            "Authz Error No State Client",
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  false,
+		DefaultResource: testResource("test-audience"),
 	})
 	scv := s.mustCreateStateAndCodeVerifier()
 
@@ -145,12 +145,12 @@ func (s *OAuthFlowSuite) TestAuthorizeErrorRedirectOmitsStateWhenNotSupplied() {
 
 func (s *OAuthFlowSuite) TestAuthorizeMissingPKCERedirectsErrorToClient() {
 	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
-		ClientID:       "authz-error-pkce-client",
-		Name:           "Authz Error PKCE Client",
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: false,
-		Audience:       "test-audience",
+		ClientID:        "authz-error-pkce-client",
+		Name:            "Authz Error PKCE Client",
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  false,
+		DefaultResource: testResource("test-audience"),
 	})
 
 	// Omit code_challenge and code_challenge_method
@@ -176,12 +176,12 @@ func (s *OAuthFlowSuite) TestAuthorizeMissingPKCERedirectsErrorToClient() {
 
 func (s *OAuthFlowSuite) TestAuthorizeInvalidResponseTypeRedirectsErrorToClient() {
 	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
-		ClientID:       "authz-error-rt-client",
-		Name:           "Authz Error RT Client",
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: false,
-		Audience:       "test-audience",
+		ClientID:        "authz-error-rt-client",
+		Name:            "Authz Error RT Client",
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  false,
+		DefaultResource: testResource("test-audience"),
 	})
 
 	scv := s.mustCreateStateAndCodeVerifier()
@@ -211,12 +211,12 @@ func (s *OAuthFlowSuite) TestAuthorizeInvalidResponseTypeRedirectsErrorToClient(
 func (s *OAuthFlowSuite) TestAuthorizeInvalidClientShowsDirectError() {
 	// Login first to get a session, using a dummy client
 	httpClient, _ := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
-		ClientID:       "authz-dummy-client",
-		Name:           "Dummy Client",
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: false,
-		Audience:       "test-audience",
+		ClientID:        "authz-dummy-client",
+		Name:            "Dummy Client",
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  false,
+		DefaultResource: testResource("test-audience"),
 	})
 
 	// Now try to authorize with a nonexistent client — can't trust the redirect_uri
@@ -239,12 +239,12 @@ func (s *OAuthFlowSuite) TestAuthorizeInvalidClientShowsDirectError() {
 
 func (s *OAuthFlowSuite) TestAuthorizeInvalidRedirectURIShowsDirectError() {
 	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
-		ClientID:       "authz-error-redir-client",
-		Name:           "Authz Error Redir Client",
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: false,
-		Audience:       "test-audience",
+		ClientID:        "authz-error-redir-client",
+		Name:            "Authz Error Redir Client",
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  false,
+		DefaultResource: testResource("test-audience"),
 	})
 
 	// Use a redirect_uri that's NOT registered for this client
@@ -267,12 +267,12 @@ func (s *OAuthFlowSuite) TestAuthorizeInvalidRedirectURIShowsDirectError() {
 
 func (s *OAuthFlowSuite) TestConsentScreenShownOnFirstAuthorize() {
 	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
-		ClientID:       "consent-test-client",
-		Name:           "Consent Test App",
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "test-audience",
+		ClientID:        "consent-test-client",
+		Name:            "Consent Test App",
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("test-audience"),
 	})
 	scv := s.mustCreateStateAndCodeVerifier()
 
@@ -298,12 +298,12 @@ func (s *OAuthFlowSuite) TestConsentScreenShownOnFirstAuthorize() {
 
 func (s *OAuthFlowSuite) TestConsentApproveGeneratesCode() {
 	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
-		ClientID:       "consent-approve-client",
-		Name:           "Consent Approve App",
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "test-audience",
+		ClientID:        "consent-approve-client",
+		Name:            "Consent Approve App",
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("test-audience"),
 	})
 	scv := s.mustCreateStateAndCodeVerifier()
 
@@ -337,12 +337,12 @@ func (s *OAuthFlowSuite) TestConsentApproveGeneratesCode() {
 // q.Set("state", state), producing a bogus "state=" when the client never sent one.
 func (s *OAuthFlowSuite) TestConsentApproveOmitsStateWhenNotSupplied() {
 	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
-		ClientID:       "consent-approve-no-state-client",
-		Name:           "Consent Approve No State App",
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "test-audience",
+		ClientID:        "consent-approve-no-state-client",
+		Name:            "Consent Approve No State App",
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("test-audience"),
 	})
 	scv := s.mustCreateStateAndCodeVerifier()
 
@@ -370,12 +370,12 @@ func (s *OAuthFlowSuite) TestConsentApproveOmitsStateWhenNotSupplied() {
 
 func (s *OAuthFlowSuite) TestConsentDenyRedirectsWithError() {
 	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
-		ClientID:       "consent-deny-client",
-		Name:           "Consent Deny App",
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: false,
-		Audience:       "test-audience",
+		ClientID:        "consent-deny-client",
+		Name:            "Consent Deny App",
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  false,
+		DefaultResource: testResource("test-audience"),
 	})
 	scv := s.mustCreateStateAndCodeVerifier()
 
@@ -404,12 +404,12 @@ func (s *OAuthFlowSuite) TestConsentDenyRedirectsWithError() {
 
 func (s *OAuthFlowSuite) TestConsentRemembered() {
 	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
-		ClientID:       "consent-remember-client",
-		Name:           "Consent Remember App",
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "test-audience",
+		ClientID:        "consent-remember-client",
+		Name:            "Consent Remember App",
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("test-audience"),
 	})
 	scv := s.mustCreateStateAndCodeVerifier()
 
@@ -453,12 +453,12 @@ func (s *OAuthFlowSuite) TestConsentRemembered() {
 
 func (s *OAuthFlowSuite) TestConsentRePromptedForNewScopes() {
 	httpClient, client := s.mustLoginAndGetAuthorizeClient(db.CreateOAuthClientParams{
-		ClientID:       "consent-reprompt-client",
-		Name:           "Consent Reprompt App",
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "test-audience",
+		ClientID:        "consent-reprompt-client",
+		Name:            "Consent Reprompt App",
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("test-audience"),
 	})
 	scv := s.mustCreateStateAndCodeVerifier()
 
@@ -511,12 +511,12 @@ func (s *OAuthFlowSuite) TestLogoutRedirectsToLoginByDefault() {
 func (s *OAuthFlowSuite) TestLogoutWithValidPostLogoutRedirectURI() {
 	// Register a client with a known redirect URI
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       "logout-test-client",
-		Name:           "Logout Test Client",
-		RedirectUris:   []string{"http://example.com/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: false,
-		Audience:       "test-audience",
+		ClientID:        "logout-test-client",
+		Name:            "Logout Test Client",
+		RedirectUris:    []string{"http://example.com/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  false,
+		DefaultResource: testResource("test-audience"),
 	})
 
 	// Logout with a valid post_logout_redirect_uri and client_id
@@ -534,12 +534,12 @@ func (s *OAuthFlowSuite) TestLogoutWithValidPostLogoutRedirectURI() {
 func (s *OAuthFlowSuite) TestLogoutRejectsUnregisteredPostLogoutRedirectURI() {
 	// Register a client with a known redirect URI
 	s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       "logout-reject-client",
-		Name:           "Logout Reject Client",
-		RedirectUris:   []string{"http://example.com/callback"},
-		AllowedScopes:  []string{"openid"},
-		IsConfidential: false,
-		Audience:       "test-audience",
+		ClientID:        "logout-reject-client",
+		Name:            "Logout Reject Client",
+		RedirectUris:    []string{"http://example.com/callback"},
+		AllowedScopes:   []string{"openid"},
+		IsConfidential:  false,
+		DefaultResource: testResource("test-audience"),
 	})
 
 	// Logout with a redirect URI that is NOT in the client's registered URIs

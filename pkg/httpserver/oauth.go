@@ -292,7 +292,11 @@ func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Req
 	if authCode.Nonce.Valid {
 		nonce = authCode.Nonce.String
 	}
-	s.writeTokenResponse(w, r, client.ID, authCode.UserID, authCode.Scope, nonce)
+	// The token is for the client's default resource (none: identity itself).
+	// Requests can't name a resource yet, so this is the only resource a code
+	// can be for; once they can, it is resolved at authorize time and read from
+	// the code instead.
+	s.writeTokenResponse(w, r, client.ID, authCode.UserID, authCode.Scope, nonce, client.DefaultResource)
 }
 
 // handleRefreshTokenGrant exchanges a refresh token for new tokens
@@ -375,18 +379,22 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// Issue new tokens with the same user and scope (no nonce on refresh)
+	// Issue new tokens with the same user, scope and resource (no nonce on
+	// refresh). The resource is the one stored on the token being refreshed,
+	// never the client's current default: changing a client's default must not
+	// re-point tokens already granted, and a refresh must never widen a grant.
 	var userID uuid.UUID
 	if token.UserID.Valid {
 		userID = token.UserID.UUID
 	}
-	s.writeTokenResponse(w, r, client.ID, userID, token.Scope, "")
+	s.writeTokenResponse(w, r, client.ID, userID, token.Scope, "", token.Resource)
 }
 
 // writeTokenResponse generates tokens and writes the JSON response.
 // nonce is included in the ID token if non-empty (per OIDC Core 3.1.2.1).
-func (s *Server) writeTokenResponse(w http.ResponseWriter, r *http.Request, clientID uuid.UUID, userID uuid.UUID, scope []string, nonce string) {
-	tokens, err := s.generateTokens(r.Context(), clientID, userID, scope, nonce)
+// resource is what the access token is for (see generateTokens).
+func (s *Server) writeTokenResponse(w http.ResponseWriter, r *http.Request, clientID uuid.UUID, userID uuid.UUID, scope []string, nonce string, resource sql.NullString) {
+	tokens, err := s.generateTokens(r.Context(), clientID, userID, scope, nonce, resource)
 	if err != nil {
 		s.writeTokenError(w, "server_error", "Failed to generate tokens")
 		return
@@ -447,7 +455,7 @@ func (s *Server) handleClientCredentialsGrant(w http.ResponseWriter, r *http.Req
 // writeClientCredentialsTokenResponse generates service account tokens and writes the JSON response.
 // Per OAuth2 spec, client_credentials does not include a refresh token.
 func (s *Server) writeClientCredentialsTokenResponse(w http.ResponseWriter, r *http.Request, client db.OauthClient, scope []string) {
-	tokens, err := s.generateServiceAccountTokens(r.Context(), client.ID, scope)
+	tokens, err := s.generateServiceAccountTokens(r.Context(), client, scope)
 	if err != nil {
 		log.Printf("writeClientCredentialsTokenResponse: failed to generate tokens: %v", err)
 		s.writeTokenError(w, "server_error", "Failed to generate tokens")
@@ -633,6 +641,17 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// UserInfo serves only tokens obtained through OpenID Connect
+	// authentication (OIDC Core §5.3), i.e. ones granted the openid scope. A
+	// token issued for some other API -- an MCP client's, carrying only that
+	// API's scopes -- must not double as a key to the user's profile. Every
+	// login client requests openid, so none of them is affected.
+	scopes := strings.Split(claims.Scope, " ")
+	if !slices.Contains(scopes, "openid") {
+		writeUserInfoUnauthorized(w, "invalid_token", "Access token was not issued with the openid scope")
+		return
+	}
+
 	// Return OIDC standard claims from JWT.
 	// Only "sub" is always included; other claims are gated by scope per OIDC Core Section 5.4.
 	userInfo := map[string]interface{}{
@@ -640,7 +659,6 @@ func (s *Server) HandleOauthUserInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// "email" scope: email and email_verified
-	scopes := strings.Split(claims.Scope, " ")
 	if slices.Contains(scopes, "email") {
 		userInfo["email"] = claims.Email
 		userInfo["email_verified"] = claims.EmailVerified
@@ -708,32 +726,19 @@ func (s *Server) HandleIntrospect(w http.ResponseWriter, r *http.Request) {
 	var response map[string]interface{}
 
 	if tokenTypeHint == "refresh_token" {
-		response = s.introspectRefreshToken(r.Context(), token)
-	} else if tokenTypeHint == "access_token" || tokenTypeHint == "" {
-		// Try access token first
-		var err error
-		response, err = s.introspectAccessToken(r.Context(), token)
-		if err != nil {
-			log.Printf("HandleIntrospect: %v", err)
-			writeJSONError(w, http.StatusInternalServerError, "server_error", "Failed to verify token status")
-			return
-		}
-		// If not active and no hint was provided, try refresh token
-		if !response["active"].(bool) && tokenTypeHint == "" {
-			response = s.introspectRefreshToken(r.Context(), token)
-		}
+		response, err = s.introspectRefreshToken(r.Context(), token)
 	} else {
-		// Unknown hint, try both
-		var err error
+		// Try access token first. With no hint, or a hint we don't know, fall
+		// back to treating it as a refresh token.
 		response, err = s.introspectAccessToken(r.Context(), token)
-		if err != nil {
-			log.Printf("HandleIntrospect: %v", err)
-			writeJSONError(w, http.StatusInternalServerError, "server_error", "Failed to verify token status")
-			return
+		if err == nil && !response["active"].(bool) && tokenTypeHint != "access_token" {
+			response, err = s.introspectRefreshToken(r.Context(), token)
 		}
-		if !response["active"].(bool) {
-			response = s.introspectRefreshToken(r.Context(), token)
-		}
+	}
+	if err != nil {
+		log.Printf("HandleIntrospect: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "server_error", "Failed to verify token status")
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -764,11 +769,16 @@ func (s *Server) introspectAccessToken(ctx context.Context, token string) (map[s
 		return inactive, nil
 	}
 
+	clientID, err := s.publicClientID(ctx, dbToken.ClientID)
+	if err != nil {
+		return nil, err
+	}
+
 	// Token is valid and not revoked
 	response := map[string]interface{}{
 		"active":     true,
 		"scope":      claims.Scope,
-		"client_id":  dbToken.ClientID.String(),
+		"client_id":  clientID,
 		"username":   claims.Username,
 		"token_type": "Bearer",
 		"exp":        claims.ExpiresAt.Unix(),
@@ -785,16 +795,34 @@ func (s *Server) introspectAccessToken(ctx context.Context, token string) (map[s
 	return response, nil
 }
 
-// introspectRefreshToken attempts to introspect a refresh token
-func (s *Server) introspectRefreshToken(ctx context.Context, token string) map[string]interface{} {
+// publicClientID maps a client's internal id (what oauth_tokens references) to
+// the client_id it is known by everywhere else. Introspection reports the
+// latter, per RFC 7662 §2.2; it used to leak the internal UUID instead.
+func (s *Server) publicClientID(ctx context.Context, id uuid.UUID) (string, error) {
+	client, err := s.datastore.Q.GetOAuthClientByID(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("looking up the client a token was issued to: %w", err)
+	}
+	return client.ClientID, nil
+}
+
+// introspectRefreshToken attempts to introspect a refresh token. As with
+// introspectAccessToken, a non-nil error means the answer is unknown, not
+// inactive, and the caller reports a server error.
+func (s *Server) introspectRefreshToken(ctx context.Context, token string) (map[string]interface{}, error) {
 	dbToken, err := s.datastore.Q.GetTokenByRefreshToken(ctx, sql.NullString{String: token, Valid: true})
 	if err != nil {
-		return map[string]interface{}{"active": false}
+		return map[string]interface{}{"active": false}, nil
 	}
 
 	// Check if refresh token is expired
 	if dbToken.RefreshExpiresAt.Valid && dbToken.RefreshExpiresAt.Time.Before(time.Now()) {
-		return map[string]interface{}{"active": false}
+		return map[string]interface{}{"active": false}, nil
+	}
+
+	clientID, err := s.publicClientID(ctx, dbToken.ClientID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Get user info for the response
@@ -807,7 +835,7 @@ func (s *Server) introspectRefreshToken(ctx context.Context, token string) map[s
 	response := map[string]interface{}{
 		"active":     true,
 		"scope":      strings.Join(dbToken.Scope, " "),
-		"client_id":  dbToken.ClientID.String(),
+		"client_id":  clientID,
 		"username":   username,
 		"token_type": "refresh_token",
 		"iat":        dbToken.CreatedAt.Unix(),
@@ -822,7 +850,7 @@ func (s *Server) introspectRefreshToken(ctx context.Context, token string) map[s
 		response["exp"] = dbToken.RefreshExpiresAt.Time.Unix()
 	}
 
-	return response
+	return response, nil
 }
 
 // handleRevoke godoc

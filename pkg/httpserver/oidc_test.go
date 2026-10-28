@@ -25,13 +25,13 @@ import (
 // when the openid scope is requested, per OIDC Core Section 3.1.3.3.
 func (s *OAuthFlowSuite) TestTokenResponseIncludesIDToken() {
 	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	// ID token should be present
@@ -74,13 +74,13 @@ func (s *OAuthFlowSuite) TestTokenResponseIncludesIDToken() {
 // it appears in the ID token per OIDC Core Section 3.1.2.1.
 func (s *OAuthFlowSuite) TestIDTokenIncludesNonce() {
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 	username := s.mustGenerateRandomString(8)
 	password := s.mustGenerateRandomString(16)
@@ -189,13 +189,13 @@ func (s *OAuthFlowSuite) TestIDTokenIncludesNonce() {
 // the ID token does not include a nonce claim.
 func (s *OAuthFlowSuite) TestIDTokenOmitsNonceWhenNotProvided() {
 	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	s.Require().NotEmpty(result.TokenResponse.IDToken)
@@ -248,13 +248,13 @@ func (s *OAuthFlowSuite) TestLoginGetPreservesNonce() {
 // earlier regression where HandleLoginGet silently dropped the nonce.
 func (s *OAuthFlowSuite) TestIDTokenIncludesNonceThroughBrowserFlow() {
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 	username := s.mustGenerateAlphanumericString(12)
 	password := s.mustGenerateRandomString(16)
@@ -390,13 +390,13 @@ func (s *OAuthFlowSuite) TestTokenResponseIDTokenAbsentWithoutOpenID() {
 	// Create a client that only has admin scopes (no openid)
 	clientSecret := s.mustGenerateRandomString(32)
 	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"admin:users:read"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8080",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"admin:users:read"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8080"),
 	})
 
 	// Use client credentials (no openid scope)
@@ -460,13 +460,13 @@ func (s *OAuthFlowSuite) TestJWKSEndpoint() {
 func (s *OAuthFlowSuite) TestClientCanValidateAccessToken() {
 	// Complete OAuth flow to get an access token
 	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 
 	accessToken := result.TokenResponse.AccessToken
@@ -510,7 +510,7 @@ func (s *OAuthFlowSuite) TestClientCanValidateAccessToken() {
 	err = json.Unmarshal(headerBytes, &header)
 	s.Require().NoError(err)
 	s.Equal("ES256", header.Alg)
-	s.Equal("JWT", header.Typ)
+	s.Equal("at+jwt", header.Typ, "access tokens are typed at+jwt (RFC 9068)")
 
 	// Step 3: Find matching key in JWKS
 	var matchingKey *struct {
@@ -558,16 +558,10 @@ func (s *OAuthFlowSuite) TestClientCanValidateAccessToken() {
 
 	// Verify standard claims
 	s.Equal("http://localhost:8080", claims["iss"], "issuer should match")
-	// Audience can be a string or array depending on JWT library behavior
-	switch aud := claims["aud"].(type) {
-	case string:
-		s.Equal(result.Client.Audience, aud, "audience should match client's audience")
-	case []any:
-		s.Require().NotEmpty(aud, "audience array should not be empty")
-		s.Equal(result.Client.Audience, aud[0], "audience should match client's audience")
-	default:
-		s.Fail("unexpected audience type")
-	}
+	// aud is always a one-element array holding the client's default resource
+	s.Equal([]any{result.Client.DefaultResource.String}, claims["aud"], "audience should be the client's default resource")
+	s.Equal("at+jwt", token.Header["typ"], "access tokens are typed at+jwt (RFC 9068)")
+	s.Equal(result.Client.ClientID, claims["client_id"], "client_id claim should be the public client_id")
 	s.Equal(result.User.ID.String(), claims["sub"], "subject should be user ID")
 
 	// Verify expiration is in the future
@@ -585,13 +579,13 @@ func (s *OAuthFlowSuite) TestClientCanValidateAccessToken() {
 func (s *OAuthFlowSuite) TestUserInfoEndpoint() {
 	// Complete OAuth flow to get an access token
 	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 
 	accessToken := result.TokenResponse.AccessToken
@@ -633,13 +627,13 @@ func (s *OAuthFlowSuite) TestUserInfoEndpoint() {
 // must work over POST and return the same claims as the GET endpoint.
 func (s *OAuthFlowSuite) TestUserInfoEndpointPOST() {
 	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 
 	accessToken := result.TokenResponse.AccessToken
@@ -700,13 +694,13 @@ func (s *OAuthFlowSuite) TestUserInfoEndpointPOST() {
 func (s *OAuthFlowSuite) TestUserInfoScopeGating() {
 	// Complete OAuth flow with only "openid" scope (no email or profile)
 	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8000"),
 	}, "openid") // only request openid scope
 
 	accessToken := result.TokenResponse.AccessToken
@@ -757,13 +751,13 @@ func (s *OAuthFlowSuite) TestUserInfoRejectsRevokedToken() {
 	// token here.
 	clientSecret := s.mustGenerateRandomString(32)
 	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: clientSecret, Valid: true},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: true,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: clientSecret, Valid: true},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  true,
+		DefaultResource: testResource("http://localhost:8000"),
 	})
 	accessToken := result.TokenResponse.AccessToken
 	s.Require().NotEmpty(accessToken)
@@ -810,13 +804,13 @@ func (s *OAuthFlowSuite) TestUserInfoRejectsRevokedToken() {
 // email claims but not profile claims.
 func (s *OAuthFlowSuite) TestUserInfoEmailScopeOnly() {
 	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
-		ClientID:       s.mustGenerateRandomString(8),
-		ClientSecret:   sql.NullString{String: "", Valid: false},
-		Name:           s.mustGenerateRandomString(8),
-		RedirectUris:   []string{"http://localhost:8080/callback"},
-		AllowedScopes:  []string{"openid", "profile", "email"},
-		IsConfidential: false,
-		Audience:       "http://localhost:8000",
+		ClientID:        s.mustGenerateRandomString(8),
+		ClientSecret:    sql.NullString{String: "", Valid: false},
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid", "profile", "email"},
+		IsConfidential:  false,
+		DefaultResource: testResource("http://localhost:8000"),
 	}, "openid email")
 
 	req, err := http.NewRequest("GET", "http://localhost:8080/oauth/userinfo", nil)

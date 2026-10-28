@@ -26,4 +26,5 @@ func Execute() error {
 func init() {
 	// Add client command
 	rootCmd.AddCommand(clientCmd)
+	rootCmd.AddCommand(resourceCmd)
 }

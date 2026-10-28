@@ -8,6 +8,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -121,6 +122,7 @@ func (q *Queries) CreateMFAPending(ctx context.Context, arg CreateMFAPendingPara
 }
 
 const createOAuthClient = `-- name: CreateOAuthClient :one
+
 INSERT INTO oauth_clients (
   client_id,
   client_secret,
@@ -128,22 +130,33 @@ INSERT INTO oauth_clients (
   redirect_uris,
   allowed_scopes,
   is_confidential,
-  audience
+  default_resource
 )
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, created_at, updated_at, audience
+RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
+  is_confidential, created_at, updated_at, default_resource, kind,
+  metadata_fetched_at
 `
 
 type CreateOAuthClientParams struct {
-	ClientID       string         `json:"client_id"`
-	ClientSecret   sql.NullString `json:"client_secret"`
-	Name           string         `json:"name"`
-	RedirectUris   []string       `json:"redirect_uris"`
-	AllowedScopes  []string       `json:"allowed_scopes"`
-	IsConfidential bool           `json:"is_confidential"`
-	Audience       string         `json:"audience"`
+	ClientID        string         `json:"client_id"`
+	ClientSecret    sql.NullString `json:"client_secret"`
+	Name            string         `json:"name"`
+	RedirectUris    []string       `json:"redirect_uris"`
+	AllowedScopes   []string       `json:"allowed_scopes"`
+	IsConfidential  bool           `json:"is_confidential"`
+	DefaultResource sql.NullString `json:"default_resource"`
 }
 
+// OAuth clients
+//
+// Every oauth_clients query lists its columns rather than using * so that none
+// of them names audience, which migration 000012 deprecated and a later
+// contract migration drops: a running pod whose query named it would break the
+// moment that migration landed. (sqlc expands * into an explicit list at
+// generation time, so * would bake the column in.) The order matches the table
+// so sqlc maps every one of these onto db.OauthClient; see
+// db/sqlc_pending_contract.sql.
 func (q *Queries) CreateOAuthClient(ctx context.Context, arg CreateOAuthClientParams) (OauthClient, error) {
 	row := q.db.QueryRowContext(ctx, createOAuthClient,
 		arg.ClientID,
@@ -152,7 +165,7 @@ func (q *Queries) CreateOAuthClient(ctx context.Context, arg CreateOAuthClientPa
 		pq.Array(arg.RedirectUris),
 		pq.Array(arg.AllowedScopes),
 		arg.IsConfidential,
-		arg.Audience,
+		arg.DefaultResource,
 	)
 	var i OauthClient
 	err := row.Scan(
@@ -165,7 +178,43 @@ func (q *Queries) CreateOAuthClient(ctx context.Context, arg CreateOAuthClientPa
 		&i.IsConfidential,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Audience,
+		&i.DefaultResource,
+		&i.Kind,
+		&i.MetadataFetchedAt,
+	)
+	return i, err
+}
+
+const createOAuthResource = `-- name: CreateOAuthResource :one
+
+INSERT INTO oauth_resources (uri, name, scopes, dynamic_clients)
+VALUES ($1, $2, $3, $4)
+RETURNING id, uri, name, scopes, dynamic_clients, created_at
+`
+
+type CreateOAuthResourceParams struct {
+	Uri            string          `json:"uri"`
+	Name           string          `json:"name"`
+	Scopes         json.RawMessage `json:"scopes"`
+	DynamicClients bool            `json:"dynamic_clients"`
+}
+
+// OAuth resources: the APIs tokens are minted for (a token's aud is its uri).
+func (q *Queries) CreateOAuthResource(ctx context.Context, arg CreateOAuthResourceParams) (OauthResource, error) {
+	row := q.db.QueryRowContext(ctx, createOAuthResource,
+		arg.Uri,
+		arg.Name,
+		arg.Scopes,
+		arg.DynamicClients,
+	)
+	var i OauthResource
+	err := row.Scan(
+		&i.ID,
+		&i.Uri,
+		&i.Name,
+		&i.Scopes,
+		&i.DynamicClients,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -425,7 +474,7 @@ func (q *Queries) EnableMFA(ctx context.Context, arg EnableMFAParams) error {
 }
 
 const getAuthorizationCode = `-- name: GetAuthorizationCode :one
-SELECT code, user_id, client_id, redirect_uri, scope, code_challenge, code_challenge_method, expires_at, consumed_at, created_at, nonce
+SELECT code, user_id, client_id, redirect_uri, scope, code_challenge, code_challenge_method, expires_at, consumed_at, created_at, nonce, resource
 FROM oauth_authorization_codes
 WHERE code = $1
 `
@@ -445,6 +494,7 @@ func (q *Queries) GetAuthorizationCode(ctx context.Context, code string) (OauthA
 		&i.ConsumedAt,
 		&i.CreatedAt,
 		&i.Nonce,
+		&i.Resource,
 	)
 	return i, err
 }
@@ -516,7 +566,9 @@ func (q *Queries) GetMFAPending(ctx context.Context, id string) (AuthMfaPending,
 }
 
 const getOAuthClientByClientID = `-- name: GetOAuthClientByClientID :one
-SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, created_at, updated_at, audience
+SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
+  is_confidential, created_at, updated_at, default_resource, kind,
+  metadata_fetched_at
 FROM oauth_clients
 WHERE client_id = $1
 `
@@ -534,13 +586,17 @@ func (q *Queries) GetOAuthClientByClientID(ctx context.Context, clientID string)
 		&i.IsConfidential,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Audience,
+		&i.DefaultResource,
+		&i.Kind,
+		&i.MetadataFetchedAt,
 	)
 	return i, err
 }
 
 const getOAuthClientByID = `-- name: GetOAuthClientByID :one
-SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, created_at, updated_at, audience
+SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
+  is_confidential, created_at, updated_at, default_resource, kind,
+  metadata_fetched_at
 FROM oauth_clients
 WHERE id = $1
 `
@@ -558,7 +614,29 @@ func (q *Queries) GetOAuthClientByID(ctx context.Context, id uuid.UUID) (OauthCl
 		&i.IsConfidential,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Audience,
+		&i.DefaultResource,
+		&i.Kind,
+		&i.MetadataFetchedAt,
+	)
+	return i, err
+}
+
+const getOAuthResourceByURI = `-- name: GetOAuthResourceByURI :one
+SELECT id, uri, name, scopes, dynamic_clients, created_at
+FROM oauth_resources
+WHERE uri = $1
+`
+
+func (q *Queries) GetOAuthResourceByURI(ctx context.Context, uri string) (OauthResource, error) {
+	row := q.db.QueryRowContext(ctx, getOAuthResourceByURI, uri)
+	var i OauthResource
+	err := row.Scan(
+		&i.ID,
+		&i.Uri,
+		&i.Name,
+		&i.Scopes,
+		&i.DynamicClients,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -626,7 +704,7 @@ func (q *Queries) GetSession(ctx context.Context, id string) (AuthSession, error
 }
 
 const getTokenByAccessToken = `-- name: GetTokenByAccessToken :one
-SELECT id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at
+SELECT id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at, resource, family_id, revoked_reason
 FROM oauth_tokens
 WHERE access_token = $1
   AND revoked_at IS NULL
@@ -648,12 +726,15 @@ func (q *Queries) GetTokenByAccessToken(ctx context.Context, accessToken sql.Nul
 		&i.RefreshExpiresAt,
 		&i.RevokedAt,
 		&i.CreatedAt,
+		&i.Resource,
+		&i.FamilyID,
+		&i.RevokedReason,
 	)
 	return i, err
 }
 
 const getTokenByRefreshToken = `-- name: GetTokenByRefreshToken :one
-SELECT id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at
+SELECT id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at, resource, family_id, revoked_reason
 FROM oauth_tokens
 WHERE refresh_token = $1
   AND revoked_at IS NULL
@@ -674,6 +755,9 @@ func (q *Queries) GetTokenByRefreshToken(ctx context.Context, refreshToken sql.N
 		&i.RefreshExpiresAt,
 		&i.RevokedAt,
 		&i.CreatedAt,
+		&i.Resource,
+		&i.FamilyID,
+		&i.RevokedReason,
 	)
 	return i, err
 }
@@ -838,8 +922,9 @@ func (q *Queries) GetUserByUsernameIncludingInactive(ctx context.Context, userna
 
 const getUserConsent = `-- name: GetUserConsent :one
 
-SELECT id, user_id, client_id, scopes, created_at, updated_at FROM oauth_user_consents
-WHERE user_id = $1 AND client_id = $2
+
+SELECT id, user_id, client_id, scopes, created_at, updated_at, resource FROM oauth_user_consents
+WHERE user_id = $1 AND client_id = $2 AND resource IS NULL
 `
 
 type GetUserConsentParams struct {
@@ -848,6 +933,11 @@ type GetUserConsentParams struct {
 }
 
 // Consent queries
+// Consent is keyed by (user, client, resource) since migration 000012. Until
+// requests can name a resource, every consent is for no resource (NULL), so
+// these read and write only that row and behave exactly as they did when the
+// key was (user, client). The upsert names the wider key in ON CONFLICT so it
+// keeps working once the contract migration drops the old (user, client) one.
 func (q *Queries) GetUserConsent(ctx context.Context, arg GetUserConsentParams) (OauthUserConsent, error) {
 	row := q.db.QueryRowContext(ctx, getUserConsent, arg.UserID, arg.ClientID)
 	var i OauthUserConsent
@@ -858,6 +948,7 @@ func (q *Queries) GetUserConsent(ctx context.Context, arg GetUserConsentParams) 
 		pq.Array(&i.Scopes),
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Resource,
 	)
 	return i, err
 }
@@ -932,10 +1023,11 @@ INSERT INTO oauth_tokens (
   scope,
   token_type,
   expires_at,
-  refresh_expires_at
+  refresh_expires_at,
+  resource
 )
-VALUES ($1, $2, $3, $4, $5, COALESCE($8::text, 'bearer'), $6, $7)
-RETURNING id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at
+VALUES ($1, $2, $3, $4, $5, COALESCE($8::text, 'bearer'), $6, $7, $9)
+RETURNING id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at, resource, family_id, revoked_reason
 `
 
 type InsertTokenParams struct {
@@ -947,6 +1039,7 @@ type InsertTokenParams struct {
 	ExpiresAt        time.Time      `json:"expires_at"`
 	RefreshExpiresAt sql.NullTime   `json:"refresh_expires_at"`
 	TokenType        sql.NullString `json:"token_type"`
+	Resource         sql.NullString `json:"resource"`
 }
 
 func (q *Queries) InsertToken(ctx context.Context, arg InsertTokenParams) (OauthToken, error) {
@@ -959,6 +1052,7 @@ func (q *Queries) InsertToken(ctx context.Context, arg InsertTokenParams) (Oauth
 		arg.ExpiresAt,
 		arg.RefreshExpiresAt,
 		arg.TokenType,
+		arg.Resource,
 	)
 	var i OauthToken
 	err := row.Scan(
@@ -973,12 +1067,17 @@ func (q *Queries) InsertToken(ctx context.Context, arg InsertTokenParams) (Oauth
 		&i.RefreshExpiresAt,
 		&i.RevokedAt,
 		&i.CreatedAt,
+		&i.Resource,
+		&i.FamilyID,
+		&i.RevokedReason,
 	)
 	return i, err
 }
 
 const listOAuthClients = `-- name: ListOAuthClients :many
-SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, created_at, updated_at, audience
+SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
+  is_confidential, created_at, updated_at, default_resource, kind,
+  metadata_fetched_at
 FROM oauth_clients
 ORDER BY created_at DESC
 `
@@ -1002,7 +1101,45 @@ func (q *Queries) ListOAuthClients(ctx context.Context) ([]OauthClient, error) {
 			&i.IsConfidential,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.Audience,
+			&i.DefaultResource,
+			&i.Kind,
+			&i.MetadataFetchedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOAuthResources = `-- name: ListOAuthResources :many
+SELECT id, uri, name, scopes, dynamic_clients, created_at
+FROM oauth_resources
+ORDER BY uri
+`
+
+func (q *Queries) ListOAuthResources(ctx context.Context) ([]OauthResource, error) {
+	rows, err := q.db.QueryContext(ctx, listOAuthResources)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OauthResource
+	for rows.Next() {
+		var i OauthResource
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uri,
+			&i.Name,
+			&i.Scopes,
+			&i.DynamicClients,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1172,28 +1309,38 @@ SET
   redirect_uris = COALESCE($2::text[], redirect_uris),
   allowed_scopes = COALESCE($3::text[], allowed_scopes),
   is_confidential = COALESCE($4, is_confidential),
-  audience = COALESCE(NULLIF($5::text, ''), audience),
+  default_resource = CASE
+    WHEN $5::boolean THEN $6::text
+    ELSE default_resource
+  END,
   updated_at = now()
-WHERE client_id = $6
-RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes, is_confidential, created_at, updated_at, audience
+WHERE client_id = $7
+RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
+  is_confidential, created_at, updated_at, default_resource, kind,
+  metadata_fetched_at
 `
 
 type UpdateOAuthClientParams struct {
-	Name           sql.NullString `json:"name"`
-	RedirectUris   []string       `json:"redirect_uris"`
-	AllowedScopes  []string       `json:"allowed_scopes"`
-	IsConfidential sql.NullBool   `json:"is_confidential"`
-	Audience       sql.NullString `json:"audience"`
-	ClientID       string         `json:"client_id"`
+	Name               sql.NullString `json:"name"`
+	RedirectUris       []string       `json:"redirect_uris"`
+	AllowedScopes      []string       `json:"allowed_scopes"`
+	IsConfidential     sql.NullBool   `json:"is_confidential"`
+	SetDefaultResource bool           `json:"set_default_resource"`
+	DefaultResource    sql.NullString `json:"default_resource"`
+	ClientID           string         `json:"client_id"`
 }
 
+// default_resource is replaced only when set_default_resource is true, and then
+// with whatever default_resource holds, NULL included: that is how a client's
+// default is cleared, which a COALESCE(NULLIF(...)) like the others cannot do.
 func (q *Queries) UpdateOAuthClient(ctx context.Context, arg UpdateOAuthClientParams) (OauthClient, error) {
 	row := q.db.QueryRowContext(ctx, updateOAuthClient,
 		arg.Name,
 		pq.Array(arg.RedirectUris),
 		pq.Array(arg.AllowedScopes),
 		arg.IsConfidential,
-		arg.Audience,
+		arg.SetDefaultResource,
+		arg.DefaultResource,
 		arg.ClientID,
 	)
 	var i OauthClient
@@ -1207,7 +1354,9 @@ func (q *Queries) UpdateOAuthClient(ctx context.Context, arg UpdateOAuthClientPa
 		&i.IsConfidential,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Audience,
+		&i.DefaultResource,
+		&i.Kind,
+		&i.MetadataFetchedAt,
 	)
 	return i, err
 }
@@ -1310,7 +1459,7 @@ func (q *Queries) UpdateUserUsername(ctx context.Context, arg UpdateUserUsername
 const upsertUserConsent = `-- name: UpsertUserConsent :exec
 INSERT INTO oauth_user_consents (user_id, client_id, scopes)
 VALUES ($1, $2, $3)
-ON CONFLICT (user_id, client_id)
+ON CONFLICT (user_id, client_id, resource)
 DO UPDATE SET scopes = $3, updated_at = now()
 `
 
