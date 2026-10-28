@@ -304,7 +304,9 @@ func (q *Queries) DeleteAllUserSessions(ctx context.Context, userID uuid.UUID) e
 
 const deleteDeadTokens = `-- name: DeleteDeadTokens :exec
 DELETE FROM oauth_tokens
-WHERE revoked_at IS NOT NULL
+WHERE (revoked_at IS NOT NULL
+       AND NOT (revoked_reason IS NOT DISTINCT FROM 'rotated'
+                AND (refresh_expires_at IS NULL OR refresh_expires_at > now())))
    OR (expires_at <= now()
        AND refresh_expires_at IS NOT NULL
        AND refresh_expires_at <= now())
@@ -317,6 +319,11 @@ WHERE revoked_at IS NOT NULL
 // token is also expired (never delete just because expires_at passed -- a
 // non-revoked row whose refresh token is still valid, or non-expiring, must
 // be kept since it can still mint new access tokens).
+//
+// Except a refresh token revoked because it was rotated: it is kept until it
+// would have expired, because presenting it again is how reuse is detected,
+// and a deleted row can only answer "unknown token". Past its expiry a replay
+// is refused as expired and detects nothing, so the row can go then.
 func (q *Queries) DeleteDeadTokens(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteDeadTokens)
 	return err
@@ -755,6 +762,38 @@ func (q *Queries) GetTokenByRefreshToken(ctx context.Context, refreshToken sql.N
 	return i, err
 }
 
+const getTokenByRefreshTokenIncludingRevoked = `-- name: GetTokenByRefreshTokenIncludingRevoked :one
+SELECT id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at, resource, family_id, revoked_reason
+FROM oauth_tokens
+WHERE refresh_token = $1
+`
+
+// The refresh grant's lookup. Unlike GetTokenByRefreshToken it returns revoked
+// rows too, because how a refresh token died decides what presenting it again
+// means: one revoked because it was rotated is a replay (reuse detection), any
+// other is just dead.
+func (q *Queries) GetTokenByRefreshTokenIncludingRevoked(ctx context.Context, refreshToken sql.NullString) (OauthToken, error) {
+	row := q.db.QueryRowContext(ctx, getTokenByRefreshTokenIncludingRevoked, refreshToken)
+	var i OauthToken
+	err := row.Scan(
+		&i.ID,
+		&i.AccessToken,
+		&i.RefreshToken,
+		&i.UserID,
+		&i.ClientID,
+		pq.Array(&i.Scope),
+		&i.TokenType,
+		&i.ExpiresAt,
+		&i.RefreshExpiresAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.Resource,
+		&i.FamilyID,
+		&i.RevokedReason,
+	)
+	return i, err
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture
 FROM auth_users
@@ -1017,9 +1056,10 @@ INSERT INTO oauth_tokens (
   token_type,
   expires_at,
   refresh_expires_at,
-  resource
+  resource,
+  family_id
 )
-VALUES ($1, $2, $3, $4, $5, COALESCE($8::text, 'bearer'), $6, $7, $9)
+VALUES ($1, $2, $3, $4, $5, COALESCE($8::text, 'bearer'), $6, $7, $9, $10)
 RETURNING id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at, resource, family_id, revoked_reason
 `
 
@@ -1033,8 +1073,12 @@ type InsertTokenParams struct {
 	RefreshExpiresAt sql.NullTime   `json:"refresh_expires_at"`
 	TokenType        sql.NullString `json:"token_type"`
 	Resource         sql.NullString `json:"resource"`
+	FamilyID         uuid.NullUUID  `json:"family_id"`
 }
 
+// family_id is the refresh-token family (lineage) the row belongs to: started
+// by the code exchange, copied by every refresh. NULL for rows with no refresh
+// token (client_credentials). See handleRefreshTokenGrant.
 func (q *Queries) InsertToken(ctx context.Context, arg InsertTokenParams) (OauthToken, error) {
 	row := q.db.QueryRowContext(ctx, insertToken,
 		arg.AccessToken,
@@ -1046,6 +1090,7 @@ func (q *Queries) InsertToken(ctx context.Context, arg InsertTokenParams) (Oauth
 		arg.RefreshExpiresAt,
 		arg.TokenType,
 		arg.Resource,
+		arg.FamilyID,
 	)
 	var i OauthToken
 	err := row.Scan(
@@ -1240,42 +1285,111 @@ func (q *Queries) ReactivateUser(ctx context.Context, id uuid.UUID) error {
 
 const revokeAllUserTokens = `-- name: RevokeAllUserTokens :exec
 UPDATE oauth_tokens
-SET revoked_at = now()
+SET revoked_at = now(),
+    revoked_reason = $2::text
 WHERE user_id = $1
   AND revoked_at IS NULL
 `
 
-func (q *Queries) RevokeAllUserTokens(ctx context.Context, userID uuid.NullUUID) error {
-	_, err := q.db.ExecContext(ctx, revokeAllUserTokens, userID)
+type RevokeAllUserTokensParams struct {
+	UserID uuid.NullUUID `json:"user_id"`
+	Reason string        `json:"reason"`
+}
+
+func (q *Queries) RevokeAllUserTokens(ctx context.Context, arg RevokeAllUserTokensParams) error {
+	_, err := q.db.ExecContext(ctx, revokeAllUserTokens, arg.UserID, arg.Reason)
 	return err
 }
 
 const revokeTokenByAccessToken = `-- name: RevokeTokenByAccessToken :exec
 UPDATE oauth_tokens
-SET revoked_at = now()
+SET revoked_at = now(),
+    revoked_reason = $2::text
 WHERE access_token = $1
   AND revoked_at IS NULL
 `
 
-func (q *Queries) RevokeTokenByAccessToken(ctx context.Context, accessToken sql.NullString) error {
-	_, err := q.db.ExecContext(ctx, revokeTokenByAccessToken, accessToken)
+type RevokeTokenByAccessTokenParams struct {
+	AccessToken sql.NullString `json:"access_token"`
+	Reason      string         `json:"reason"`
+}
+
+func (q *Queries) RevokeTokenByAccessToken(ctx context.Context, arg RevokeTokenByAccessTokenParams) error {
+	_, err := q.db.ExecContext(ctx, revokeTokenByAccessToken, arg.AccessToken, arg.Reason)
 	return err
 }
 
 const revokeTokenByRefreshToken = `-- name: RevokeTokenByRefreshToken :execrows
 UPDATE oauth_tokens
-SET revoked_at = now()
+SET revoked_at = now(),
+    revoked_reason = $2::text
 WHERE refresh_token = $1
   AND revoked_at IS NULL
 `
 
-// Atomically revoke a refresh token. Returns 1 if the token was revoked, 0 if
-// it was already revoked (or doesn't exist). Callers MUST check the row count
-// and refuse to issue new tokens on a 0 result — otherwise two concurrent
-// refreshes presenting the same refresh token could both pass validation and
-// both mint new token pairs (refresh-token replay).
-func (q *Queries) RevokeTokenByRefreshToken(ctx context.Context, refreshToken sql.NullString) (int64, error) {
-	result, err := q.db.ExecContext(ctx, revokeTokenByRefreshToken, refreshToken)
+type RevokeTokenByRefreshTokenParams struct {
+	RefreshToken sql.NullString `json:"refresh_token"`
+	Reason       string         `json:"reason"`
+}
+
+// Every revocation records why in revoked_reason (see revocationReason in
+// pkg/httpserver); rows revoked before reasons were recorded have NULL.
+// Returns 1 if the token was revoked, 0 if it was already revoked (or doesn't
+// exist). A refresh spends its token with RotateRefreshToken, not this.
+func (q *Queries) RevokeTokenByRefreshToken(ctx context.Context, arg RevokeTokenByRefreshTokenParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeTokenByRefreshToken, arg.RefreshToken, arg.Reason)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const revokeTokenFamily = `-- name: RevokeTokenFamily :execrows
+UPDATE oauth_tokens
+SET revoked_at = now(),
+    revoked_reason = $1::text
+WHERE family_id = $2::uuid
+  AND revoked_at IS NULL
+`
+
+type RevokeTokenFamilyParams struct {
+	Reason   string    `json:"reason"`
+	FamilyID uuid.UUID `json:"family_id"`
+}
+
+// Revoke every live token in a refresh-token family (access tokens included:
+// they share the row). Returns how many were live.
+func (q *Queries) RevokeTokenFamily(ctx context.Context, arg RevokeTokenFamilyParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeTokenFamily, arg.Reason, arg.FamilyID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const rotateRefreshToken = `-- name: RotateRefreshToken :execrows
+UPDATE oauth_tokens
+SET revoked_at = now(),
+    revoked_reason = 'rotated',
+    family_id = COALESCE(family_id, $2::uuid)
+WHERE refresh_token = $1
+  AND revoked_at IS NULL
+`
+
+type RotateRefreshTokenParams struct {
+	RefreshToken sql.NullString `json:"refresh_token"`
+	FamilyID     uuid.UUID      `json:"family_id"`
+}
+
+// Atomically spend a refresh token on a refresh. Returns 1 if this call spent
+// it, 0 if it was already revoked (or doesn't exist). Callers MUST check the row
+// count and refuse to hand out new tokens on a 0 result -- otherwise two
+// concurrent refreshes presenting the same refresh token could both succeed.
+//
+// A row from before reuse detection has no family; it gets the one its
+// replacement was minted into, so replaying it later finds that family.
+func (q *Queries) RotateRefreshToken(ctx context.Context, arg RotateRefreshTokenParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, rotateRefreshToken, arg.RefreshToken, arg.FamilyID)
 	if err != nil {
 		return 0, err
 	}

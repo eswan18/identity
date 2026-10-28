@@ -41,7 +41,9 @@ const cleanupSweepTimeout = 30 * time.Second
 // only removes a row once it can never be used again: it's revoked, or the
 // access token is expired AND the refresh token is also expired. A row whose
 // refresh token is still valid (or non-expiring) is kept even after its
-// access token has expired, since it can still mint new access tokens.
+// access token has expired, since it can still mint new access tokens. A
+// refresh token revoked by rotation is kept until it would have expired,
+// because presenting it again is how refresh-token reuse is detected.
 //
 // Each of the seven deletes is independent: if one fails, it is logged and
 // the rest still run rather than bailing out early. The sweep is bounded by
