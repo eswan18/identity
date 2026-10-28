@@ -64,8 +64,10 @@ const (
 // strings, each https or a loopback http URI, with no fragment and no "*";
 // token_endpoint_auth_method absent or "none" (no secrets, and private_key_jwt
 // is not supported yet); no client_secret or client_secret_expires_at at all;
-// grant_types, if present, a subset of authorization_code and refresh_token
-// that includes authorization_code; response_types, if present, only "code";
+// grant_types, if present, including authorization_code (other values are
+// the client's own declarations and are ignored: claude.ai lists jwt-bearer,
+// and the token endpoint refuses every grant a CIMD client may not use, so a
+// declared but unsupported grant gains nothing); response_types, if present, only "code";
 // client_uri and logo_uri, if present, https URLs. Every member identity reads
 // must have the expected JSON type -- null included is a type error -- and
 // members it does not read are ignored.
@@ -177,12 +179,11 @@ func parseDocument(clientID string, body []byte) (*Metadata, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Only authorization_code is required. Values identity doesn't support are
+	// ignored rather than refused, as RFC 7591 §2 allows for client-declared
+	// grant types; what a CIMD client can actually do is decided at the token
+	// endpoint, which permits it authorization_code and refresh_token only.
 	if ok {
-		for _, g := range grants {
-			if g != "authorization_code" && g != "refresh_token" {
-				return nil, fail("grant_type %q is not supported", truncate(g))
-			}
-		}
 		if !slices.Contains(grants, "authorization_code") {
 			return nil, fail("grant_types must include authorization_code")
 		}

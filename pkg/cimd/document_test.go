@@ -11,8 +11,32 @@ import (
 
 const claudeCodeID = "https://claude.ai/oauth/claude-code-client-metadata"
 
+const claudeID = "https://claude.ai/oauth/mcp-oauth-client-metadata"
+
+// claudeDocument is claude.ai's MCP client document as served on 2026-10-28
+// (used by Claude on the web, desktop and mobile). It declares jwt-bearer,
+// which identity doesn't support and must ignore rather than refuse.
+const claudeDocument = `{"client_id":"https://claude.ai/oauth/mcp-oauth-client-metadata","client_name":"Claude","client_uri":"https://claude.ai","redirect_uris":["https://claude.ai/api/mcp/auth_callback"],"grant_types":["authorization_code","refresh_token","urn:ietf:params:oauth:grant-type:jwt-bearer"],"response_types":["code"],"token_endpoint_auth_method":"none"}`
+
 // claudeCodeDocument is Claude Code's live document, as served on 2026-10-27.
 const claudeCodeDocument = `{"client_id":"https://claude.ai/oauth/claude-code-client-metadata","client_name":"Claude Code","client_uri":"https://claude.ai","redirect_uris":["http://localhost/callback","http://127.0.0.1/callback"],"grant_types":["authorization_code","refresh_token"],"response_types":["code"],"token_endpoint_auth_method":"none"}`
+
+func TestParseClaudeDocument(t *testing.T) {
+	if err := ValidateClientIDURL(claudeID); err != nil {
+		t.Fatalf("Claude's client_id is refused: %v", err)
+	}
+	md, err := parseDocument(claudeID, []byte(claudeDocument))
+	if err != nil {
+		t.Fatalf("Claude's document is refused: %v", err)
+	}
+	if md.ClientID != claudeID || md.ClientName != "Claude" || md.ClientURI != "https://claude.ai" {
+		t.Errorf("unexpected metadata %+v", md)
+	}
+	want := []string{"https://claude.ai/api/mcp/auth_callback"}
+	if !slices.Equal(md.RedirectURIs, want) {
+		t.Errorf("RedirectURIs = %v, want %v", md.RedirectURIs, want)
+	}
+}
 
 func TestParseClaudeCodeDocument(t *testing.T) {
 	if err := ValidateClientIDURL(claudeCodeID); err != nil {
@@ -90,6 +114,7 @@ func TestParseDocument(t *testing.T) {
 		{"https with port and query", doc(map[string]string{"redirect_uris": `["https://example.com:8443/cb?x=1"]`})},
 		{"grant types: code only", doc(map[string]string{"grant_types": `["authorization_code"]`})},
 		{"grant types: code and refresh", doc(map[string]string{"grant_types": `["refresh_token","authorization_code"]`})},
+		{"grant types: unsupported values ignored", doc(map[string]string{"grant_types": `["authorization_code","client_credentials","urn:ietf:params:oauth:grant-type:jwt-bearer"]`})},
 		{"response types code", doc(map[string]string{"response_types": `["code"]`})},
 		{"client and logo uri", doc(map[string]string{"client_uri": `"https://example.com"`, "logo_uri": `"https://example.com/logo.png"`})},
 		{"unknown fields ignored", doc(map[string]string{"scope": `"openid"`, "software_id": `{"x":1}`, "jwks_uri": `"https://example.com/jwks"`})},
@@ -160,7 +185,6 @@ func TestParseDocument(t *testing.T) {
 		{"client_secret null", doc(map[string]string{"client_secret": `null`})},
 		{"client_secret_expires_at", doc(map[string]string{"client_secret_expires_at": `0`})},
 		{"grant implicit", doc(map[string]string{"grant_types": `["implicit"]`})},
-		{"grant client_credentials", doc(map[string]string{"grant_types": `["authorization_code","client_credentials"]`})},
 		{"grant refresh only", doc(map[string]string{"grant_types": `["refresh_token"]`})},
 		{"grant empty", doc(map[string]string{"grant_types": `[]`})},
 		{"grant not array", doc(map[string]string{"grant_types": `"authorization_code"`})},
