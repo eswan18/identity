@@ -69,6 +69,10 @@ SESSION_SECRET=your-random-secret-key-at-least-32-chars
 # Per-IP requests/minute for the metadata documents, JWKS and /oauth/token
 # (optional, default 300). Every other route stays at 20/minute.
 PROTOCOL_RATE_LIMIT_PER_MINUTE=300
+
+# Hosts whose Client ID Metadata Documents are accepted, comma-separated
+# (optional; empty disables CIMD). See docs/client-integration.md.
+CIMD_ALLOWED_HOSTS=claude.ai
 ```
 
 ## Setup

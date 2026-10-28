@@ -53,6 +53,31 @@ type Config struct {
 	// from PROTOCOL_RATE_LIMIT_PER_MINUTE; zero means
 	// DefaultProtocolRateLimitPerMinute (see parseProtocolRateLimit).
 	ProtocolRateLimitPerMinute int
+
+	// CIMDAllowedHosts are the client_id hosts whose Client ID Metadata
+	// Documents identity will fetch and accept (pkg/cimd's
+	// Config.AllowedHosts). Read from CIMD_ALLOWED_HOSTS, comma-separated
+	// (see parseCIMDAllowedHosts); empty disables CIMD entirely: an https
+	// client_id is then an unknown client and nothing is ever fetched.
+	CIMDAllowedHosts []string
+}
+
+// parseCIMDAllowedHosts reads CIMD_ALLOWED_HOSTS as a comma-separated list,
+// dropping blanks, so "claude.ai", " claude.ai , " and "" all mean what they
+// look like. Whether each entry is a valid host name is checked when the
+// resolver is built (cimd.NewResolver), which refuses to start on a bad one.
+func parseCIMDAllowedHosts() []string {
+	return splitHostList(os.Getenv("CIMD_ALLOWED_HOSTS"))
+}
+
+func splitHostList(raw string) []string {
+	var hosts []string
+	for _, h := range strings.Split(raw, ",") {
+		if h = strings.TrimSpace(h); h != "" {
+			hosts = append(hosts, h)
+		}
+	}
+	return hosts
 }
 
 // DefaultProtocolRateLimitPerMinute is ProtocolRateLimitPerMinute when
@@ -123,6 +148,7 @@ func NewFromEnv() *Config {
 			CleanupInterval:  parseCleanupInterval(),
 
 			ProtocolRateLimitPerMinute: parseProtocolRateLimit(),
+			CIMDAllowedHosts:           parseCIMDAllowedHosts(),
 		}
 	} else {
 		// Local development: load from .env files
@@ -152,6 +178,7 @@ func NewFromEnv() *Config {
 			CleanupInterval:  parseCleanupInterval(),
 
 			ProtocolRateLimitPerMinute: parseProtocolRateLimit(),
+			CIMDAllowedHosts:           parseCIMDAllowedHosts(),
 		}
 	}
 

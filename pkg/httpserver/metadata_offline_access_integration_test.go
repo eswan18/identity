@@ -38,7 +38,9 @@ func (s *OAuthFlowSuite) TestAuthorizationServerMetadataBothPaths() {
 	s.Contains(doc["scopes_supported"], "offline_access")
 	s.Contains(doc["code_challenge_methods_supported"], "S256")
 	s.Equal(true, doc["authorization_response_iss_parameter_supported"])
-	s.NotContains(doc, "client_id_metadata_document_supported")
+	// The suite allows claude.ai documents (SetupSuite), so CIMD is
+	// advertised; with no allowed host it is omitted (metadata_test.go).
+	s.Equal(true, doc["client_id_metadata_document_supported"])
 	for key, v := range doc {
 		if arr, ok := v.([]any); ok {
 			s.NotEmpty(arr, "%s must be omitted rather than empty", key)

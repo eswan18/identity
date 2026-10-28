@@ -89,6 +89,56 @@ RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
 DELETE FROM oauth_clients
 WHERE client_id = $1;
 
+-- Clients identified by a Client ID Metadata Document (kind = 'cimd'). Their
+-- row is materialized from the document, which the server fetches, rather than
+-- registered (pkg/httpserver/cimd_clients.go). The document's URL is the
+-- client_id; it is a public client with no secret, no default resource and no
+-- registered allowed_scopes (its scopes are computed per request).
+
+-- name: GetOAuthClientByClientIDForUpdate :one
+SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
+  is_confidential, created_at, updated_at, default_resource, kind,
+  metadata_fetched_at
+FROM oauth_clients
+WHERE client_id = $1
+FOR UPDATE;
+
+-- name: CreateCIMDClient :one
+-- ON CONFLICT DO NOTHING: two requests materializing the same client at once
+-- both insert, and the loser gets no row back (sql.ErrNoRows) and reads the
+-- winner's instead.
+INSERT INTO oauth_clients (
+  client_id,
+  client_secret,
+  name,
+  redirect_uris,
+  allowed_scopes,
+  is_confidential,
+  default_resource,
+  kind,
+  metadata_fetched_at
+)
+VALUES (
+  sqlc.arg(client_id), NULL, sqlc.arg(name), sqlc.arg(redirect_uris)::text[],
+  '{}'::text[], false, NULL, 'cimd', sqlc.arg(metadata_fetched_at)
+)
+ON CONFLICT (client_id) DO NOTHING
+RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
+  is_confidential, created_at, updated_at, default_resource, kind,
+  metadata_fetched_at;
+
+-- name: UpdateCIMDClient :one
+UPDATE oauth_clients
+SET
+  name = sqlc.arg(name),
+  redirect_uris = sqlc.arg(redirect_uris)::text[],
+  metadata_fetched_at = sqlc.arg(metadata_fetched_at),
+  updated_at = now()
+WHERE id = sqlc.arg(id) AND kind = 'cimd'
+RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
+  is_confidential, created_at, updated_at, default_resource, kind,
+  metadata_fetched_at;
+
 -- OAuth resources: the APIs tokens are minted for (a token's aud is its uri).
 
 -- name: CreateOAuthResource :one
@@ -517,3 +567,10 @@ INSERT INTO oauth_user_consents (user_id, client_id, resource, scopes)
 VALUES (sqlc.arg(user_id), sqlc.arg(client_id), sqlc.narg(resource)::text, sqlc.arg(scopes))
 ON CONFLICT (user_id, client_id, resource)
 DO UPDATE SET scopes = EXCLUDED.scopes, updated_at = now();
+
+-- name: DeleteUserConsentsForClient :execrows
+-- Every user's remembered consent for one client, for every resource. Used
+-- when a metadata-document client's redirect_uris change (CIMD §8.4): what
+-- users approved was sending answers to the old ones.
+DELETE FROM oauth_user_consents
+WHERE client_id = sqlc.arg(client_id);
