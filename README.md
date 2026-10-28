@@ -65,6 +65,10 @@ HTTP_ADDRESS=http://localhost:8080  # dev
 
 # Session configuration (optional)
 SESSION_SECRET=your-random-secret-key-at-least-32-chars
+
+# Per-IP requests/minute for the metadata documents, JWKS and /oauth/token
+# (optional, default 300). Every other route stays at 20/minute.
+PROTOCOL_RATE_LIMIT_PER_MINUTE=300
 ```
 
 ## Setup

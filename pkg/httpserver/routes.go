@@ -61,10 +61,13 @@ func (s *Server) registerRoutes() {
 	s.router.With(corsMiddleware).Get("/health", s.HandleHealthCheck)
 
 	// JWKS endpoint for JWT public key distribution
-	s.router.With(corsMiddleware).Get("/.well-known/jwks.json", s.HandleJWKS)
+	s.router.With(corsMiddleware).Get(jwksPath, s.HandleJWKS)
 
-	// OIDC Discovery endpoint
-	s.router.With(corsMiddleware).Get("/.well-known/openid-configuration", s.HandleOIDCDiscovery)
+	// Authorization server metadata: one document at both well-known paths,
+	// OIDC Discovery's and RFC 8414's (see metadata.go). MCP clients try the
+	// RFC 8414 path first.
+	s.router.With(corsMiddleware).Get(openIDConfigurationPath, s.HandleOIDCDiscovery)
+	s.router.With(corsMiddleware).Get(authorizationServerMetadataPath, s.HandleOIDCDiscovery)
 
 	// OAuth2/OIDC endpoints with CORS enabled
 	s.router.Route("/oauth", func(r chi.Router) {
@@ -78,6 +81,8 @@ func (s *Server) registerRoutes() {
 		// programmatic OAuth2/OIDC client, so they are deliberately kept out of the
 		// CSRF-protected group below.
 		r.Get("/authorize", s.HandleOauthAuthorize)
+		// Must stay at tokenEndpointPath: ratelimit.go gives that path the
+		// protocol budget.
 		r.Post("/token", s.HandleOauthToken)
 		r.Post("/introspect", s.HandleIntrospect)
 		r.Post("/revoke", s.HandleOauthRevoke)

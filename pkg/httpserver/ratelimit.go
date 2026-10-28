@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eswan18/identity/pkg/config"
 	"golang.org/x/time/rate"
 )
 
@@ -155,6 +156,61 @@ func getClientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// generalRateLimitPerMinute is the per-IP budget shared by every route except
+// static assets and protocolEndpointPaths: the login, consent and register
+// forms, the account pages, userinfo, introspection and the rest.
+const generalRateLimitPerMinute = 20
+
+// protocolEndpointPaths are the paths that draw on the protocol budget
+// (config.ProtocolRateLimitPerMinute) instead of the general one: both
+// metadata documents, JWKS and the token endpoint.
+//
+// They are what an OAuth client or resource server calls on behalf of many
+// users at once. Claude's backend, for one, reaches identity from a shared
+// address range for every Claude user, so the 20/min meant to slow down
+// password guessing at the login form would throttle unrelated people's
+// sign-ins and refreshes there. The metadata and JWKS are public, static
+// documents; the token endpoint authenticates every call with a code, refresh
+// token or client secret, each single-use or secret, so a higher budget does
+// not open a guessing channel the way it would on the login form.
+var protocolEndpointPaths = map[string]bool{
+	openIDConfigurationPath:         true,
+	authorizationServerMetadataPath: true,
+	jwksPath:                        true,
+	tokenEndpointPath:               true,
+}
+
+// protocolRateLimitPerMinute is the configured protocol budget, or the default
+// for a Config that leaves it zero (tests build Configs by hand).
+func protocolRateLimitPerMinute(cfg *config.Config) int {
+	if cfg.ProtocolRateLimitPerMinute <= 0 {
+		return config.DefaultProtocolRateLimitPerMinute
+	}
+	return cfg.ProtocolRateLimitPerMinute
+}
+
+// splitRateLimitMiddleware sends requests for protocolEndpointPaths through
+// the protocol limiter and every other request through the general one. The
+// two keep separate buckets, so a burst of token calls cannot use up an IP's
+// login budget, nor the reverse.
+//
+// It matches the exact request path, before routing. A path that is not in
+// the set (a trailing-slash variant, say) falls to the general budget, which
+// is the safe direction.
+func splitRateLimitMiddleware(protocol, general func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		protocolNext := protocol(next)
+		generalNext := general(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if protocolEndpointPaths[r.URL.Path] {
+				protocolNext.ServeHTTP(w, r)
+				return
+			}
+			generalNext.ServeHTTP(w, r)
+		})
+	}
 }
 
 // rateLimitMiddleware creates a middleware that enforces rate limiting.

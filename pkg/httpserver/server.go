@@ -25,6 +25,9 @@ type Server struct {
 	httpServer     *http.Server
 	cleanupCancel  context.CancelFunc
 	rateLimitStore *rateLimitStore
+	// protocolLimitStore holds the per-IP buckets for the protocol
+	// endpoints, kept apart from rateLimitStore's. See splitRateLimitMiddleware.
+	protocolLimitStore *rateLimitStore
 	// verificationMailStore bounds how much verification mail a single account
 	// can cause to be sent. See allowVerificationMail.
 	verificationMailStore *rateLimitStore
@@ -63,10 +66,15 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(handlerTimeout))
 
-	// Create rate limit store and apply rate limiting to all routes
-	// (20 requests per IP per minute - provides basic DDoS protection)
+	// Per-IP rate limiting on every route but static assets: the protocol
+	// endpoints (metadata, JWKS, token) get their own, higher budget, and
+	// everything else shares the general one. See splitRateLimitMiddleware.
 	rateLimitStore := newRateLimitStore(ipEntryTTL)
-	r.Use(rateLimitMiddleware(rateLimitStore, 20))
+	protocolLimitStore := newRateLimitStore(ipEntryTTL)
+	r.Use(splitRateLimitMiddleware(
+		rateLimitMiddleware(protocolLimitStore, protocolRateLimitPerMinute(config)),
+		rateLimitMiddleware(rateLimitStore, generalRateLimitPerMinute),
+	))
 
 	jwtGen, err := jwt.NewGenerator(
 		config.JWTPrivateKey,
@@ -82,6 +90,7 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 		datastore:             datastore,
 		router:                r,
 		rateLimitStore:        rateLimitStore,
+		protocolLimitStore:    protocolLimitStore,
 		verificationMailStore: newRateLimitStore(verificationMailEntryTTL),
 		mfaAttemptStore:       newRateLimitStore(mfaAttemptEntryTTL),
 		jwtGenerator:          jwtGen,
@@ -214,6 +223,9 @@ func (s *Server) Close() error {
 	if s.rateLimitStore != nil {
 		s.rateLimitStore.Stop()
 	}
+	if s.protocolLimitStore != nil {
+		s.protocolLimitStore.Stop()
+	}
 	if s.verificationMailStore != nil {
 		s.verificationMailStore.Stop()
 	}
@@ -233,6 +245,9 @@ func (s *Server) isSecureContext() bool {
 func (s *Server) ResetRateLimits() {
 	if s.rateLimitStore != nil {
 		s.rateLimitStore.Reset()
+	}
+	if s.protocolLimitStore != nil {
+		s.protocolLimitStore.Reset()
 	}
 	if s.verificationMailStore != nil {
 		s.verificationMailStore.Reset()
