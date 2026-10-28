@@ -203,8 +203,13 @@ func (s *OAuthFlowSuite) TestLegacyAudienceSurvivesMigration() {
 
 // TestNoDefaultResourceAudienceIsIssuer: a client with no default resource
 // gets tokens for identity itself, aud = [issuer], and the token row records
-// no resource.
+// the issuer explicitly -- never NULL, which migration 000012's trigger
+// reserves for rows the previous release wrote and would fill from the
+// client's current default. So when the client later gains a default
+// resource, refreshing the token it already has still yields aud = [issuer]:
+// the grant is not re-pointed at the new resource.
 func (s *OAuthFlowSuite) TestNoDefaultResourceAudienceIsIssuer() {
+	const issuer = "http://localhost:8080"
 	result := s.mustCompleteOAuthFlow(db.CreateOAuthClientParams{
 		ClientID:       s.mustGenerateRandomString(8),
 		Name:           s.mustGenerateRandomString(8),
@@ -212,11 +217,57 @@ func (s *OAuthFlowSuite) TestNoDefaultResourceAudienceIsIssuer() {
 		AllowedScopes:  []string{"openid", "profile", "email"},
 		IsConfidential: false,
 	})
-	s.Equal(`["http://localhost:8080"]`, s.accessTokenRawAud(result.TokenResponse.AccessToken))
-	s.False(s.tokenRowResource(s.datastore, result.TokenResponse.RefreshToken).Valid)
+	s.Equal(`["`+issuer+`"]`, s.accessTokenRawAud(result.TokenResponse.AccessToken))
+	s.Equal(testResource(issuer), s.tokenRowResource(s.datastore, result.TokenResponse.RefreshToken),
+		"a token for identity itself stores the issuer, not NULL")
 
-	refreshed := s.mustRefreshAt("http://localhost:8080", result.Client.ClientID, result.TokenResponse.RefreshToken)
-	s.Equal(`["http://localhost:8080"]`, s.accessTokenRawAud(refreshed.AccessToken))
+	refreshed := s.mustRefreshAt(issuer, result.Client.ClientID, result.TokenResponse.RefreshToken)
+	s.Equal(`["`+issuer+`"]`, s.accessTokenRawAud(refreshed.AccessToken))
+	s.Equal(testResource(issuer), s.tokenRowResource(s.datastore, refreshed.RefreshToken))
+
+	// The client gains a default resource.
+	mustEnsureDefaultResource(s.T(), s.datastore, db.CreateOAuthClientParams{DefaultResource: testResource("https://gained.example.com")})
+	_, err := s.datastore.Q.UpdateOAuthClient(s.T().Context(), db.UpdateOAuthClientParams{
+		ClientID:           result.Client.ClientID,
+		SetDefaultResource: true,
+		DefaultResource:    testResource("https://gained.example.com"),
+	})
+	s.Require().NoError(err)
+
+	again := s.mustRefreshAt(issuer, result.Client.ClientID, refreshed.RefreshToken)
+	s.Equal(`["`+issuer+`"]`, s.accessTokenRawAud(again.AccessToken),
+		"refreshing an identity-audience token must not pick up the client's new default")
+	s.Equal(testResource(issuer), s.tokenRowResource(s.datastore, again.RefreshToken))
+	once := s.mustRefreshAt(issuer, result.Client.ClientID, again.RefreshToken)
+	s.Equal(`["`+issuer+`"]`, s.accessTokenRawAud(once.AccessToken), "nor on any later refresh")
+}
+
+// TestOldReleaseTokenInsertGetsClientDefault: a token row inserted without the
+// resource column -- what the previous release does while it is still serving
+// after migration 000012 -- gets the client's default resource from the
+// trigger, which is the aud that release minted. Refreshing it under this
+// release keeps that aud.
+func (s *OAuthFlowSuite) TestOldReleaseTokenInsertGetsClientDefault() {
+	client := s.mustRegisterOAuthClient(db.CreateOAuthClientParams{
+		ClientID:        s.mustGenerateRandomString(8),
+		Name:            s.mustGenerateRandomString(8),
+		RedirectUris:    []string{"http://localhost:8080/callback"},
+		AllowedScopes:   []string{"openid"},
+		DefaultResource: testResource("https://old-release.example.com"),
+	})
+	user := s.mustRegisterUser(s.mustGenerateAlphanumericString(10), s.mustGenerateRandomString(12),
+		s.mustGenerateAlphanumericString(10)+"@example.com")
+
+	refreshToken := s.mustGenerateRandomString(32)
+	_, err := s.datastore.DB.ExecContext(s.T().Context(), `
+		INSERT INTO oauth_tokens (access_token, refresh_token, user_id, client_id, scope, expires_at, refresh_expires_at)
+		VALUES ($1, $2, $3, $4, '{openid}', now() + interval '1 hour', now() + interval '30 days')`,
+		s.mustGenerateRandomString(16), refreshToken, user.ID, client.ID)
+	s.Require().NoError(err)
+	s.Equal(testResource("https://old-release.example.com"), s.tokenRowResource(s.datastore, refreshToken))
+
+	refreshed := s.mustRefreshAt("http://localhost:8080", client.ClientID, refreshToken)
+	s.Equal(`["https://old-release.example.com"]`, s.accessTokenRawAud(refreshed.AccessToken))
 }
 
 // TestRefreshKeepsStoredResourceAfterDefaultChanges: changing a client's

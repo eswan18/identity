@@ -273,14 +273,29 @@ func (s *Server) tokenAudience(resource sql.NullString) string {
 	return s.config.JWTIssuer
 }
 
+// storedResource is what a token row records as the resource it was issued
+// for: the aud itself, so the issuer for a token for identity itself.
+//
+// This code never stores NULL. Migration 000012's oauth_tokens_fill_resource
+// trigger fills a NULL resource from the client's current default, which is
+// right only for rows the previous release inserts (it doesn't know the
+// column). If this code stored NULL for "identity itself", the trigger would
+// re-point such a token at whatever default the client has by then -- on a
+// refresh, after the client gained one -- and every later refresh would carry
+// that wrong aud forward. Storing the issuer keeps NULL meaning "the previous
+// release wrote this row" and nothing else.
+func (s *Server) storedResource(resource sql.NullString) sql.NullString {
+	return sql.NullString{String: s.tokenAudience(resource), Valid: true}
+}
+
 // generateTokens creates new access and refresh tokens and stores them in the database.
 // Returns the token pair on success.
 //
 // resource is what the token is for, and becomes its aud (see tokenAudience).
-// It is recorded on the token row, so a refresh reissues for the same resource
-// instead of re-reading the client's default, which may since have changed.
-// The caller decides it: the client's default resource at code exchange, the
-// stored resource at refresh.
+// The aud is recorded on the token row (see storedResource), so a refresh
+// reissues for the same audience instead of re-reading the client's default,
+// which may since have changed. The caller decides it: the client's default
+// resource at code exchange, the stored resource at refresh.
 func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID uuid.UUID, scope []string, nonce string, resource sql.NullString) (TokenPair, error) {
 	// Fetch user information for JWT claims
 	user, err := s.datastore.Q.GetUserByID(ctx, userID)
@@ -328,7 +343,7 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 		TokenType:        sql.NullString{String: "Bearer", Valid: true},
 		ExpiresAt:        accessExpiresAt,
 		RefreshExpiresAt: sql.NullTime{Time: refreshExpiresAt, Valid: true},
-		Resource:         resource,
+		Resource:         s.storedResource(resource),
 	})
 	if err != nil {
 		return TokenPair{}, err
@@ -405,7 +420,7 @@ func (s *Server) generateServiceAccountTokens(ctx context.Context, client db.Oau
 		TokenType:        sql.NullString{String: "Bearer", Valid: true},
 		ExpiresAt:        accessExpiresAt,
 		RefreshExpiresAt: sql.NullTime{Valid: false}, // No refresh token
-		Resource:         resource,
+		Resource:         s.storedResource(resource),
 	})
 	if err != nil {
 		return TokenPair{}, err

@@ -153,9 +153,14 @@ func TestUpAgainstPostgresResourcesMigration(t *testing.T) {
 		      ON CONFLICT (user_id, client_id, resource) DO UPDATE SET scopes = EXCLUDED.scopes`, userID, clientUUID(t, "footstrike"))
 		require.Equal(t, 1, count(t, `SELECT count(*) FROM oauth_user_consents`))
 
-		// A token this release mints for a client with no default stays NULL.
-		insertToken(t, "tok-no-default", "no-audience")
-		require.False(t, queryString(t, `SELECT resource FROM oauth_tokens WHERE refresh_token = 'tok-no-default'`).Valid)
+		// This release always names the resource -- the issuer, for a token for
+		// identity itself -- and the trigger never overrides a value it was given,
+		// even for a client whose default is some other resource.
+		exec(t, `INSERT INTO oauth_tokens (access_token, refresh_token, user_id, client_id, scope, expires_at, resource)
+		      VALUES ('tok-identity', 'tok-identity', $1, $2, '{openid}', now() + interval '1 hour', 'https://identity.example')`,
+			userID, clientUUID(t, "shared-a"))
+		require.Equal(t, sql.NullString{String: "https://identity.example", Valid: true},
+			queryString(t, `SELECT resource FROM oauth_tokens WHERE refresh_token = 'tok-identity'`))
 	})
 
 	t.Run("down restores the old schema", func(t *testing.T) {

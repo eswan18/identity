@@ -89,9 +89,10 @@ CREATE TABLE oauth_client_resources (
 -- ============================
 -- Codes and tokens
 -- ============================
--- The resource a code or token was issued for (its aud), NULL for identity
--- itself. A refresh reissues for the stored resource, never the client's
--- current default.
+-- The resource a code or token was issued for: its aud. For a token for
+-- identity itself the new release stores identity's issuer, never NULL (see the
+-- trigger below). A refresh reissues for the stored resource, never the
+-- client's current default.
 ALTER TABLE oauth_authorization_codes ADD COLUMN resource text;
 
 -- family_id and revoked_reason are for refresh-token reuse detection (a later
@@ -111,9 +112,15 @@ WHERE t.client_id = c.id
 
 -- Tokens the previous release inserts after this migration (it is still serving
 -- until the new release rolls out) don't set resource. Fill it from the client's
--- default, which is exactly the aud that release put in the JWT. The new release
--- always sets resource when the client has a default and leaves it NULL only when
--- it has none, so for its inserts this is a no-op. Drop in the contract migration.
+-- default, which is exactly the aud that release put in the JWT.
+--
+-- This is only correct because the new release never inserts a NULL resource:
+-- it stores the aud it minted, which is identity's issuer for a token for
+-- identity itself. So a NULL here can only be a previous-release row. Were the
+-- new release to write NULL for "identity itself", this trigger would re-point
+-- that token at the client's current default -- e.g. when refreshing it after
+-- the client gained one -- and the wrong aud would carry through every later
+-- refresh. Drop in the contract migration, once no previous-release pod exists.
 CREATE FUNCTION oauth_tokens_fill_resource() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
