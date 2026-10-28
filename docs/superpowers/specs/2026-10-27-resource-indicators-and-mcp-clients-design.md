@@ -1,7 +1,7 @@
 # Resource Indicators and MCP Clients
 
 **Date:** 2026-10-27
-**Status:** Draft for review. Nothing built.
+**Status:** Reviewed; decisions confirmed. Nothing built.
 **Why now:** Sensibility (and later footstrike-api) will host MCP servers that
 Claude connects to as the signed-in user, through identity
 (`sensibility/docs/superpowers/specs/2026-10-25-mcp-agent-access-design.md`).
@@ -405,20 +405,18 @@ claude.ai once phase 3 lands.
 - A conformance check against the MCP Inspector or Claude Code before
   calling phase 3 done.
 
-## Decisions to confirm
+## Decisions (confirmed 2026-10-27)
 
-1. **CIMD trust:** allow-list (`claude.ai` only) rather than any host. I'd
-   start strict.
+1. **CIMD trust is an allow-list**, `claude.ai` only, to start. Revisit:
+   #146.
 2. **No refresh grace window** for reuse detection.
-3. **Keep `ethanswan:fitness`** as a grandfathered non-https resource until
-   footstrike-api moves to a URL.
+3. **`ethanswan:fitness` is grandfathered** as a non-https resource for now.
+   Moving footstrike-api to an https resource URI: #147.
 4. **Refresh tokens keep being issued on every code exchange** (not only
-   with `offline_access`), as today; `offline_access` is accepted and
-   advertised so Claude asks for it.
-5. **Staging:** identity-staging is tailnet-only, so claude.ai (on the public
-   internet) can't complete OAuth against it. Staging MCP is tested with
-   Claude Code from the tailnet; claude.ai is tested against prod. (Exposing
-   staging identity publicly is a separate decision.)
+   with `offline_access`); `offline_access` is accepted and advertised so
+   Claude asks for it.
+5. **Staging:** identity-staging stays tailnet-only, so staging MCP is tested
+   with Claude Code from the tailnet and claude.ai against prod.
 
 ## Sources
 
