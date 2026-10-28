@@ -1,28 +1,15 @@
 package views
 
-import "strings"
-
-// MFAView holds everything the login-time MFA challenge page renders. It
-// replaces httpserver.MFAPageData; the fields are checked at compile time
-// against their use in the component below.
+// MFAView holds everything the login-time MFA challenge page renders.
 //
-// The OAuth authorization parameters travel through the page as hidden form
-// fields so the originating authorization request survives even if the
-// server-side pending row is gone by the time the code is submitted. Scope is
-// joined with a single space when rendered into the hidden "scope" input,
-// matching templates/mfa.html's
-// `{{range $i, $s := .Scope}}{{if $i}} {{end}}{{$s}}{{end}}`.
+// The OAuth authorization request (see AuthorizeQueryField) travels through
+// the page as a hidden field so it survives even if the server-side pending
+// row is gone by the time the code is submitted.
 type MFAView struct {
-	Error               string
-	PendingID           string
-	ClientID            string
-	RedirectURI         string
-	State               string
-	Scope               []string
-	CodeChallenge       string
-	CodeChallengeMethod string
-	Nonce               string
-	CSRFToken           string
+	Error          string
+	PendingID      string
+	AuthorizeQuery string
+	CSRFToken      string
 }
 
 // MFA renders the login-time MFA code-entry form. Compare templates/mfa.html.
@@ -54,13 +41,7 @@ templ MFA(data MFAView) {
 				/>
 			</fieldset>
 			<input type="hidden" name="pending_id" value={ data.PendingID }/>
-			<input type="hidden" name="client_id" value={ data.ClientID }/>
-			<input type="hidden" name="redirect_uri" value={ data.RedirectURI }/>
-			<input type="hidden" name="state" value={ data.State }/>
-			<input type="hidden" name="scope" value={ strings.Join(data.Scope, " ") }/>
-			<input type="hidden" name="code_challenge" value={ data.CodeChallenge }/>
-			<input type="hidden" name="code_challenge_method" value={ data.CodeChallengeMethod }/>
-			<input type="hidden" name="nonce" value={ data.Nonce }/>
+			<input type="hidden" name={ AuthorizeQueryField } value={ data.AuthorizeQuery }/>
 			<button type="submit" class="btn btn-primary w-full">Verify</button>
 		</form>
 		<div class="text-center mt-6 text-sm text-base-content/60">

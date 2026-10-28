@@ -57,9 +57,10 @@ func (s *OAuthFlowSuite) TestFullOAuthFlow() {
 		location := resp.Header.Get("Location")
 		redirectUrl, err := url.ParseRequestURI(location)
 		s.Require().NoError(err)
-		// We should be redirected to the login page with the OAuth parameters preserved.
+		// We should be redirected to the login page carrying the authorization
+		// request exactly as it was sent, as one value.
 		s.Equal("/oauth/login", redirectUrl.Path)
-		s.Equal(query, redirectUrl.Query())
+		s.Equal(url.Values{"authorize_query": {query.Encode()}}, redirectUrl.Query())
 	})
 
 	// Create a variable to store the returned authorization code, which we'll use later.
@@ -210,15 +211,11 @@ func (s *OAuthFlowSuite) TestLoginFailedPreservesAllScopes() {
 	scv := s.mustCreateStateAndCodeVerifier()
 
 	// POST to login with WRONG password and multiple scopes
+	request := authorizeQueryFor(client.ClientID, client.RedirectUris[0], "openid profile email", scv, nil)
 	resp, err := csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/login", url.Values{
-		"username":              {username},
-		"password":              {"wrong-password"},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {client.RedirectUris[0]},
-		"state":                 {scv.State},
-		"scope":                 {"openid profile email"}, // space-separated scopes
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
+		"username":        {username},
+		"password":        {"wrong-password"},
+		"authorize_query": {request},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -229,18 +226,13 @@ func (s *OAuthFlowSuite) TestLoginFailedPreservesAllScopes() {
 	// Read the response body (the re-rendered login form)
 	body, err := io.ReadAll(resp.Body)
 	s.Require().NoError(err)
-	bodyStr := string(body)
 
-	// Verify ALL scopes are preserved in the hidden input field
-	// The template should render: value="openid profile email"
-	s.Contains(bodyStr, `name="scope"`, "response should contain scope hidden input")
-	s.Contains(bodyStr, "openid", "response should contain openid scope")
-	s.Contains(bodyStr, "profile", "response should contain profile scope")
-	s.Contains(bodyStr, "email", "response should contain email scope")
-
-	// More specifically, check that the scopes appear together in the value attribute
-	// This ensures they're in a single input, not split across multiple
-	s.Contains(bodyStr, `value="openid profile email"`, "all scopes should be in a single hidden input value")
+	// The re-rendered form carries the whole request, every scope included,
+	// byte for byte.
+	s.Equal(request, renderedAuthorizeQuery(s.T(), string(body)))
+	carried, err := url.ParseQuery(renderedAuthorizeQuery(s.T(), string(body)))
+	s.Require().NoError(err)
+	s.Equal("openid profile email", carried.Get("scope"), "all scopes should survive in one value")
 }
 
 // TestLoginSetsLastLoginAt verifies that successful login updates the last_login_at timestamp.
@@ -270,14 +262,17 @@ func (s *OAuthFlowSuite) TestLoginSetsLastLoginAt() {
 
 	// Login
 	resp, err := csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/login", url.Values{
-		"username":              {username},
-		"password":              {password},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {client.RedirectUris[0]},
-		"state":                 {scv.State},
-		"scope":                 {"openid"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
+		"username": {username},
+		"password": {password},
+		"authorize_query": {url.Values{
+			"response_type":         {"code"},
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {client.RedirectUris[0]},
+			"state":                 {scv.State},
+			"scope":                 {"openid"},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+		}.Encode()},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()

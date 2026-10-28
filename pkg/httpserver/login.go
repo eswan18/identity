@@ -4,111 +4,41 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"net/url"
-	"strings"
 
 	"github.com/eswan18/identity/pkg/views"
 )
 
-// oauthFlowParams carries the OAuth authorization parameters through the login
-// (and, via mfa.go, MFA) flow. Unlike pkg/views' *View types, it is not only
-// a rendering type: it doubles as the internal carrier passed between
-// handlers (e.g. HandleLoginPost -> createMFAPendingSession,
-// oauthParamsFromPending / resumeMFAFlow / buildAuthorizeURL in mfa.go), so
-// it stays in httpserver rather than moving to pkg/views. Render call sites
-// build a views.LoginView from it via loginViewFromParams instead of
-// rendering it directly.
-type oauthFlowParams struct {
-	Error               string
-	ClientID            string
-	RedirectURI         string
-	State               string
-	Scope               []string
-	CodeChallenge       string
-	CodeChallengeMethod string
-	Nonce               string
-	CSRFToken           string
-}
-
-// loginViewFromParams builds the views.LoginView used to render the login
-// page from the oauthFlowParams carrier plus the error message and CSRF token,
-// which vary by call site.
-func loginViewFromParams(p oauthFlowParams, errMsg, csrfToken string) views.LoginView {
-	return views.LoginView{
-		Error:               errMsg,
-		ClientID:            p.ClientID,
-		RedirectURI:         p.RedirectURI,
-		State:               p.State,
-		Scope:               p.Scope,
-		CodeChallenge:       p.CodeChallenge,
-		CodeChallengeMethod: p.CodeChallengeMethod,
-		Nonce:               p.Nonce,
-		CSRFToken:           csrfToken,
-	}
-}
-
 // handleLoginGet godoc
 // @Summary      Show login page
-// @Description  Displays the login form with OAuth parameters preserved in hidden fields
+// @Description  Displays the login form, carrying the OAuth authorization request (if any) in a hidden field
 // @Tags         authentication
 // @Produce      html
-// @Param        client_id           query     string  true  "Registered client identifier"
-// @Param        redirect_uri        query     string  true  "Where to send the user after auth"
-// @Param        state               query     string  true  "CSRF protection token"
-// @Param        scope               query     string  true  "Requested scopes (e.g., 'openid profile email')"
-// @Param        code_challenge      query     string  true  "PKCE code challenge (SHA256 hash)"
-// @Param        code_challenge_method query   string  true  "PKCE challenge method (must be 'S256')"
+// @Param        authorize_query     query     string  false "The original /oauth/authorize query string, when the sign-in is part of an OAuth flow"
 // @Success      200 {string} string "HTML login page"
 // @Router       /login [get]
 func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
-	// Extract OAuth parameters (all optional - /login can be accessed standalone or via OAuth flow)
-	// Note: /oauth/authorize should validate required OAuth params before redirecting here
-	clientID := r.URL.Query().Get("client_id")
-	redirectURI := r.URL.Query().Get("redirect_uri")
-	state := r.URL.Query().Get("state")
-	scope := strings.Split(r.URL.Query().Get("scope"), " ")
-	codeChallenge := r.URL.Query().Get("code_challenge")
-	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
-	nonce := r.URL.Query().Get("nonce")
+	// The authorization request this sign-in belongs to. It is optional: /login
+	// can be used directly to reach account settings. /oauth/authorize validates
+	// it in full once the user is signed in.
+	request := carriedAuthorizeRequest(r)
+	p := request.params()
 
 	// If code_challenge_method is provided, it must be S256 -- meaning a sha256 hash of the code verifier.
-	if codeChallengeMethod != "" && codeChallengeMethod != "S256" {
-		oauthParams := oauthFlowParams{
-			ClientID:            clientID,
-			RedirectURI:         redirectURI,
-			State:               state,
-			Scope:               scope,
-			CodeChallenge:       codeChallenge,
-			CodeChallengeMethod: codeChallengeMethod,
-			Nonce:               nonce,
-		}
-
+	if p.CodeChallengeMethod != "" && p.CodeChallengeMethod != "S256" {
 		// Only redirect this OAuth error back to the client if client_id + redirect_uri have
 		// been confirmed valid against the registered client. Blindly redirecting to a raw,
 		// unvalidated redirect_uri is an open redirect (RFC 6749 4.1.2.1 requires validating
 		// client_id/redirect_uri before trusting them for error redirects). This mirrors the
 		// validate-before-redirect pattern used in HandleOauthAuthorize / HandleConsentPost.
-		if clientID != "" && redirectURI != "" {
-			if _, err := s.validateOAuthClientRedirect(r.Context(), clientID, redirectURI); err == nil {
-				// OAuth error: redirect back to client with error parameters
-				errorDesc := "Only S256 code challenge method is supported"
-				if redirectURL, err := url.Parse(redirectURI); err == nil {
-					q := redirectURL.Query()
-					q.Set("error", "invalid_request")
-					q.Set("error_description", errorDesc)
-					// Per RFC 6749 §4.1.2.1, state is only echoed back if the client sent it.
-					if state != "" {
-						q.Set("state", state)
-					}
-					redirectURL.RawQuery = q.Encode()
-					http.Redirect(w, r, redirectURL.String(), http.StatusFound)
-					return
-				}
+		if p.ClientID != "" && p.RedirectURI != "" {
+			if _, err := s.validateOAuthClientRedirect(r.Context(), p.ClientID, p.RedirectURI); err == nil {
+				s.respondWithError(w, r, p, "invalid_request", "Only S256 code challenge method is supported")
+				return
 			}
 		}
 		// No redirect_uri, or client_id/redirect_uri failed validation: show error page
 		// locally rather than redirecting to an unverified destination.
-		s.renderLoginError(w, r, http.StatusBadRequest, "Only S256 code challenge method is supported", oauthParams)
+		s.renderLoginError(w, r, http.StatusBadRequest, "Only S256 code challenge method is supported", request)
 		return
 	}
 
@@ -131,35 +61,26 @@ func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
 			"If your codes keep being rejected, check that your authenticator device's clock is correct."
 	}
 
-	oauthParams := oauthFlowParams{
-		ClientID:            clientID,
-		RedirectURI:         redirectURI,
-		State:               state,
-		Scope:               scope,
-		CodeChallenge:       codeChallenge,
-		CodeChallengeMethod: codeChallengeMethod,
-		Nonce:               nonce,
+	view := views.LoginView{
+		Error:          errorMsg,
+		AuthorizeQuery: string(request),
+		CSRFToken:      s.ensureCSRFToken(w, r),
 	}
-	if err := views.Login(loginViewFromParams(oauthParams, errorMsg, s.ensureCSRFToken(w, r))).Render(r.Context(), w); err != nil {
+	if err := views.Login(view).Render(r.Context(), w); err != nil {
 		log.Printf("[ERROR] HandleLoginGet: Failed to render login page: %v", err)
 	}
 }
 
 // handleLoginPost godoc
 // @Summary      Process login
-// @Description  Validates username/password, creates authenticated session, generates authorization code, and redirects to client
+// @Description  Validates username/password, creates authenticated session, and resumes the OAuth authorization request the form carried (or goes to account settings)
 // @Tags         authentication
 // @Accept       application/x-www-form-urlencoded
 // @Produce      html
 // @Param        username            formData  string  true  "User username"
 // @Param        password            formData  string  true  "User password"
-// @Param        client_id           formData  string  true  "OAuth client ID"
-// @Param        redirect_uri        formData  string  true  "OAuth redirect URI"
-// @Param        state               formData  string  true  "CSRF protection token"
-// @Param        scope               formData  string  true  "Requested scopes"
-// @Param        code_challenge      formData  string  true  "PKCE code challenge"
-// @Param        code_challenge_method formData string true  "PKCE challenge method"
-// @Success      302 {string} string "Redirect to redirect_uri with authorization code"
+// @Param        authorize_query     formData  string  false "The original /oauth/authorize query string, when the sign-in is part of an OAuth flow"
+// @Success      302 {string} string "Redirect back to /oauth/authorize, to MFA, or to account settings"
 // @Failure      400 {string} string "Invalid request parameters"
 // @Failure      401 {string} string "Invalid credentials"
 // @Router       /login [post]
@@ -167,24 +88,8 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 	s.debugf("HandleLoginPost: Starting login request")
 	username := r.FormValue("username")
 	password := r.FormValue("password")
-	clientID := r.FormValue("client_id")
-	redirectURI := r.FormValue("redirect_uri")
-	state := r.FormValue("state")
-	scope := strings.Split(r.FormValue("scope"), " ")
-	codeChallenge := r.FormValue("code_challenge")
-	codeChallengeMethod := r.FormValue("code_challenge_method")
-	nonce := r.FormValue("nonce")
+	request := carriedAuthorizeRequest(r)
 
-	// Extract OAuth parameters into a struct for reuse.
-	oauthParams := oauthFlowParams{
-		ClientID:            clientID,
-		RedirectURI:         redirectURI,
-		State:               state,
-		Scope:               scope,
-		CodeChallenge:       codeChallenge,
-		CodeChallengeMethod: codeChallengeMethod,
-		Nonce:               nonce,
-	}
 	// Validate credentials - use the function that includes inactive users
 	// so we can handle deactivated users appropriately based on the login type
 	user, err := s.validateCredentialsIncludingInactive(r.Context(), username, password)
@@ -196,26 +101,26 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 		} else if errors.Is(err, ErrInvalidCredentials) {
 			status = http.StatusUnauthorized
 		}
-		s.renderLoginError(w, r, status, err.Error(), oauthParams)
+		s.renderLoginError(w, r, status, err.Error(), request)
 		return
 	}
 	s.debugf("HandleLoginPost: Credentials validated successfully for user ID: %v", user.ID)
 
 	// Check if user is deactivated and trying to use OAuth login
 	// Deactivated users can only log in directly (no client_id) to access account settings
-	if !user.IsActive && clientID != "" {
+	if !user.IsActive && request.inFlow() {
 		s.debugf("HandleLoginPost: Deactivated user (ID: %v) attempted OAuth login", user.ID)
-		s.renderLoginError(w, r, http.StatusForbidden, ErrAccountDeactivated.Error(), oauthParams)
+		s.renderLoginError(w, r, http.StatusForbidden, ErrAccountDeactivated.Error(), request)
 		return
 	}
 
 	// Check if MFA is enabled for this user
 	if user.MfaEnabled {
 		s.debugf("HandleLoginPost: MFA enabled for user (ID: %v), creating pending session", user.ID)
-		pendingID, err := s.createMFAPendingSession(r, user.ID, oauthParams)
+		pendingID, err := s.createMFAPendingSession(r, user.ID, request)
 		if err != nil {
 			log.Printf("[ERROR] HandleLoginPost: Failed to create MFA pending session: %v", err)
-			s.renderLoginError(w, r, http.StatusInternalServerError, "An error occurred", oauthParams)
+			s.renderLoginError(w, r, http.StatusInternalServerError, "An error occurred", request)
 			return
 		}
 		// Redirect to MFA verification page
@@ -228,7 +133,7 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 	session, err := s.createSession(r.Context(), user.ID)
 	if err != nil {
 		log.Printf("[ERROR] HandleLoginPost: Failed to create session: %v", err)
-		s.renderLoginError(w, r, http.StatusInternalServerError, "An error occurred", oauthParams)
+		s.renderLoginError(w, r, http.StatusInternalServerError, "An error occurred", request)
 		return
 	}
 	// Log only the user ID, never the session token itself: session.ID is the bearer
@@ -249,17 +154,22 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 	// Redirect onward: back into the OAuth authorize flow (which now finds the user
 	// authenticated and handles consent + code issuance), or to account settings for a
 	// direct login with no OAuth flow in progress.
-	s.redirectAfterAuth(w, r, oauthParams)
+	s.redirectAfterAuth(w, r, request)
 }
 
-// renderLoginError renders the login page with an error message, preserving OAuth parameters.
-// It handles template execution errors gracefully by falling back to the error template.
-func (s *Server) renderLoginError(w http.ResponseWriter, r *http.Request, statusCode int, errorMsg string, oauthParams oauthFlowParams) {
+// renderLoginError renders the login page with an error message, keeping the
+// authorization request. It handles template execution errors gracefully by
+// falling back to the error template.
+func (s *Server) renderLoginError(w http.ResponseWriter, r *http.Request, statusCode int, errorMsg string, request authorizeRequest) {
 	// Ensure the CSRF token/cookie before writing the status line, so the re-rendered
 	// login form carries a token the eventual POST can echo back.
 	csrfToken := s.ensureCSRFToken(w, r)
 	w.WriteHeader(statusCode)
-	err := views.Login(loginViewFromParams(oauthParams, errorMsg, csrfToken)).Render(r.Context(), w)
+	err := views.Login(views.LoginView{
+		Error:          errorMsg,
+		AuthorizeQuery: string(request),
+		CSRFToken:      csrfToken,
+	}).Render(r.Context(), w)
 	if err != nil {
 		// Fallback to error template if login template fails
 		err = views.Error(views.ErrorView{
@@ -267,7 +177,7 @@ func (s *Server) renderLoginError(w http.ResponseWriter, r *http.Request, status
 			Message:     "An error occurred while rendering the login page",
 			Details:     err.Error(),
 			ErrorCode:   "500",
-			RedirectURI: oauthParams.RedirectURI,
+			RedirectURI: request.params().RedirectURI,
 		}).Render(r.Context(), w)
 		if err != nil {
 			// Last resort: plain text error
@@ -291,32 +201,14 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, session Session) {
 	})
 }
 
-// buildAuthorizeURL builds the /oauth/authorize URL used to (re)enter the OAuth flow
-// once the user is authenticated. It mirrors the parameters originally supplied by the
-// client; the authorize endpoint re-validates client_id, redirect_uri and scope on
-// arrival, so these values are not trusted blindly.
-func buildAuthorizeURL(p oauthFlowParams) string {
-	q := url.Values{
-		"client_id":             {p.ClientID},
-		"redirect_uri":          {p.RedirectURI},
-		"response_type":         {"code"},
-		"scope":                 {strings.Join(p.Scope, " ")},
-		"state":                 {p.State},
-		"code_challenge":        {p.CodeChallenge},
-		"code_challenge_method": {p.CodeChallengeMethod},
-		"nonce":                 {p.Nonce},
-	}
-	return "/oauth/authorize?" + q.Encode()
-}
-
 // redirectAfterAuth sends a freshly-authenticated user onward. When an OAuth client
-// initiated the flow (client_id present) the user is routed back through
-// /oauth/authorize to handle consent and authorization-code issuance; otherwise this
-// was a direct login and the user is taken to account settings.
-func (s *Server) redirectAfterAuth(w http.ResponseWriter, r *http.Request, p oauthFlowParams) {
-	if p.ClientID == "" {
+// initiated the flow the user is routed back through /oauth/authorize, with the
+// client's original request, to handle consent and authorization-code issuance;
+// otherwise this was a direct login and the user is taken to account settings.
+func (s *Server) redirectAfterAuth(w http.ResponseWriter, r *http.Request, request authorizeRequest) {
+	if !request.inFlow() {
 		http.Redirect(w, r, "/oauth/account-settings", http.StatusFound)
 		return
 	}
-	http.Redirect(w, r, buildAuthorizeURL(p), http.StatusFound)
+	http.Redirect(w, r, request.authorizeURL(), http.StatusFound)
 }

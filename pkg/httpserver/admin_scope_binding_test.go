@@ -97,14 +97,16 @@ func (s *OAuthFlowSuite) TestAdminScopeUnreachableViaConsent() {
 
 	scv := s.mustCreateStateAndCodeVerifier()
 	resp, err := csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/consent", url.Values{
-		"decision":              {"allow"},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {client.RedirectUris[0]},
-		"scope":                 {"openid admin:users:write"},
-		"state":                 {scv.State},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
-		"response_type":         {"code"},
+		"decision": {"allow"},
+		"authorize_query": {url.Values{
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {client.RedirectUris[0]},
+			"scope":                 {"openid admin:users:write"},
+			"state":                 {scv.State},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+			"response_type":         {"code"},
+		}.Encode()},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()

@@ -37,7 +37,7 @@ func (s *OAuthFlowSuite) TestAuthorizationServerMetadataBothPaths() {
 	s.Contains(doc["token_endpoint_auth_methods_supported"], "none")
 	s.Contains(doc["scopes_supported"], "offline_access")
 	s.Contains(doc["code_challenge_methods_supported"], "S256")
-	s.NotContains(doc, "authorization_response_iss_parameter_supported")
+	s.Equal(true, doc["authorization_response_iss_parameter_supported"])
 	s.NotContains(doc, "client_id_metadata_document_supported")
 	for key, v := range doc {
 		if arr, ok := v.([]any); ok {

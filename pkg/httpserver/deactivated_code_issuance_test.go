@@ -81,14 +81,16 @@ func (s *OAuthFlowSuite) TestDeactivatedUserGetsNoCodeFromConsent() {
 	httpClient, client, scv := s.mustDeactivatedUserClient()
 
 	resp, err := csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/consent", url.Values{
-		"decision":              {"allow"},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {client.RedirectUris[0]},
-		"scope":                 {"openid"},
-		"state":                 {scv.State},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
-		"response_type":         {"code"},
+		"decision": {"allow"},
+		"authorize_query": {url.Values{
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {client.RedirectUris[0]},
+			"scope":                 {"openid"},
+			"state":                 {scv.State},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+			"response_type":         {"code"},
+		}.Encode()},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -110,14 +112,16 @@ func (s *OAuthFlowSuite) TestDeactivatedUserDenyingConsentStillTellsTheClient() 
 	httpClient, client, scv := s.mustDeactivatedUserClient()
 
 	resp, err := csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/consent", url.Values{
-		"decision":              {"deny"},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {client.RedirectUris[0]},
-		"scope":                 {"openid"},
-		"state":                 {scv.State},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
-		"response_type":         {"code"},
+		"decision": {"deny"},
+		"authorize_query": {url.Values{
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {client.RedirectUris[0]},
+			"scope":                 {"openid"},
+			"state":                 {scv.State},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+			"response_type":         {"code"},
+		}.Encode()},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -139,14 +143,16 @@ func (s *OAuthFlowSuite) TestDeactivatedConsentRedirectKeepsOAuthContext() {
 	httpClient, client, scv := s.mustDeactivatedUserClient()
 
 	resp, err := csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/consent", url.Values{
-		"decision":              {"allow"},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {client.RedirectUris[0]},
-		"scope":                 {"openid"},
-		"state":                 {scv.State},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
-		"response_type":         {"code"},
+		"decision": {"allow"},
+		"authorize_query": {url.Values{
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {client.RedirectUris[0]},
+			"scope":                 {"openid"},
+			"state":                 {scv.State},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+			"response_type":         {"code"},
+		}.Encode()},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -154,9 +160,11 @@ func (s *OAuthFlowSuite) TestDeactivatedConsentRedirectKeepsOAuthContext() {
 	location, err := url.Parse(resp.Header.Get("Location"))
 	s.Require().NoError(err)
 	s.Require().Equal("account_deactivated", location.Query().Get("error"))
-	s.Require().Equal(client.ClientID, location.Query().Get("client_id"),
+	carried, err := url.ParseQuery(location.Query().Get("authorize_query"))
+	s.Require().NoError(err)
+	s.Require().Equal(client.ClientID, carried.Get("client_id"),
 		"the OAuth context must survive the bounce; got %s", resp.Header.Get("Location"))
-	s.Require().Equal(scv.State, location.Query().Get("state"))
+	s.Require().Equal(scv.State, carried.Get("state"))
 }
 
 // TestConsentGetRefusesDeactivatedUser: the form is not rendered to a user whose
@@ -164,16 +172,9 @@ func (s *OAuthFlowSuite) TestDeactivatedConsentRedirectKeepsOAuthContext() {
 func (s *OAuthFlowSuite) TestConsentGetRefusesDeactivatedUser() {
 	httpClient, client, scv := s.mustDeactivatedUserClient()
 
-	consentURL := fmt.Sprintf(
-		"http://localhost:8080/oauth/consent?response_type=code&client_id=%s&redirect_uri=%s"+
-			"&scope=%s&state=%s&code_challenge=%s&code_challenge_method=%s",
-		url.QueryEscape(client.ClientID),
-		url.QueryEscape(client.RedirectUris[0]),
-		url.QueryEscape("openid"),
-		url.QueryEscape(scv.State),
-		url.QueryEscape(scv.CodeChallenge),
-		url.QueryEscape(scv.CodeChallengeMethod),
-	)
+	consentURL := "http://localhost:8080/oauth/consent?" + url.Values{
+		"authorize_query": {authorizeQueryFor(client.ClientID, client.RedirectUris[0], "openid", scv, nil)},
+	}.Encode()
 	resp, err := httpClient.Get(consentURL)
 	s.Require().NoError(err)
 	defer resp.Body.Close()

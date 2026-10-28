@@ -1,30 +1,19 @@
 package views
 
-import "strings"
-
-// RegisterView holds everything the registration page renders. It replaces
-// httpserver.RegisterPageData; the fields are checked at compile time against
-// their use in the component below. Scope is joined with a single space when
-// rendered into the hidden "scope" input, matching templates/register.html's
-// `{{range $i, $s := .Scope}}{{if $i}} {{end}}{{$s}}{{end}}`.
+// RegisterView holds everything the registration page renders.
+// AuthorizeQuery is the OAuth authorization request this sign-up belongs to
+// (see AuthorizeQueryField), empty outside an OAuth flow.
 type RegisterView struct {
-	Error               string
-	Username            string
-	Email               string
-	ClientID            string
-	RedirectURI         string
-	State               string
-	Scope               []string
-	CodeChallenge       string
-	CodeChallengeMethod string
-	CSRFToken           string
+	Error          string
+	Username       string
+	Email          string
+	AuthorizeQuery string
+	CSRFToken      string
 }
 
-// Register renders the registration form. Compare templates/register.html:
-// the OAuth parameters (client_id, redirect_uri, state, scope,
-// code_challenge, code_challenge_method) travel as hidden inputs so
-// registration can continue the OAuth flow afterward, and the same values are
-// echoed into the "Sign in" link's query string. The inline password-match
+// Register renders the registration form. The authorization request travels
+// as one hidden input so registration can continue the OAuth flow afterward,
+// and rides the "Sign in" link too. The inline password-match
 // script is rendered via registerScript, passed to Layout's scripts slot, and
 // must keep the exact element IDs (registerForm, password, confirm_password,
 // passwordError) that the script references.
@@ -93,16 +82,11 @@ templ Register(data RegisterView) {
 				/>
 				<div class="text-error text-sm mt-1.5 hidden" id="passwordError">Passwords do not match</div>
 			</fieldset>
-			<input type="hidden" name="client_id" value={ data.ClientID }/>
-			<input type="hidden" name="redirect_uri" value={ data.RedirectURI }/>
-			<input type="hidden" name="state" value={ data.State }/>
-			<input type="hidden" name="scope" value={ strings.Join(data.Scope, " ") }/>
-			<input type="hidden" name="code_challenge" value={ data.CodeChallenge }/>
-			<input type="hidden" name="code_challenge_method" value={ data.CodeChallengeMethod }/>
+			<input type="hidden" name={ AuthorizeQueryField } value={ data.AuthorizeQuery }/>
 			<button type="submit" class="btn btn-primary w-full">Create Account</button>
 		</form>
 		<div class="text-center mt-6 text-sm text-base-content/60">
-			Already have an account? <a href={ templ.URL("/oauth/login?client_id=" + data.ClientID + "&redirect_uri=" + data.RedirectURI + "&state=" + data.State + "&scope=" + strings.Join(data.Scope, "%20") + "&code_challenge=" + data.CodeChallenge + "&code_challenge_method=" + data.CodeChallengeMethod) } class="link link-primary">Sign in</a>
+			Already have an account? <a href={ templ.URL(flowURL("/oauth/login", data.AuthorizeQuery)) } class="link link-primary">Sign in</a>
 		</div>
 		@footer()
 	}

@@ -7,6 +7,8 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -64,6 +66,33 @@ func TestUpAgainstPostgres(t *testing.T) {
 		require.NoError(t, Up(databaseURL),
 			"re-running against an up-to-date database must succeed: golang-migrate reports ErrNoChange, "+
 				"and the preview initContainer runs on every pod start")
+		require.NoError(t, Verify(ctx, conn))
+	})
+
+	// 000013 adds auth_mfa_pending.authorize_query, the carried authorization
+	// request. Its down must remove exactly that and leave a schema the up
+	// applies to again. Down migrations are not embedded (see apply.go), so
+	// this reads them from disk. It migrates down to 11 rather than one step,
+	// so it keeps exercising 000013's down after later migrations land.
+	t.Run("000013 down and up again", func(t *testing.T) {
+		m, err := migrate.New("file://.", databaseURL)
+		require.NoError(t, err)
+		t.Cleanup(func() { _, _ = m.Close() })
+
+		hasColumn := func() bool {
+			var n int
+			require.NoError(t, conn.QueryRowContext(ctx,
+				`SELECT count(*) FROM information_schema.columns
+				 WHERE table_name = 'auth_mfa_pending' AND column_name = 'authorize_query'`).Scan(&n))
+			return n == 1
+		}
+		require.True(t, hasColumn(), "000013 should add auth_mfa_pending.authorize_query")
+
+		require.NoError(t, m.Migrate(11))
+		require.False(t, hasColumn(), "000013's down should drop authorize_query")
+
+		require.NoError(t, m.Up())
+		require.True(t, hasColumn())
 		require.NoError(t, Verify(ctx, conn))
 	})
 }

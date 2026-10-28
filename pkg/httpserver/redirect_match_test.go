@@ -36,6 +36,9 @@ func TestRedirectURIAllowed(t *testing.T) {
 		{"wildcard rejects percent-encoded path", []string{wild}, "https://x.preview.footstrike.run/auth%2Fcallback", false},
 		{"wildcard rejects trailing-dot FQDN", []string{wild}, "https://x.preview.footstrike.run./auth/callback", false},
 		{"wildcard rejects explicit port vs portless pattern", []string{wild}, "https://x.preview.footstrike.run:443/auth/callback", false},
+		{"loopback matches on any port", []string{"http://localhost/callback"}, "http://localhost:54321/callback", true},
+		{"loopback hosts never cross-match", []string{"http://localhost/callback"}, "http://127.0.0.1:54321/callback", false},
+		{"https keeps its port", []string{exact}, "https://staging.footstrike.run:8443/auth/callback", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

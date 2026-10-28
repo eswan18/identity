@@ -264,7 +264,15 @@ func validateECDSAPrivateKey(keyPEM string) error {
 	return nil
 }
 
-// validateIssuerURL checks that the given string is a valid URL with http or https scheme.
+// validateIssuerURL checks that the given string is a valid URL with http or https scheme
+// and no trailing slash.
+//
+// The trailing slash matters because the issuer is compared as a string, not a URL.
+// Every endpoint in the discovery document is built as issuer + "/oauth/...", tokens
+// carry it as iss, and authorization responses carry it as iss (RFC 9207), which a
+// client compares byte-for-byte with the issuer in the metadata it fetched. With a
+// trailing slash the endpoints would read "https://host//oauth/..." and the issuer
+// would no longer be the one a client configured as "https://host".
 func validateIssuerURL(issuer string) error {
 	u, err := url.Parse(issuer)
 	if err != nil {
@@ -275,6 +283,9 @@ func validateIssuerURL(issuer string) error {
 	}
 	if u.Host == "" {
 		return &configError{"host is required"}
+	}
+	if strings.HasSuffix(issuer, "/") {
+		return &configError{"must not end with a slash"}
 	}
 	return nil
 }

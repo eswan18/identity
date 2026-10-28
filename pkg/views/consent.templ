@@ -1,7 +1,5 @@
 package views
 
-import "strings"
-
 // ScopeDescription maps a scope string to a human-readable description shown
 // in the consent screen's permission list. Moved here from
 // httpserver.ScopeDescription (previously in pkg/httpserver/templates.go):
@@ -14,30 +12,20 @@ type ScopeDescription struct {
 	Description string
 }
 
-// ConsentView holds everything the consent page renders. It replaces
-// httpserver.ConsentPageData for rendering purposes; the fields are checked
-// at compile time against their use in the component below. Scope is joined
-// with a single space when rendered into the hidden "scope" input, matching
-// templates/consent.html's `{{range $i, $s := .Scope}}{{if $i}} {{end}}{{$s}}{{end}}`.
+// ConsentView holds everything the consent page renders. AuthorizeQuery is the
+// authorization request being approved or denied (see AuthorizeQueryField).
 type ConsentView struct {
-	Error               string
-	ClientName          string
-	ClientID            string
-	RedirectURI         string
-	State               string
-	Scope               []string
-	ScopeDescriptions   []ScopeDescription
-	CodeChallenge       string
-	CodeChallengeMethod string
-	Nonce               string
-	ResponseType        string
-	CSRFToken           string
+	Error             string
+	ClientName        string
+	ScopeDescriptions []ScopeDescription
+	AuthorizeQuery    string
+	CSRFToken         string
 }
 
-// Consent renders the OAuth authorization/consent screen. Compare
-// templates/consent.html: the OAuth parameters travel as hidden inputs so
-// the "allow"/"deny" decision posted back to /oauth/consent carries the full
-// original authorization request. The scope-item SVG below is a checkmark
+// Consent renders the OAuth authorization/consent screen. The authorization
+// request travels as one hidden input so the "allow"/"deny" decision posted
+// back to /oauth/consent carries it whole, to be re-validated there. The
+// scope-item SVG below is a checkmark
 // glyph distinct from partials' iconSuccess (different classes/attributes,
 // no aria-hidden), so it is inlined here rather than reused.
 templ Consent(data ConsentView) {
@@ -66,14 +54,7 @@ templ Consent(data ConsentView) {
 		</div>
 		<form method="POST" action="/oauth/consent" class="space-y-3">
 			<input type="hidden" name="csrf_token" value={ data.CSRFToken }/>
-			<input type="hidden" name="client_id" value={ data.ClientID }/>
-			<input type="hidden" name="redirect_uri" value={ data.RedirectURI }/>
-			<input type="hidden" name="response_type" value={ data.ResponseType }/>
-			<input type="hidden" name="state" value={ data.State }/>
-			<input type="hidden" name="scope" value={ strings.Join(data.Scope, " ") }/>
-			<input type="hidden" name="code_challenge" value={ data.CodeChallenge }/>
-			<input type="hidden" name="code_challenge_method" value={ data.CodeChallengeMethod }/>
-			<input type="hidden" name="nonce" value={ data.Nonce }/>
+			<input type="hidden" name={ AuthorizeQueryField } value={ data.AuthorizeQuery }/>
 			<button type="submit" name="decision" value="allow" class="btn btn-primary w-full">Allow</button>
 			<button type="submit" name="decision" value="deny" class="btn btn-outline w-full">Deny</button>
 		</form>

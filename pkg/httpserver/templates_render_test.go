@@ -3,6 +3,7 @@ package httpserver
 import (
 	"bytes"
 	"context"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -25,21 +26,16 @@ func requireContainsAll(t *testing.T, html string, subs ...string) {
 // login's custom Error branching: three specific "notice" messages render
 // with success-alert styling (login.html's original
 // `{{if or (eq .Error "...") ...}}`), while any other non-empty Error value
-// renders with the normal error-alert styling. It also verifies the seven
-// hidden OAuth fields (including the joined scope).
+// renders with the normal error-alert styling. It also verifies the carried
+// authorization request: one hidden field holding it whole, and the "Sign up"
+// link carrying it as a single encoded value.
 func TestPageTemplatesRenderLogin(t *testing.T) {
 	// Plain error branch.
 	var buf bytes.Buffer
 	err := views.Login(views.LoginView{
-		Error:               "Invalid username or password",
-		ClientID:            "client-abc",
-		RedirectURI:         "https://example.com/callback",
-		State:               "state-123",
-		Scope:               []string{"openid", "profile"},
-		CodeChallenge:       "challenge-xyz",
-		CodeChallengeMethod: "S256",
-		Nonce:               "nonce-1",
-		CSRFToken:           "csrf-token-value",
+		Error:          "Invalid username or password",
+		AuthorizeQuery: testAuthorizeQuery,
+		CSRFToken:      "csrf-token-value",
 	}).Render(context.Background(), &buf)
 	if err != nil {
 		t.Fatalf("rendering Login component: %v", err)
@@ -52,14 +48,10 @@ func TestPageTemplatesRenderLogin(t *testing.T) {
 		`name="csrf_token" value="csrf-token-value"`,
 		"Invalid username or password",
 		`class="alert alert-error mb-6"`,
-		`name="client_id" value="client-abc"`,
-		`name="redirect_uri" value="https://example.com/callback"`,
-		`name="state" value="state-123"`,
-		`name="scope" value="openid profile"`,
-		`name="code_challenge" value="challenge-xyz"`,
-		`name="code_challenge_method" value="S256"`,
-		`name="nonce" value="nonce-1"`,
+		testAuthorizeQueryInput,
+		`href="/oauth/register?`+testAuthorizeQueryLink+`"`,
 	)
+	requireNoPerFieldInputs(t, html)
 	if strings.Contains(html, `class="alert alert-success mb-6"`) {
 		t.Errorf("plain error should not render the success alert styling")
 	}
@@ -82,28 +74,51 @@ func TestPageTemplatesRenderLogin(t *testing.T) {
 	if strings.Contains(html, `class="alert alert-error mb-6"`) {
 		t.Errorf("success-styled notice should not also render the error alert styling")
 	}
+	// Outside an OAuth flow the sign-up link carries nothing.
+	requireContainsAll(t, html, `href="/oauth/register"`)
+}
+
+// testAuthorizeQuery is an authorization request as a page carries it: the
+// /oauth/authorize query string, verbatim. It includes characters that must be
+// escaped in an attribute and encoded in a link (&, =, %, a space as +), and
+// nonce, which registration used to drop.
+const testAuthorizeQuery = "client_id=client-abc&redirect_uri=https%3A%2F%2Fexample.com%2Fcallback" +
+	"&response_type=code&scope=openid+profile&state=state-123&code_challenge=challenge-xyz" +
+	"&code_challenge_method=S256&nonce=nonce-1"
+
+// testAuthorizeQueryInput is testAuthorizeQuery in its hidden input, HTML-escaped.
+var testAuthorizeQueryInput = `name="authorize_query" value="` +
+	strings.ReplaceAll(testAuthorizeQuery, "&", "&amp;") + `"`
+
+// testAuthorizeQueryLink is testAuthorizeQuery as one query parameter of a link.
+var testAuthorizeQueryLink = url.Values{"authorize_query": {testAuthorizeQuery}}.Encode()
+
+// requireNoPerFieldInputs fails if a page still carries the authorization
+// request field by field, the shape that silently dropped parameters.
+func requireNoPerFieldInputs(t *testing.T, html string) {
+	t.Helper()
+	for _, name := range []string{"client_id", "redirect_uri", "state", "scope", "code_challenge", "code_challenge_method", "nonce", "response_type"} {
+		if strings.Contains(html, `name="`+name+`"`) {
+			t.Errorf("page still renders a per-field %q input; the request should travel only as authorize_query", name)
+		}
+	}
 }
 
 // TestPageTemplatesRenderRegister covers the register page, which has been
 // migrated from html/template to a templ component (pkg/views). Instead of
 // parsing an .html file by name, it renders the typed component directly. It
-// also verifies the OAuth hidden fields (joined scope included) and the
-// inline password-match script (with its registerForm/password/
+// also verifies the carried authorization request (hidden field and "Sign in"
+// link) and the inline password-match script (with its registerForm/password/
 // confirm_password/passwordError element IDs) render via Layout's new
 // scripts slot.
 func TestPageTemplatesRenderRegister(t *testing.T) {
 	var buf bytes.Buffer
 	err := views.Register(views.RegisterView{
-		Error:               "Username already taken",
-		Username:            "alice",
-		Email:               "alice@example.com",
-		ClientID:            "client-abc",
-		RedirectURI:         "https://example.com/callback",
-		State:               "state-1",
-		Scope:               []string{"openid", "profile"},
-		CodeChallenge:       "chal",
-		CodeChallengeMethod: "S256",
-		CSRFToken:           "csrf-register",
+		Error:          "Username already taken",
+		Username:       "alice",
+		Email:          "alice@example.com",
+		AuthorizeQuery: testAuthorizeQuery,
+		CSRFToken:      "csrf-register",
 	}).Render(context.Background(), &buf)
 	if err != nil {
 		t.Fatalf("rendering Register component: %v", err)
@@ -117,12 +132,8 @@ func TestPageTemplatesRenderRegister(t *testing.T) {
 		"Username already taken",
 		`value="alice"`,
 		`value="alice@example.com"`,
-		`name="client_id" value="client-abc"`,
-		`name="redirect_uri" value="https://example.com/callback"`,
-		`name="state" value="state-1"`,
-		`name="scope" value="openid profile"`,
-		`name="code_challenge" value="chal"`,
-		`name="code_challenge_method" value="S256"`,
+		testAuthorizeQueryInput,
+		`href="/oauth/login?`+testAuthorizeQueryLink+`"`,
 		`id="password"`,
 		`id="confirm_password"`,
 		`id="passwordError"`,
@@ -131,6 +142,7 @@ func TestPageTemplatesRenderRegister(t *testing.T) {
 	if strings.Contains(html, "function previewImage") {
 		t.Errorf("register component should not contain change-avatar's script")
 	}
+	requireNoPerFieldInputs(t, html)
 }
 
 // TestPageTemplatesRenderError covers the error page, which has been migrated
@@ -343,21 +355,15 @@ func TestPageTemplatesRenderChangeEmail(t *testing.T) {
 
 // TestPageTemplatesRenderMFA covers the login-time MFA challenge page, which
 // has been migrated from html/template to a templ component (pkg/views). It
-// verifies the OAuth hidden fields (including the joined scope) and the
-// pending_id hidden field carry through unchanged.
+// verifies the carried authorization request and the pending_id hidden field
+// carry through unchanged.
 func TestPageTemplatesRenderMFA(t *testing.T) {
 	var buf bytes.Buffer
 	err := views.MFA(views.MFAView{
-		Error:               "Invalid code",
-		PendingID:           "pending-123",
-		ClientID:            "client-abc",
-		RedirectURI:         "https://example.com/cb",
-		State:               "state-9",
-		Scope:               []string{"openid", "profile"},
-		CodeChallenge:       "chal",
-		CodeChallengeMethod: "S256",
-		Nonce:               "nonce-9",
-		CSRFToken:           "csrf-mfa",
+		Error:          "Invalid code",
+		PendingID:      "pending-123",
+		AuthorizeQuery: testAuthorizeQuery,
+		CSRFToken:      "csrf-mfa",
 	}).Render(context.Background(), &buf)
 	if err != nil {
 		t.Fatalf("rendering MFA component: %v", err)
@@ -370,14 +376,9 @@ func TestPageTemplatesRenderMFA(t *testing.T) {
 		`name="csrf_token" value="csrf-mfa"`,
 		"Invalid code",
 		`name="pending_id" value="pending-123"`,
-		`name="client_id" value="client-abc"`,
-		`name="redirect_uri" value="https://example.com/cb"`,
-		`name="state" value="state-9"`,
-		`name="scope" value="openid profile"`,
-		`name="code_challenge" value="chal"`,
-		`name="code_challenge_method" value="S256"`,
-		`name="nonce" value="nonce-9"`,
+		testAuthorizeQueryInput,
 	)
+	requireNoPerFieldInputs(t, html)
 }
 
 // TestPageTemplatesRenderMFASetup covers the MFA enrollment page, which has
@@ -559,26 +560,19 @@ func TestPageTemplatesRenderChangeAvatar(t *testing.T) {
 
 // TestPageTemplatesRenderConsent covers the consent page, which has been
 // migrated from html/template to a templ component (pkg/views). It verifies
-// a views.ScopeDescription renders in the permission list and that all eight
-// hidden OAuth fields (including the joined scope) are present.
+// a views.ScopeDescription renders in the permission list and that the
+// authorization request travels as one hidden field.
 func TestPageTemplatesRenderConsent(t *testing.T) {
 	var buf bytes.Buffer
 	err := views.Consent(views.ConsentView{
-		Error:       "Access denied",
-		ClientName:  "Example App",
-		ClientID:    "client-abc",
-		RedirectURI: "https://example.com/cb",
-		State:       "state-5",
-		Scope:       []string{"openid", "email"},
+		Error:      "Access denied",
+		ClientName: "Example App",
 		ScopeDescriptions: []views.ScopeDescription{
 			{Scope: "openid", Description: "Verify your identity"},
 			{Scope: "email", Description: "View your email address"},
 		},
-		CodeChallenge:       "chal",
-		CodeChallengeMethod: "S256",
-		Nonce:               "nonce-5",
-		ResponseType:        "code",
-		CSRFToken:           "csrf-consent",
+		AuthorizeQuery: testAuthorizeQuery,
+		CSRFToken:      "csrf-consent",
 	}).Render(context.Background(), &buf)
 	if err != nil {
 		t.Fatalf("rendering Consent component: %v", err)
@@ -592,16 +586,10 @@ func TestPageTemplatesRenderConsent(t *testing.T) {
 		"Verify your identity",
 		"View your email address",
 		`name="csrf_token" value="csrf-consent"`,
-		`name="client_id" value="client-abc"`,
-		`name="redirect_uri" value="https://example.com/cb"`,
-		`name="response_type" value="code"`,
-		`name="state" value="state-5"`,
-		`name="scope" value="openid email"`,
-		`name="code_challenge" value="chal"`,
-		`name="code_challenge_method" value="S256"`,
-		`name="nonce" value="nonce-5"`,
+		testAuthorizeQueryInput,
 		`action="/oauth/consent"`,
 		`name="decision" value="allow"`,
 		`name="decision" value="deny"`,
 	)
+	requireNoPerFieldInputs(t, html)
 }

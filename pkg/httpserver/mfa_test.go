@@ -57,14 +57,17 @@ func (s *OAuthFlowSuite) TestOAuthFlowWithMFA() {
 
 	// Step 1: Submit login - should redirect to MFA page
 	formValues := url.Values{
-		"username":              {user.Username},
-		"password":              {user.Password},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {clientCallbackURI},
-		"state":                 {scv.State},
-		"scope":                 {"openid profile email"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
+		"username": {user.Username},
+		"password": {user.Password},
+		"authorize_query": {url.Values{
+			"response_type":         {"code"},
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {clientCallbackURI},
+			"state":                 {scv.State},
+			"scope":                 {"openid profile email"},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+		}.Encode()},
 	}
 	resp, err := csrfPostFormLogin(s.T(), httpClient, fmt.Sprintf("http://%s/oauth/login", host), formValues)
 	s.Require().NoError(err)
@@ -106,14 +109,8 @@ func (s *OAuthFlowSuite) TestOAuthFlowWithMFA() {
 	consentURL, err := url.Parse(consentLocation)
 	s.Require().NoError(err)
 	resp, err = csrfPostFormLogin(s.T(), httpClient, fmt.Sprintf("http://%s/oauth/consent", host), url.Values{
-		"decision":              {"allow"},
-		"client_id":             {consentURL.Query().Get("client_id")},
-		"redirect_uri":          {consentURL.Query().Get("redirect_uri")},
-		"response_type":         {consentURL.Query().Get("response_type")},
-		"scope":                 {consentURL.Query().Get("scope")},
-		"state":                 {consentURL.Query().Get("state")},
-		"code_challenge":        {consentURL.Query().Get("code_challenge")},
-		"code_challenge_method": {consentURL.Query().Get("code_challenge_method")},
+		"decision":        {"allow"},
+		"authorize_query": {consentURL.Query().Get("authorize_query")},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -175,14 +172,17 @@ func (s *OAuthFlowSuite) TestMFAWithInvalidCode() {
 
 	// Submit login to get to MFA page
 	formValues := url.Values{
-		"username":              {user.Username},
-		"password":              {user.Password},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {clientCallbackURI},
-		"state":                 {scv.State},
-		"scope":                 {"openid profile email"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
+		"username": {user.Username},
+		"password": {user.Password},
+		"authorize_query": {url.Values{
+			"response_type":         {"code"},
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {clientCallbackURI},
+			"state":                 {scv.State},
+			"scope":                 {"openid profile email"},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+		}.Encode()},
 	}
 	postLoginUrl := fmt.Sprintf("http://%s/oauth/login", host)
 	resp, err := csrfPostFormLogin(s.T(), s.httpClient, postLoginUrl, formValues)
@@ -241,15 +241,18 @@ func (s *OAuthFlowSuite) TestMFAPageRendersOAuthContext() {
 
 	// Login to reach the MFA page.
 	resp, err := csrfPostFormLogin(s.T(), s.httpClient, fmt.Sprintf("http://%s/oauth/login", host), url.Values{
-		"username":              {user.Username},
-		"password":              {user.Password},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {clientCallbackURI},
-		"state":                 {scv.State},
-		"scope":                 {"openid profile email"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
-		"nonce":                 {nonce},
+		"username": {user.Username},
+		"password": {user.Password},
+		"authorize_query": {url.Values{
+			"response_type":         {"code"},
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {clientCallbackURI},
+			"state":                 {scv.State},
+			"scope":                 {"openid profile email"},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+			"nonce":                 {nonce},
+		}.Encode()},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -267,13 +270,14 @@ func (s *OAuthFlowSuite) TestMFAPageRendersOAuthContext() {
 	s.Require().Equal(http.StatusOK, resp.StatusCode)
 	body, err := io.ReadAll(resp.Body)
 	s.Require().NoError(err)
-	html := string(body)
+	carried, err := url.ParseQuery(renderedAuthorizeQuery(s.T(), string(body)))
+	s.Require().NoError(err)
 
-	s.Contains(html, fmt.Sprintf(`name="client_id" value="%s"`, client.ClientID))
-	s.Contains(html, fmt.Sprintf(`name="redirect_uri" value="%s"`, clientCallbackURI))
-	s.Contains(html, fmt.Sprintf(`name="state" value="%s"`, scv.State))
-	s.Contains(html, fmt.Sprintf(`name="code_challenge" value="%s"`, scv.CodeChallenge))
-	s.Contains(html, fmt.Sprintf(`name="nonce" value="%s"`, nonce))
+	s.Equal(client.ClientID, carried.Get("client_id"))
+	s.Equal(clientCallbackURI, carried.Get("redirect_uri"))
+	s.Equal(scv.State, carried.Get("state"))
+	s.Equal(scv.CodeChallenge, carried.Get("code_challenge"))
+	s.Equal(nonce, carried.Get("nonce"))
 }
 
 // TestMFAPostWithExpiredPendingPreservesContext is the core regression test for the
@@ -306,15 +310,18 @@ func (s *OAuthFlowSuite) TestMFAPostWithExpiredPendingPreservesContext() {
 	host := "localhost:8080"
 
 	resp, err := csrfPostFormLogin(s.T(), s.httpClient, fmt.Sprintf("http://%s/oauth/login", host), url.Values{
-		"username":              {user.Username},
-		"password":              {user.Password},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {clientCallbackURI},
-		"state":                 {scv.State},
-		"scope":                 {"openid profile email"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
-		"nonce":                 {nonce},
+		"username": {user.Username},
+		"password": {user.Password},
+		"authorize_query": {url.Values{
+			"response_type":         {"code"},
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {clientCallbackURI},
+			"state":                 {scv.State},
+			"scope":                 {"openid profile email"},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+			"nonce":                 {nonce},
+		}.Encode()},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -333,15 +340,18 @@ func (s *OAuthFlowSuite) TestMFAPostWithExpiredPendingPreservesContext() {
 
 	// Submit the code together with the OAuth context the rendered page would carry.
 	resp, err = csrfPostFormLogin(s.T(), s.httpClient, fmt.Sprintf("http://%s/oauth/mfa", host), url.Values{
-		"pending_id":            {pendingID},
-		"code":                  {validCode},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {clientCallbackURI},
-		"state":                 {scv.State},
-		"scope":                 {"openid profile email"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
-		"nonce":                 {nonce},
+		"pending_id": {pendingID},
+		"code":       {validCode},
+		"authorize_query": {url.Values{
+			"response_type":         {"code"},
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {clientCallbackURI},
+			"state":                 {scv.State},
+			"scope":                 {"openid profile email"},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+			"nonce":                 {nonce},
+		}.Encode()},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -395,15 +405,18 @@ func (s *OAuthFlowSuite) TestMFADoubleSubmitPreservesContext() {
 	}
 
 	resp, err := csrfPostFormLogin(s.T(), httpClient, fmt.Sprintf("http://%s/oauth/login", host), url.Values{
-		"username":              {user.Username},
-		"password":              {user.Password},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {clientCallbackURI},
-		"state":                 {scv.State},
-		"scope":                 {"openid profile email"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
-		"nonce":                 {nonce},
+		"username": {user.Username},
+		"password": {user.Password},
+		"authorize_query": {url.Values{
+			"response_type":         {"code"},
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {clientCallbackURI},
+			"state":                 {scv.State},
+			"scope":                 {"openid profile email"},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+			"nonce":                 {nonce},
+		}.Encode()},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -417,15 +430,18 @@ func (s *OAuthFlowSuite) TestMFADoubleSubmitPreservesContext() {
 	s.Require().NoError(err)
 
 	mfaForm := url.Values{
-		"pending_id":            {pendingID},
-		"code":                  {validCode},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {clientCallbackURI},
-		"state":                 {scv.State},
-		"scope":                 {"openid profile email"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
-		"nonce":                 {nonce},
+		"pending_id": {pendingID},
+		"code":       {validCode},
+		"authorize_query": {url.Values{
+			"response_type":         {"code"},
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {clientCallbackURI},
+			"state":                 {scv.State},
+			"scope":                 {"openid profile email"},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+			"nonce":                 {nonce},
+		}.Encode()},
 	}
 
 	// First submit: succeeds, consumes the pending row, and sets the session cookie.
@@ -490,14 +506,17 @@ func (s *OAuthFlowSuite) TestMFALoginSetsLastLoginAt() {
 
 	// Step 1: Login (should redirect to MFA)
 	resp, err := csrfPostFormLogin(s.T(), s.httpClient, "http://localhost:8080/oauth/login", url.Values{
-		"username":              {username},
-		"password":              {password},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {client.RedirectUris[0]},
-		"state":                 {scv.State},
-		"scope":                 {"openid"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
+		"username": {username},
+		"password": {password},
+		"authorize_query": {url.Values{
+			"response_type":         {"code"},
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {client.RedirectUris[0]},
+			"state":                 {scv.State},
+			"scope":                 {"openid"},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+		}.Encode()},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()

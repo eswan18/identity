@@ -55,12 +55,16 @@ func (s *OAuthFlowSuite) TestMFAAttemptsAreThrottledPerAccount() {
 	resp.Body.Close()
 	s.Require().Equal(http.StatusFound, resp.StatusCode,
 		"the account's attempt budget should be spent")
-	s.Require().Contains(resp.Header.Get("Location"), "mfa_throttled")
-	s.Require().Contains(resp.Header.Get("Location"), "client_id",
+	throttled, err := url.Parse(resp.Header.Get("Location"))
+	s.Require().NoError(err)
+	s.Require().Equal("mfa_throttled", throttled.Query().Get("error"))
+	carried, err := url.ParseQuery(throttled.Query().Get("authorize_query"))
+	s.Require().NoError(err)
+	s.Require().NotEmpty(carried.Get("client_id"),
 		"the OAuth context must survive so a fresh sign-in returns to the app")
 
 	// The pending row is consumed, so resuming requires a fresh password login.
-	_, err := s.datastore.Q.GetMFAPending(s.T().Context(), pendingID)
+	_, err = s.datastore.Q.GetMFAPending(s.T().Context(), pendingID)
 	s.Require().Error(err, "exhausting the budget must invalidate the pending login")
 
 	// The decisive assertion: a CORRECT code, against a LIVE pending row, still
@@ -162,14 +166,17 @@ func (s *OAuthFlowSuite) mustReachMFAStep(user UserWithPassword, client db.Oauth
 	scv := s.mustCreateStateAndCodeVerifier()
 
 	resp := s.postWithCSRF("http://localhost:8080/oauth/login", csrfToken, csrfCookie, url.Values{
-		"username":              {user.Username},
-		"password":              {user.Password},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {client.RedirectUris[0]},
-		"state":                 {scv.State},
-		"scope":                 {"openid profile email"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
+		"username": {user.Username},
+		"password": {user.Password},
+		"authorize_query": {url.Values{
+			"response_type":         {"code"},
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {client.RedirectUris[0]},
+			"state":                 {scv.State},
+			"scope":                 {"openid profile email"},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+		}.Encode()},
 	})
 	defer resp.Body.Close()
 	s.Require().Equal(http.StatusFound, resp.StatusCode)

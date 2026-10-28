@@ -634,38 +634,13 @@ paths:
       - health
   /login:
     get:
-      description: Displays the login form with OAuth parameters preserved in hidden
-        fields
+      description: Displays the login form, carrying the OAuth authorization request
+        (if any) in a hidden field
       parameters:
-      - description: Registered client identifier
+      - description: The original /oauth/authorize query string, when the sign-in
+          is part of an OAuth flow
         in: query
-        name: client_id
-        required: true
-        type: string
-      - description: Where to send the user after auth
-        in: query
-        name: redirect_uri
-        required: true
-        type: string
-      - description: CSRF protection token
-        in: query
-        name: state
-        required: true
-        type: string
-      - description: Requested scopes (e.g., 'openid profile email')
-        in: query
-        name: scope
-        required: true
-        type: string
-      - description: PKCE code challenge (SHA256 hash)
-        in: query
-        name: code_challenge
-        required: true
-        type: string
-      - description: PKCE challenge method (must be 'S256')
-        in: query
-        name: code_challenge_method
-        required: true
+        name: authorize_query
         type: string
       produces:
       - text/html
@@ -680,8 +655,9 @@ paths:
     post:
       consumes:
       - application/x-www-form-urlencoded
-      description: Validates username/password, creates authenticated session, generates
-        authorization code, and redirects to client
+      description: Validates username/password, creates authenticated session, and
+        resumes the OAuth authorization request the form carried (or goes to account
+        settings)
       parameters:
       - description: User username
         in: formData
@@ -693,41 +669,16 @@ paths:
         name: password
         required: true
         type: string
-      - description: OAuth client ID
+      - description: The original /oauth/authorize query string, when the sign-in
+          is part of an OAuth flow
         in: formData
-        name: client_id
-        required: true
-        type: string
-      - description: OAuth redirect URI
-        in: formData
-        name: redirect_uri
-        required: true
-        type: string
-      - description: CSRF protection token
-        in: formData
-        name: state
-        required: true
-        type: string
-      - description: Requested scopes
-        in: formData
-        name: scope
-        required: true
-        type: string
-      - description: PKCE code challenge
-        in: formData
-        name: code_challenge
-        required: true
-        type: string
-      - description: PKCE challenge method
-        in: formData
-        name: code_challenge_method
-        required: true
+        name: authorize_query
         type: string
       produces:
       - text/html
       responses:
         "302":
-          description: Redirect to redirect_uri with authorization code
+          description: Redirect back to /oauth/authorize, to MFA, or to account settings
           schema:
             type: string
         "400":
@@ -774,7 +725,8 @@ paths:
     get:
       description: Validates OAuth2 parameters, checks if user is authenticated (via
         session cookie), renders login page if not authenticated, or generates authorization
-        code and redirects to redirect_uri if authenticated
+        code and redirects to redirect_uri if authenticated. Every redirect back to
+        the client carries iss (RFC 9207).
       parameters:
       - description: Must be 'code'
         in: query
@@ -812,7 +764,7 @@ paths:
       - text/html
       responses:
         "302":
-          description: Redirect to redirect_uri with error parameters
+          description: Redirect to redirect_uri with error parameters, state and iss
           schema:
             type: string
       summary: OAuth2 authorization endpoint
@@ -1094,32 +1046,14 @@ paths:
       - account
   /register:
     get:
-      description: Displays the registration form for creating a new user account.
-        Accepts OAuth parameters to preserve them through the registration flow.
+      description: Displays the registration form for creating a new user account,
+        carrying the OAuth authorization request (if any) through the registration
+        flow.
       parameters:
-      - description: OAuth client identifier (preserved through flow)
+      - description: The original /oauth/authorize query string, when sign-up is part
+          of an OAuth flow
         in: query
-        name: client_id
-        type: string
-      - description: OAuth redirect URI (preserved through flow)
-        in: query
-        name: redirect_uri
-        type: string
-      - description: OAuth state parameter (preserved through flow)
-        in: query
-        name: state
-        type: string
-      - description: OAuth scope (preserved through flow)
-        in: query
-        name: scope
-        type: string
-      - description: PKCE code challenge (preserved through flow)
-        in: query
-        name: code_challenge
-        type: string
-      - description: PKCE challenge method (preserved through flow)
-        in: query
-        name: code_challenge_method
+        name: authorize_query
         type: string
       produces:
       - text/html
@@ -1155,6 +1089,11 @@ paths:
         in: formData
         name: confirm_password
         required: true
+        type: string
+      - description: The original /oauth/authorize query string, when sign-up is part
+          of an OAuth flow
+        in: formData
+        name: authorize_query
         type: string
       produces:
       - text/html

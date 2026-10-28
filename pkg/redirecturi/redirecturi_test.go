@@ -245,6 +245,89 @@ func TestAllowed(t *testing.T) {
 	}
 }
 
+// TestAllowed_Loopback covers RFC 8252 §7.3: an http loopback redirect URI
+// matches a candidate that differs from it only in port. Claude Code is the
+// case that matters: it registers http://localhost/callback (no port) and calls
+// back on an ephemeral one.
+func TestAllowed_Loopback(t *testing.T) {
+	const (
+		localhost = "http://localhost/callback"
+		ipv4      = "http://127.0.0.1/callback"
+		ipv6      = "http://[::1]/callback"
+	)
+
+	tests := []struct {
+		name       string
+		registered []string
+		candidate  string
+		want       bool
+	}{
+		// The cases the rule exists for.
+		{"localhost, registered without port, any port", []string{localhost}, "http://localhost:3118/callback", true},
+		{"localhost, registered without port, exact", []string{localhost}, localhost, true},
+		{"127.0.0.1 any port", []string{ipv4}, "http://127.0.0.1:54321/callback", true},
+		{"[::1] any port", []string{ipv6}, "http://[::1]:54321/callback", true},
+		{"registered with a port, called on another", []string{"http://localhost:8080/callback"}, "http://localhost:3000/callback", true},
+		{"registered with a port, called without one", []string{"http://localhost:8080/callback"}, localhost, true},
+		{"highest port", []string{localhost}, "http://localhost:65535/callback", true},
+		{"query must match and does", []string{"http://localhost/callback?app=cli"}, "http://localhost:1234/callback?app=cli", true},
+
+		// Hosts never cross-match.
+		{"127.0.0.1 is not localhost", []string{localhost}, "http://127.0.0.1:54321/callback", false},
+		{"localhost is not 127.0.0.1", []string{ipv4}, "http://localhost:54321/callback", false},
+		{"[::1] is not 127.0.0.1", []string{ipv4}, "http://[::1]:54321/callback", false},
+		{"uppercase host is not localhost", []string{localhost}, "http://LOCALHOST:1234/callback", false},
+		{"uppercase registration gets no port leniency", []string{"http://LOCALHOST/callback"}, "http://LOCALHOST:1234/callback", false},
+		{"trailing-dot host", []string{localhost}, "http://localhost.:1234/callback", false},
+		{"other 127/8 address", []string{ipv4}, "http://127.0.0.2:1234/callback", false},
+		{"unbracketed ::1", []string{ipv6}, "http://::1:1234/callback", false},
+		{"subdomain of localhost", []string{localhost}, "http://evil.localhost:1234/callback", false},
+		{"localhost as a prefix of another host", []string{localhost}, "http://localhost.evil.com:1234/callback", false},
+
+		// Only the port may differ.
+		{"different path", []string{localhost}, "http://localhost:1234/other", false},
+		{"path prefix", []string{localhost}, "http://localhost:1234/callback/extra", false},
+		{"trailing slash", []string{localhost}, "http://localhost:1234/callback/", false},
+		{"added query", []string{localhost}, "http://localhost:1234/callback?x=1", false},
+		{"different query", []string{"http://localhost/callback?app=cli"}, "http://localhost:1234/callback?app=web", false},
+		{"empty query marker", []string{localhost}, "http://localhost:1234/callback?", false},
+		{"added fragment", []string{localhost}, "http://localhost:1234/callback#f", false},
+		{"percent-encoded path", []string{localhost}, "http://localhost:1234/c%61llback", false},
+		{"https candidate", []string{localhost}, "https://localhost:1234/callback", false},
+		{"uppercase scheme", []string{localhost}, "HTTP://localhost:1234/callback", false},
+
+		// Ports must be ports.
+		{"empty port", []string{localhost}, "http://localhost:/callback", false},
+		{"port zero", []string{localhost}, "http://localhost:0/callback", false},
+		{"leading zero", []string{localhost}, "http://localhost:08080/callback", false},
+		{"port out of range", []string{localhost}, "http://localhost:65536/callback", false},
+		{"signed port", []string{localhost}, "http://localhost:+80/callback", false},
+		{"non-numeric port", []string{localhost}, "http://localhost:abc/callback", false},
+
+		// Authority tricks.
+		{"userinfo before localhost", []string{localhost}, "http://evil.com@localhost:1234/callback", false},
+		{"localhost as userinfo", []string{localhost}, "http://localhost:1234@evil.com/callback", false},
+		{"backslash in authority", []string{localhost}, "http://localhost:1234\\@evil.com/callback", false},
+
+		// The leniency is for http loopback only.
+		{"https keeps its port", []string{"https://localhost/callback"}, "https://localhost:1234/callback", false},
+		{"https non-loopback keeps its port", []string{"https://app.example.com/callback"}, "https://app.example.com:8443/callback", false},
+		{"http non-loopback keeps its port", []string{"http://example.com/callback"}, "http://example.com:8080/callback", false},
+		{"custom scheme exact", []string{"footstrike://auth/callback"}, "footstrike://auth/callback", true},
+		{"custom scheme with a port does not match", []string{"footstrike://auth/callback"}, "footstrike://auth:1234/callback", false},
+		{"custom scheme naming localhost keeps its port", []string{"footstrike://localhost/callback"}, "footstrike://localhost:1234/callback", false},
+		{"wildcard-looking loopback entry is inert", []string{"http://localhost/*"}, "http://localhost:1234/*", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Allowed(tt.registered, tt.candidate); got != tt.want {
+				t.Errorf("Allowed(%v, %q) = %v, want %v", tt.registered, tt.candidate, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestValidateWildcardPattern_AgreesWithAllowed asserts the property the split
 // into this package exists to guarantee: a pattern the validator refuses can
 // never match anything at request time. Drift between the two is the bug class

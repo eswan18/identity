@@ -282,11 +282,14 @@ SET mfa_enabled = false, mfa_secret = NULL, mfa_verified_at = NULL, updated_at =
 WHERE id = $1;
 
 -- name: CreateMFAPending :exec
-INSERT INTO auth_mfa_pending (id, user_id, client_id, redirect_uri, state, scope, code_challenge, code_challenge_method, expires_at, nonce)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
+-- authorize_query is the original /oauth/authorize request's query string
+-- (NULL outside an OAuth flow). The table's older per-parameter columns are
+-- no longer written or read; see migration 000013.
+INSERT INTO auth_mfa_pending (id, user_id, authorize_query, expires_at)
+VALUES ($1, $2, $3, $4);
 
 -- name: GetMFAPending :one
-SELECT * FROM auth_mfa_pending
+SELECT id, user_id, authorize_query, created_at, expires_at FROM auth_mfa_pending
 WHERE id = $1 AND expires_at > now();
 
 -- name: DeleteMFAPending :exec

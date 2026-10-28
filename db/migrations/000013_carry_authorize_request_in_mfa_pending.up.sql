@@ -1,0 +1,16 @@
+-- The original /oauth/authorize request's query string, carried verbatim
+-- through the MFA step instead of field by field.
+--
+-- Before this, auth_mfa_pending held one column per authorize parameter
+-- (client_id, redirect_uri, state, scope, code_challenge, code_challenge_method,
+-- nonce), so every new parameter needed a column here, a field in the MFA form,
+-- and a line in each handler -- and was silently dropped wherever one of those
+-- was missed. With the request carried whole, the next parameter (resource,
+-- for RFC 8707) needs no change here at all. NULL means the login was not part
+-- of an OAuth flow (a direct sign-in to account settings).
+--
+-- Expand only. The per-field columns stay, unused by this release, because a
+-- pod still running the previous release keeps inserting into them until the
+-- rollout finishes; dropping them here would break MFA logins on those pods
+-- for the length of the rollout. They can go in a later contract migration.
+ALTER TABLE auth_mfa_pending ADD COLUMN authorize_query text;

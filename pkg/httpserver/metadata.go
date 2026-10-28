@@ -50,6 +50,11 @@ type authorizationServerMetadata struct {
 	IDTokenSigningAlgValuesSupported  []string `json:"id_token_signing_alg_values_supported,omitempty"`
 	ClaimsSupported                   []string `json:"claims_supported,omitempty"`
 	CodeChallengeMethodsSupported     []string `json:"code_challenge_methods_supported,omitempty"`
+
+	// AuthorizationResponseIssParameterSupported is RFC 9207 §3. A client that
+	// sees it rejects any authorization response without iss, so it is true
+	// only because every such response goes through authorization_response.go.
+	AuthorizationResponseIssParameterSupported bool `json:"authorization_response_iss_parameter_supported,omitempty"`
 }
 
 // newAuthorizationServerMetadata builds the metadata document from config.
@@ -86,6 +91,8 @@ func newAuthorizationServerMetadata(cfg *config.Config) authorizationServerMetad
 			"preferred_username", "given_name", "family_name", "picture",
 		},
 		CodeChallengeMethodsSupported: []string{"S256"},
+
+		AuthorizationResponseIssParameterSupported: true,
 	}
 }
 

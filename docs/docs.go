@@ -873,7 +873,7 @@ const docTemplate = `{
         },
         "/login": {
             "get": {
-                "description": "Displays the login form with OAuth parameters preserved in hidden fields",
+                "description": "Displays the login form, carrying the OAuth authorization request (if any) in a hidden field",
                 "produces": [
                     "text/html"
                 ],
@@ -884,45 +884,9 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Registered client identifier",
-                        "name": "client_id",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Where to send the user after auth",
-                        "name": "redirect_uri",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "CSRF protection token",
-                        "name": "state",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Requested scopes (e.g., 'openid profile email')",
-                        "name": "scope",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "PKCE code challenge (SHA256 hash)",
-                        "name": "code_challenge",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "PKCE challenge method (must be 'S256')",
-                        "name": "code_challenge_method",
-                        "in": "query",
-                        "required": true
+                        "description": "The original /oauth/authorize query string, when the sign-in is part of an OAuth flow",
+                        "name": "authorize_query",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -935,7 +899,7 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "description": "Validates username/password, creates authenticated session, generates authorization code, and redirects to client",
+                "description": "Validates username/password, creates authenticated session, and resumes the OAuth authorization request the form carried (or goes to account settings)",
                 "consumes": [
                     "application/x-www-form-urlencoded"
                 ],
@@ -963,50 +927,14 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "OAuth client ID",
-                        "name": "client_id",
-                        "in": "formData",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "OAuth redirect URI",
-                        "name": "redirect_uri",
-                        "in": "formData",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "CSRF protection token",
-                        "name": "state",
-                        "in": "formData",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Requested scopes",
-                        "name": "scope",
-                        "in": "formData",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "PKCE code challenge",
-                        "name": "code_challenge",
-                        "in": "formData",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "PKCE challenge method",
-                        "name": "code_challenge_method",
-                        "in": "formData",
-                        "required": true
+                        "description": "The original /oauth/authorize query string, when the sign-in is part of an OAuth flow",
+                        "name": "authorize_query",
+                        "in": "formData"
                     }
                 ],
                 "responses": {
                     "302": {
-                        "description": "Redirect to redirect_uri with authorization code",
+                        "description": "Redirect back to /oauth/authorize, to MFA, or to account settings",
                         "schema": {
                             "type": "string"
                         }
@@ -1071,7 +999,7 @@ const docTemplate = `{
         },
         "/oauth/authorize": {
             "get": {
-                "description": "Validates OAuth2 parameters, checks if user is authenticated (via session cookie), renders login page if not authenticated, or generates authorization code and redirects to redirect_uri if authenticated",
+                "description": "Validates OAuth2 parameters, checks if user is authenticated (via session cookie), renders login page if not authenticated, or generates authorization code and redirects to redirect_uri if authenticated. Every redirect back to the client carries iss (RFC 9207).",
                 "produces": [
                     "text/html"
                 ],
@@ -1128,7 +1056,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "302": {
-                        "description": "Redirect to redirect_uri with error parameters",
+                        "description": "Redirect to redirect_uri with error parameters, state and iss",
                         "schema": {
                             "type": "string"
                         }
@@ -1517,7 +1445,7 @@ const docTemplate = `{
         },
         "/register": {
             "get": {
-                "description": "Displays the registration form for creating a new user account. Accepts OAuth parameters to preserve them through the registration flow.",
+                "description": "Displays the registration form for creating a new user account, carrying the OAuth authorization request (if any) through the registration flow.",
                 "produces": [
                     "text/html"
                 ],
@@ -1528,38 +1456,8 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "OAuth client identifier (preserved through flow)",
-                        "name": "client_id",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "OAuth redirect URI (preserved through flow)",
-                        "name": "redirect_uri",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "OAuth state parameter (preserved through flow)",
-                        "name": "state",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "OAuth scope (preserved through flow)",
-                        "name": "scope",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "PKCE code challenge (preserved through flow)",
-                        "name": "code_challenge",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "PKCE challenge method (preserved through flow)",
-                        "name": "code_challenge_method",
+                        "description": "The original /oauth/authorize query string, when sign-up is part of an OAuth flow",
+                        "name": "authorize_query",
                         "in": "query"
                     }
                 ],
@@ -1612,6 +1510,12 @@ const docTemplate = `{
                         "name": "confirm_password",
                         "in": "formData",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "The original /oauth/authorize query string, when sign-up is part of an OAuth flow",
+                        "name": "authorize_query",
+                        "in": "formData"
                     }
                 ],
                 "responses": {

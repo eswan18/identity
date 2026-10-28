@@ -100,15 +100,18 @@ func (s *OAuthFlowSuite) TestIDTokenIncludesNonce() {
 
 	// Login (with nonce) → authorize → consent → approve → callback with code
 	resp, err := csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/login", url.Values{
-		"username":              {username},
-		"password":              {password},
-		"client_id":             {client.ClientID},
-		"redirect_uri":          {"http://localhost:8080/callback"},
-		"state":                 {scv.State},
-		"scope":                 {"openid profile email"},
-		"code_challenge":        {scv.CodeChallenge},
-		"code_challenge_method": {scv.CodeChallengeMethod},
-		"nonce":                 {nonce},
+		"username": {username},
+		"password": {password},
+		"authorize_query": {url.Values{
+			"response_type":         {"code"},
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {"http://localhost:8080/callback"},
+			"state":                 {scv.State},
+			"scope":                 {"openid profile email"},
+			"code_challenge":        {scv.CodeChallenge},
+			"code_challenge_method": {scv.CodeChallengeMethod},
+			"nonce":                 {nonce},
+		}.Encode()},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -129,15 +132,8 @@ func (s *OAuthFlowSuite) TestIDTokenIncludesNonce() {
 	consentURL, err := url.Parse(consentLocation)
 	s.Require().NoError(err)
 	resp, err = csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/consent", url.Values{
-		"decision":              {"allow"},
-		"client_id":             {consentURL.Query().Get("client_id")},
-		"redirect_uri":          {consentURL.Query().Get("redirect_uri")},
-		"response_type":         {consentURL.Query().Get("response_type")},
-		"scope":                 {consentURL.Query().Get("scope")},
-		"state":                 {consentURL.Query().Get("state")},
-		"code_challenge":        {consentURL.Query().Get("code_challenge")},
-		"code_challenge_method": {consentURL.Query().Get("code_challenge_method")},
-		"nonce":                 {consentURL.Query().Get("nonce")},
+		"decision":        {"allow"},
+		"authorize_query": {consentURL.Query().Get("authorize_query")},
 	})
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -214,14 +210,15 @@ func (s *OAuthFlowSuite) TestIDTokenOmitsNonceWhenNotProvided() {
 	s.False(hasNonce, "nonce should not be present when not sent in authorize request")
 }
 
-// TestLoginGetPreservesNonce verifies that the login page renders the nonce from
-// the query string into the hidden form field. Without this, a fresh login through
-// the browser flow (authorize → login GET → login POST) strips the nonce, and the
-// resulting ID token is missing the nonce claim — breaking clients like authlib
-// that validate the nonce.
+// TestLoginGetPreservesNonce verifies that the login page carries the
+// authorization request, nonce included, into its hidden form field. Without
+// this, a fresh login through the browser flow (authorize → login GET → login
+// POST) strips the nonce, and the resulting ID token is missing the nonce claim
+// — breaking clients like authlib that validate the nonce.
 func (s *OAuthFlowSuite) TestLoginGetPreservesNonce() {
 	nonce := s.mustGenerateRandomString(32)
-	loginURL := "http://localhost:8080/oauth/login?" + url.Values{
+	request := url.Values{
+		"response_type":         {"code"},
 		"client_id":             {"any"},
 		"redirect_uri":          {"http://localhost:8080/callback"},
 		"state":                 {"state"},
@@ -230,6 +227,7 @@ func (s *OAuthFlowSuite) TestLoginGetPreservesNonce() {
 		"code_challenge_method": {"S256"},
 		"nonce":                 {nonce},
 	}.Encode()
+	loginURL := "http://localhost:8080/oauth/login?" + url.Values{"authorize_query": {request}}.Encode()
 
 	resp, err := s.httpClient.Get(loginURL)
 	s.Require().NoError(err)
@@ -238,8 +236,8 @@ func (s *OAuthFlowSuite) TestLoginGetPreservesNonce() {
 
 	body, err := io.ReadAll(resp.Body)
 	s.Require().NoError(err)
-	s.Contains(string(body), fmt.Sprintf(`name="nonce" value="%s"`, nonce),
-		"login page should render nonce from query string into hidden form field")
+	s.Equal(request, renderedAuthorizeQuery(s.T(), string(body)),
+		"login page should carry the authorization request, nonce included, verbatim")
 }
 
 // TestIDTokenIncludesNonceThroughBrowserFlow verifies end-to-end that a nonce sent to
@@ -298,23 +296,17 @@ func (s *OAuthFlowSuite) TestIDTokenIncludesNonceThroughBrowserFlow() {
 	loginBody, err := io.ReadAll(resp.Body)
 	s.Require().NoError(err)
 	s.Require().NoError(resp.Body.Close())
-	s.Require().Contains(string(loginBody), fmt.Sprintf(`name="nonce" value="%s"`, nonce),
-		"login form must include the nonce so the browser submits it back")
+	s.Require().Equal(authorizeQuery.Encode(), renderedAuthorizeQuery(s.T(), string(loginBody)),
+		"login form must carry the authorization request, nonce included, so the browser submits it back")
 
 	// Step 3: POST login credentials — simulate the form submit. Mirror what the
 	// rendered form would send, sourcing values from the login URL query string.
 	loginURL, err := url.Parse(loginLocation)
 	s.Require().NoError(err)
 	loginForm := url.Values{
-		"username":              {username},
-		"password":              {password},
-		"client_id":             {loginURL.Query().Get("client_id")},
-		"redirect_uri":          {loginURL.Query().Get("redirect_uri")},
-		"state":                 {loginURL.Query().Get("state")},
-		"scope":                 {loginURL.Query().Get("scope")},
-		"code_challenge":        {loginURL.Query().Get("code_challenge")},
-		"code_challenge_method": {loginURL.Query().Get("code_challenge_method")},
-		"nonce":                 {loginURL.Query().Get("nonce")},
+		"username":        {username},
+		"password":        {password},
+		"authorize_query": {loginURL.Query().Get("authorize_query")},
 	}
 	resp, err = csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/login", loginForm)
 	s.Require().NoError(err)
@@ -336,15 +328,8 @@ func (s *OAuthFlowSuite) TestIDTokenIncludesNonceThroughBrowserFlow() {
 	consentURL, err := url.Parse(consentLocation)
 	s.Require().NoError(err)
 	consentForm := url.Values{
-		"decision":              {"allow"},
-		"client_id":             {consentURL.Query().Get("client_id")},
-		"redirect_uri":          {consentURL.Query().Get("redirect_uri")},
-		"response_type":         {consentURL.Query().Get("response_type")},
-		"scope":                 {consentURL.Query().Get("scope")},
-		"state":                 {consentURL.Query().Get("state")},
-		"code_challenge":        {consentURL.Query().Get("code_challenge")},
-		"code_challenge_method": {consentURL.Query().Get("code_challenge_method")},
-		"nonce":                 {consentURL.Query().Get("nonce")},
+		"decision":        {"allow"},
+		"authorize_query": {consentURL.Query().Get("authorize_query")},
 	}
 	resp, err = csrfPostFormLogin(s.T(), httpClient, "http://localhost:8080/oauth/consent", consentForm)
 	s.Require().NoError(err)

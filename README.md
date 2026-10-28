@@ -299,8 +299,11 @@ For a Single Page Application (SPA) using PKCE:
    ```
    http://localhost:5173/oauth/callback?
      code=AUTHORIZATION_CODE&
-     state=RANDOM_STATE
+     state=RANDOM_STATE&
+     iss=http://localhost:8080
    ```
+   Every redirect back to the client, success or error, carries `iss`
+   (RFC 9207).
 
 4. **Exchange code for tokens:**
    ```http

@@ -24,6 +24,12 @@ Before integrating, register your app as an OAuth client:
 
 Save the returned `client_id` (and `client_secret` if using `--confidential`).
 
+A native app that listens on a loopback port chosen at run time registers the
+URI without a port, e.g. `http://localhost/callback` or
+`http://127.0.0.1/callback`, and may then use any port (RFC 8252 §7.3). Only the
+port may differ: the host must be the one registered (`localhost` does not match
+`127.0.0.1`), and https and custom-scheme URIs always match exactly.
+
 A client registered like this, with no `--default-resource`, gets access tokens
 for identity itself (`aud` is identity's issuer). That is right for an app that
 only signs users in and reads their profile from the ID token or
@@ -59,7 +65,11 @@ See the main [README](../README.md#oauth-flow-example) for the full OAuth/PKCE f
 
 1. Redirect user to `/oauth/authorize` with your `client_id` and PKCE challenge
 2. User logs in (and enters MFA code if they have two-factor authentication enabled)
-3. User is redirected back with an authorization code
+3. User is redirected back with an authorization code (or an error), plus
+   `state` if you sent one and always `iss`, identity's issuer (RFC 9207). A
+   client that talks to more than one authorization server should check `iss`
+   equals the issuer it sent the user to; one that talks only to identity can
+   ignore it.
 4. Exchange the code for tokens at `/oauth/token`
 5. Use the access token to call `/oauth/userinfo` or your own APIs
 
