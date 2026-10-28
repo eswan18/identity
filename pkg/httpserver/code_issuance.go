@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 
@@ -128,6 +129,16 @@ func (s *Server) checkCodeIssuance(
 	}
 	if scopeErr := checkScopesAgainstResource(p.Scope, resource); scopeErr != nil {
 		return nil, &codeIssuanceDenial{Kind: denialInvalidParams, OAuthError: scopeErr}
+	}
+	// A metadata-document client's allowed scopes are computed, not
+	// registered: identity's user scopes plus the resolved resource's
+	// (validateAuthorizeParams leaves this check to here, where the resource
+	// is known). With no resource that is identity's scopes alone.
+	if client.Kind == clientKindCIMD {
+		if ok, invalid := containsAll(cimdAllowedScopes(resource), p.Scope); !ok {
+			return nil, &codeIssuanceDenial{Kind: denialInvalidParams, OAuthError: &oauthAuthorizeError{
+				"invalid_scope", fmt.Sprintf("Scopes %v not allowed for this client", invalid)}}
+		}
 	}
 
 	session, err := s.getSessionFromCookie(r)

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/eswan18/identity/pkg/auth"
+	"github.com/eswan18/identity/pkg/cimd"
 	"github.com/eswan18/identity/pkg/db"
 	jwtpkg "github.com/eswan18/identity/pkg/jwt"
 	"github.com/eswan18/identity/pkg/redirecturi"
@@ -56,15 +57,24 @@ var ErrClientLookupFailed = errors.New("client lookup failed")
 // authenticateClient extracts client credentials from the request using either
 // client_secret_post (form values) or client_secret_basic (Authorization header),
 // looks up the client, and verifies the secret for confidential clients.
+//
+// A metadata-document client (CIMD) is resolved here like everywhere else
+// (lookupClient): one whose document cannot be fetched and accepted now is an
+// unknown client, so invalid_client. Its token_endpoint_auth_method is always
+// "none", so presenting a secret for it is refused rather than ignored.
 func (s *Server) authenticateClient(r *http.Request) (db.OauthClient, error) {
 	clientID, clientSecret := parseClientCredentials(r)
 
-	client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
+	client, err := s.lookupClient(r.Context(), clientID)
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
+		if !errors.Is(err, errUnknownClient) {
 			return db.OauthClient{}, fmt.Errorf("%w: %w", ErrClientLookupFailed, err)
 		}
 		return db.OauthClient{}, fmt.Errorf("invalid client: %w", err)
+	}
+
+	if client.Kind == clientKindCIMD && clientSecret != "" {
+		return db.OauthClient{}, errors.New("invalid client credentials: a metadata-document client has no secret")
 	}
 
 	if client.IsConfidential {
@@ -105,7 +115,14 @@ func requireConfidentialClient(client db.OauthClient, err error) (db.OauthClient
 //
 // This helper adds that stricter requirement at the call site, without changing
 // authenticateClient's contract or behavior for the token/refresh endpoints.
+//
+// A metadata-document client is never confidential, so it is refused before any
+// lookup: resolving its document here would be network activity for an answer
+// that is already known.
 func (s *Server) authenticateConfidentialClient(r *http.Request) (db.OauthClient, error) {
+	if clientID, _ := parseClientCredentials(r); cimd.IsClientIDURL(clientID) {
+		return db.OauthClient{}, ErrConfidentialClientRequired
+	}
 	client, err := s.authenticateClient(r)
 	return requireConfidentialClient(client, err)
 }
@@ -125,8 +142,15 @@ func parseClientCredentials(r *http.Request) (clientID, clientSecret string) {
 // back to the client. Returns the client on success. On failure, returns one of:
 //   - ErrInvalidClient (client doesn't exist)
 //   - ErrInvalidRedirectURI (redirect URI not in allowlist)
+//
+// Every step that handles an authorization request (authorize, login, consent
+// GET and POST) comes through here, so a metadata-document client is resolved
+// at each (lookupClient; cached, so normally no fetch) and its redirect URIs
+// are the ones its document lists now. A document that cannot be fetched or is
+// invalid leaves the redirect_uri unverified: ErrInvalidClient, an error page,
+// never a redirect.
 func (s *Server) validateOAuthClientRedirect(ctx context.Context, clientID, redirectURI string) (db.OauthClient, error) {
-	client, err := s.datastore.Q.GetOAuthClientByClientID(ctx, clientID)
+	client, err := s.lookupClient(ctx, clientID)
 	if err != nil {
 		log.Printf("validateOAuthClientRedirect: error getting client by client ID: %s\n", err)
 		return db.OauthClient{}, ErrInvalidClient

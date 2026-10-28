@@ -124,6 +124,75 @@ shows the resource's name and host, each scope's description, and the host the
 answer is sent to; when **every** redirect URI of the client is a loopback one
 it also warns the user that the app runs on their computer.
 
+### Clients identified by a metadata document (CIMD)
+
+Some clients are never registered by hand. Claude (claude.ai) and Claude Code
+identify themselves with a **Client ID Metadata Document**
+([draft-ietf-oauth-client-id-metadata-document-02](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-client-id-metadata-document-02)):
+their `client_id` is an https URL, and the JSON document served there lists
+their name and redirect URIs. Claude Code's is
+`https://claude.ai/oauth/claude-code-client-metadata`.
+
+**Which documents identity accepts.** Only those on hosts in
+`CIMD_ALLOWED_HOSTS` (comma-separated; `claude.ai` in staging and prod). With
+the variable empty, CIMD is off: an https `client_id` is an unknown client and
+nothing is fetched. The host check happens before any network activity, so a
+`client_id` on any other host costs identity nothing. Widening the list is a
+config change, and the decision to make (spec decision 1; #146).
+
+The document itself must be served at exactly its `client_id` URL (no query, no
+port, lowercase host), over https, as JSON of at most 5 KB, answering within
+5 s with a 200 and no redirect; identity refuses to fetch from private,
+loopback or other special-use addresses. It must contain `client_id` equal to
+that URL, `client_name` and `redirect_uris` (each https, or a loopback http URI
+as in Step 1), and no `client_secret`; `token_endpoint_auth_method`, if
+present, must be `none`. Identity caches a valid document for its
+`Cache-Control: max-age`, clamped to between 5 minutes and 24 hours, and never
+caches a failure.
+
+**What identity does with it.** The first time a client is seen, identity
+stores it as an ordinary client row (`kind` = `cimd`, the URL as `client_id`,
+the document's name and redirect URIs, public, no default resource), and keeps
+the row in step with each later fetch. `identity-cli client list` lists these
+too, and `client get` shows their kind. Edit the document, not the row: the
+next fetch overwrites it. If a re-fetched document lists different redirect URIs, every user's
+remembered consent for that client is forgotten, so each is asked again.
+
+Such a client:
+
+- authenticates at `/oauth/token` with `client_id` alone (`none`) and PKCE; a
+  `client_secret` is refused, and so is `client_credentials`
+  (`unauthorized_client`);
+- may request any resource registered with `--dynamic-clients`
+  (`identity-cli resource update <uri> --dynamic-clients`), and no other
+  (`invalid_target`);
+- may ask for identity's user scopes (`openid`, `profile`, `email`,
+  `offline_access`) and the requested resource's scopes; with no `resource`,
+  identity's alone (`invalid_scope` otherwise);
+- is matched against the redirect URIs its document lists, loopback port
+  leniency included (Claude Code registers `http://localhost/callback` with no
+  port and calls back on a port it picks);
+- always sees the consent screen the first time for each resource. The screen
+  names the **host of the `client_id`** ("claude.ai") as the app, since that is
+  the one thing identity can vouch for, and shows the document's
+  `client_name` only beneath it, as what the app "calls itself".
+
+If the document cannot be fetched, or is invalid, the client is unknown for as
+long as that lasts: `/oauth/authorize` and the consent page show an error page
+(never a redirect, since the redirect URI cannot be verified), and
+`/oauth/token` answers `invalid_client`. Identity logs why
+(`cimd: client … refused: …`). Tokens already issued keep working at the APIs
+that accept them; refreshing them waits for the document to come back.
+
+**How Claude connects.** Claude discovers identity from the MCP server's
+protected resource metadata, reads identity's metadata (which advertises
+`client_id_metadata_document_supported: true` when CIMD is on, and
+`token_endpoint_auth_methods_supported` including `none`), and starts an
+authorization-code flow with its document URL as `client_id`,
+`resource=<the MCP server's URI>` and the resource's scopes plus
+`offline_access`. Nothing needs registering on identity's side except the
+resource, with `--dynamic-clients`, in both identity databases.
+
 ## Step 2: Implement the OAuth Flow
 
 See the main [README](../README.md#oauth-flow-example) for the full OAuth/PKCE flow. In summary:

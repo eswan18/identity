@@ -158,15 +158,13 @@ func (s *Server) resourceAllowedForClient(ctx context.Context, client db.OauthCl
 			return false, fmt.Errorf("checking whether client %s may request %s: %w", client.ClientID, resource.Uri, err)
 		}
 		return allowed, nil
-	case "cimd":
-		// Phase 3 (spec, section 2): a client identified by a metadata
-		// document has no allow-list and may request any resource with
-		// dynamic_clients = true, i.e. `return resource.DynamicClients, nil`;
-		// the user then approves each resource on consent. Its allowed_scopes
-		// are also computed rather than registered (identity's user scopes plus
-		// the resource's), which validateAuthorizeParams will need to learn.
-		// Until phase 3 creates such clients, refuse.
-		return false, nil
+	case clientKindCIMD:
+		// A client identified by a metadata document has no allow-list (spec,
+		// section 2): it may request any resource that admits dynamic
+		// clients, and the user approves each resource on consent, which is
+		// remembered per (user, client, resource). Its allowed scopes are
+		// computed from the resource too (cimdAllowedScopes).
+		return resource.DynamicClients, nil
 	default:
 		return false, nil
 	}

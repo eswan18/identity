@@ -4,9 +4,10 @@
 // client. Claude and Claude Code identify themselves to authorization servers
 // this way instead of being registered by hand.
 //
-// The package is self-contained and is not yet called by any handler. Phase 3
-// of docs/superpowers/specs/2026-10-27-resource-indicators-and-mcp-clients-design.md
-// (§9) wires it in.
+// The package is self-contained. pkg/httpserver/cimd_clients.go wires it into
+// the authorization flow (phase 3 of
+// docs/superpowers/specs/2026-10-27-resource-indicators-and-mcp-clients-design.md,
+// §9), following "How phase 3 uses it" below.
 //
 // # What it does
 //

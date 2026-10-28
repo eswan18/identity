@@ -5,8 +5,12 @@
 and contracted (000014, #151). Phase 2 built: the `resource` parameter end to
 end, registry-driven scope checks, consent per resource (000015 records
 existing consents under each client's default resource) and the §8 consent
-screen, and the CLI. Phase 4 (refresh-token reuse) built (#153). Phase 3:
-the CIMD resolver exists (`pkg/cimd`, #152) but is not wired in.
+screen, and the CLI. Phase 4 (refresh-token reuse) built (#153). Phase 3
+built: the CIMD resolver (`pkg/cimd`, #152) and its wiring into authorize,
+consent and the token endpoint, materialized clients, the
+`CIMD_ALLOWED_HOSTS` allow-list (`claude.ai`) and the metadata flag (no
+migration). Still owed: verifying from the cluster that claude.ai's documents
+answer identity's fetcher (§9), and the conformance check against Claude Code.
 **Why now:** Sensibility (and later footstrike-api) will host MCP servers that
 Claude connects to as the signed-in user, through identity
 (`sensibility/docs/superpowers/specs/2026-10-25-mcp-agent-access-design.md`).

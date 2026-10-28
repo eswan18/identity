@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/eswan18/identity/pkg/avatar"
+	"github.com/eswan18/identity/pkg/cimd"
 	"github.com/eswan18/identity/pkg/config"
 	"github.com/eswan18/identity/pkg/email"
 	"github.com/eswan18/identity/pkg/jwt"
@@ -37,6 +38,10 @@ type Server struct {
 	jwtGenerator    *jwt.Generator
 	emailSender     email.Sender
 	avatarService   *avatar.Service
+	// clientMetadata resolves clients identified by a Client ID Metadata
+	// Document (see cimd_clients.go). Built from CIMD_ALLOWED_HOSTS; with an
+	// empty allow-list it is disabled and resolves nothing.
+	clientMetadata clientMetadataResolver
 }
 
 func New(config *config.Config, datastore *store.Store, emailSender email.Sender, storageProvider storage.Storage) *Server {
@@ -85,6 +90,14 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 		log.Fatalf("Failed to initialize JWT generator: %v", err)
 	}
 
+	clientMetadata, err := cimd.NewResolver(cimd.Config{AllowedHosts: config.CIMDAllowedHosts})
+	if err != nil {
+		log.Fatalf("CIMD_ALLOWED_HOSTS is invalid: %v", err)
+	}
+	if clientMetadata.Enabled() {
+		log.Printf("Client ID Metadata Documents accepted from hosts %v", config.CIMDAllowedHosts)
+	}
+
 	s := &Server{
 		config:                config,
 		datastore:             datastore,
@@ -96,6 +109,7 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 		jwtGenerator:          jwtGen,
 		emailSender:           emailSender,
 		avatarService:         avatar.NewService(storageProvider),
+		clientMetadata:        clientMetadata,
 	}
 	s.registerRoutes()
 

@@ -82,6 +82,63 @@ func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const createCIMDClient = `-- name: CreateCIMDClient :one
+INSERT INTO oauth_clients (
+  client_id,
+  client_secret,
+  name,
+  redirect_uris,
+  allowed_scopes,
+  is_confidential,
+  default_resource,
+  kind,
+  metadata_fetched_at
+)
+VALUES (
+  $1, NULL, $2, $3::text[],
+  '{}'::text[], false, NULL, 'cimd', $4
+)
+ON CONFLICT (client_id) DO NOTHING
+RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
+  is_confidential, created_at, updated_at, default_resource, kind,
+  metadata_fetched_at
+`
+
+type CreateCIMDClientParams struct {
+	ClientID          string       `json:"client_id"`
+	Name              string       `json:"name"`
+	RedirectUris      []string     `json:"redirect_uris"`
+	MetadataFetchedAt sql.NullTime `json:"metadata_fetched_at"`
+}
+
+// ON CONFLICT DO NOTHING: two requests materializing the same client at once
+// both insert, and the loser gets no row back (sql.ErrNoRows) and reads the
+// winner's instead.
+func (q *Queries) CreateCIMDClient(ctx context.Context, arg CreateCIMDClientParams) (OauthClient, error) {
+	row := q.db.QueryRowContext(ctx, createCIMDClient,
+		arg.ClientID,
+		arg.Name,
+		pq.Array(arg.RedirectUris),
+		arg.MetadataFetchedAt,
+	)
+	var i OauthClient
+	err := row.Scan(
+		&i.ID,
+		&i.ClientID,
+		&i.ClientSecret,
+		&i.Name,
+		pq.Array(&i.RedirectUris),
+		pq.Array(&i.AllowedScopes),
+		&i.IsConfidential,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DefaultResource,
+		&i.Kind,
+		&i.MetadataFetchedAt,
+	)
+	return i, err
+}
+
 const createEmailToken = `-- name: CreateEmailToken :exec
 INSERT INTO auth_email_tokens (user_id, token_hash, token_type, expires_at)
 VALUES ($1, $2, $3, $4)
@@ -480,6 +537,22 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteUserConsentsForClient = `-- name: DeleteUserConsentsForClient :execrows
+DELETE FROM oauth_user_consents
+WHERE client_id = $1
+`
+
+// Every user's remembered consent for one client, for every resource. Used
+// when a metadata-document client's redirect_uris change (CIMD §8.4): what
+// users approved was sending answers to the old ones.
+func (q *Queries) DeleteUserConsentsForClient(ctx context.Context, clientID uuid.UUID) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteUserConsentsForClient, clientID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteUserEmailTokens = `-- name: DeleteUserEmailTokens :exec
 DELETE FROM auth_email_tokens WHERE user_id = $1 AND token_type = $2
 `
@@ -625,6 +698,41 @@ WHERE client_id = $1
 
 func (q *Queries) GetOAuthClientByClientID(ctx context.Context, clientID string) (OauthClient, error) {
 	row := q.db.QueryRowContext(ctx, getOAuthClientByClientID, clientID)
+	var i OauthClient
+	err := row.Scan(
+		&i.ID,
+		&i.ClientID,
+		&i.ClientSecret,
+		&i.Name,
+		pq.Array(&i.RedirectUris),
+		pq.Array(&i.AllowedScopes),
+		&i.IsConfidential,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DefaultResource,
+		&i.Kind,
+		&i.MetadataFetchedAt,
+	)
+	return i, err
+}
+
+const getOAuthClientByClientIDForUpdate = `-- name: GetOAuthClientByClientIDForUpdate :one
+
+SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
+  is_confidential, created_at, updated_at, default_resource, kind,
+  metadata_fetched_at
+FROM oauth_clients
+WHERE client_id = $1
+FOR UPDATE
+`
+
+// Clients identified by a Client ID Metadata Document (kind = 'cimd'). Their
+// row is materialized from the document, which the server fetches, rather than
+// registered (pkg/httpserver/cimd_clients.go). The document's URL is the
+// client_id; it is a public client with no secret, no default resource and no
+// registered allowed_scopes (its scopes are computed per request).
+func (q *Queries) GetOAuthClientByClientIDForUpdate(ctx context.Context, clientID string) (OauthClient, error) {
+	row := q.db.QueryRowContext(ctx, getOAuthClientByClientIDForUpdate, clientID)
 	var i OauthClient
 	err := row.Scan(
 		&i.ID,
@@ -1563,6 +1671,51 @@ WHERE id = $1
 func (q *Queries) SetEmailVerified(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.ExecContext(ctx, setEmailVerified, id)
 	return err
+}
+
+const updateCIMDClient = `-- name: UpdateCIMDClient :one
+UPDATE oauth_clients
+SET
+  name = $1,
+  redirect_uris = $2::text[],
+  metadata_fetched_at = $3,
+  updated_at = now()
+WHERE id = $4 AND kind = 'cimd'
+RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
+  is_confidential, created_at, updated_at, default_resource, kind,
+  metadata_fetched_at
+`
+
+type UpdateCIMDClientParams struct {
+	Name              string       `json:"name"`
+	RedirectUris      []string     `json:"redirect_uris"`
+	MetadataFetchedAt sql.NullTime `json:"metadata_fetched_at"`
+	ID                uuid.UUID    `json:"id"`
+}
+
+func (q *Queries) UpdateCIMDClient(ctx context.Context, arg UpdateCIMDClientParams) (OauthClient, error) {
+	row := q.db.QueryRowContext(ctx, updateCIMDClient,
+		arg.Name,
+		pq.Array(arg.RedirectUris),
+		arg.MetadataFetchedAt,
+		arg.ID,
+	)
+	var i OauthClient
+	err := row.Scan(
+		&i.ID,
+		&i.ClientID,
+		&i.ClientSecret,
+		&i.Name,
+		pq.Array(&i.RedirectUris),
+		pq.Array(&i.AllowedScopes),
+		&i.IsConfidential,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DefaultResource,
+		&i.Kind,
+		&i.MetadataFetchedAt,
+	)
+	return i, err
 }
 
 const updateOAuthClient = `-- name: UpdateOAuthClient :one

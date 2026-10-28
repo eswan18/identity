@@ -471,6 +471,13 @@ func (s *Server) writeTokens(w http.ResponseWriter, tokens TokenPair) {
 // handleClientCredentialsGrant handles the client_credentials grant type for service-to-service auth.
 // No user is involved - the client authenticates as itself.
 func (s *Server) handleClientCredentialsGrant(w http.ResponseWriter, r *http.Request, client db.OauthClient) {
+	// A metadata-document client only ever acts for a signed-in user. It is
+	// never confidential, so the check below would refuse it too; this says
+	// so explicitly, and keeps it refused whatever its row says.
+	if client.Kind == clientKindCIMD {
+		s.writeTokenError(w, "unauthorized_client", "Client credentials grant is not available to metadata-document clients")
+		return
+	}
 	// Client credentials grant requires a confidential client
 	if !client.IsConfidential {
 		s.writeTokenError(w, "unauthorized_client", "Client credentials grant requires a confidential client")
@@ -1113,9 +1120,16 @@ func validateAuthorizeParams(client db.OauthClient, responseType, codeChallenge,
 	// offline_access (auth.IsAlwaysGrantableScope) is grantable to every client
 	// without registration, so only the remaining scopes are held to
 	// allowed_scopes.
-	gatedScopes := slices.DeleteFunc(slices.Clone(scope), auth.IsAlwaysGrantableScope)
-	if scopesAllowed, invalidScopes := containsAll(client.AllowedScopes, gatedScopes); !scopesAllowed {
-		return &oauthAuthorizeError{"invalid_scope", fmt.Sprintf("Scopes %v not allowed for this client", invalidScopes)}
+	//
+	// A metadata-document client has no registered allowed_scopes: what it
+	// may ask for is computed from the resource the request resolves to
+	// (cimdAllowedScopes), so checkCodeIssuance checks it once that resource
+	// is known.
+	if client.Kind != clientKindCIMD {
+		gatedScopes := slices.DeleteFunc(slices.Clone(scope), auth.IsAlwaysGrantableScope)
+		if scopesAllowed, invalidScopes := containsAll(client.AllowedScopes, gatedScopes); !scopesAllowed {
+			return &oauthAuthorizeError{"invalid_scope", fmt.Sprintf("Scopes %v not allowed for this client", invalidScopes)}
+		}
 	}
 	// Admin scopes may never ride a user-delegated token.
 	//

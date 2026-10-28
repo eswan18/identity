@@ -304,8 +304,13 @@ func (s *Server) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	if postLogoutURI != "" {
 		clientID := r.URL.Query().Get("client_id")
 		if clientID != "" {
+			// No document is fetched for logout: a metadata-document client's
+			// row holds the redirect URIs its document last listed. It is
+			// honoured only while its host is still allowed, so disabling
+			// CIMD makes it an unknown client here too.
 			client, err := s.datastore.Q.GetOAuthClientByClientID(r.Context(), clientID)
-			if err == nil && redirectURIAllowed(client.RedirectUris, postLogoutURI) {
+			if err == nil && (client.Kind != clientKindCIMD || s.cimdHostAllowed(clientID)) &&
+				redirectURIAllowed(client.RedirectUris, postLogoutURI) {
 				redirectURI = postLogoutURI
 			}
 		}

@@ -55,14 +55,22 @@ type authorizationServerMetadata struct {
 	// sees it rejects any authorization response without iss, so it is true
 	// only because every such response goes through authorization_response.go.
 	AuthorizationResponseIssParameterSupported bool `json:"authorization_response_iss_parameter_supported,omitempty"`
+
+	// ClientIDMetadataDocumentSupported is CIMD -02 §6: identity accepts a
+	// client_id that is the URL of a metadata document. Claude uses CIMD only
+	// when this is true and "none" is among the token endpoint auth methods.
+	// Omitted, not false, when CIMD is disabled (an empty allow-list).
+	ClientIDMetadataDocumentSupported bool `json:"client_id_metadata_document_supported,omitempty"`
 }
 
 // newAuthorizationServerMetadata builds the metadata document from config.
+// cimdEnabled is whether any client ID metadata document host is allowed
+// (Server.cimdEnabled), and so whether the flag promising CIMD is advertised.
 //
 // The issuer is cfg.JWTIssuer verbatim: the same string signs every token's
 // iss and prefixes the URLs the document is served from, so a client's
 // byte-for-byte issuer comparison (RFC 8414 §3.3, OIDC Discovery §4.3) holds.
-func newAuthorizationServerMetadata(cfg *config.Config) authorizationServerMetadata {
+func newAuthorizationServerMetadata(cfg *config.Config, cimdEnabled bool) authorizationServerMetadata {
 	issuer := cfg.JWTIssuer
 	return authorizationServerMetadata{
 		Issuer:                issuer,
@@ -93,6 +101,7 @@ func newAuthorizationServerMetadata(cfg *config.Config) authorizationServerMetad
 		CodeChallengeMethodsSupported: []string{"S256"},
 
 		AuthorizationResponseIssParameterSupported: true,
+		ClientIDMetadataDocumentSupported:          cimdEnabled,
 	}
 }
 
@@ -106,5 +115,5 @@ func newAuthorizationServerMetadata(cfg *config.Config) authorizationServerMetad
 // @Router       /.well-known/oauth-authorization-server [get]
 func (s *Server) HandleOIDCDiscovery(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(newAuthorizationServerMetadata(s.config))
+	json.NewEncoder(w).Encode(newAuthorizationServerMetadata(s.config, s.cimdEnabled()))
 }

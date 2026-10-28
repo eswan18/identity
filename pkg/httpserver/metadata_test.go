@@ -17,7 +17,12 @@ import (
 // (key names, omitted fields) rather than the Go struct.
 func metadataJSON(t *testing.T, issuer string) map[string]any {
 	t.Helper()
-	raw, err := json.Marshal(newAuthorizationServerMetadata(&config.Config{JWTIssuer: issuer}))
+	return metadataJSONWithCIMD(t, issuer, false)
+}
+
+func metadataJSONWithCIMD(t *testing.T, issuer string, cimdEnabled bool) map[string]any {
+	t.Helper()
+	raw, err := json.Marshal(newAuthorizationServerMetadata(&config.Config{JWTIssuer: issuer}, cimdEnabled))
 	if err != nil {
 		t.Fatalf("marshal metadata: %v", err)
 	}
@@ -98,7 +103,7 @@ func TestAuthorizationServerMetadata_NoEmptyArrays(t *testing.T) {
 
 	// And the omission is mechanical, not a matter of today's values: a field
 	// left empty disappears from the wire form.
-	md := newAuthorizationServerMetadata(&config.Config{JWTIssuer: "https://identity.example.com"})
+	md := newAuthorizationServerMetadata(&config.Config{JWTIssuer: "https://identity.example.com"}, false)
 	md.ResponseModesSupported = []string{}
 	raw, err := json.Marshal(md)
 	if err != nil {
@@ -109,17 +114,31 @@ func TestAuthorizationServerMetadata_NoEmptyArrays(t *testing.T) {
 	}
 }
 
-// These flags promise behavior that ships later: client ID metadata
-// documents. Advertising one early makes compliant clients fail.
+// Dynamic client registration is not supported, so its endpoint is never
+// advertised: a client that sees it would try to register.
 func TestAuthorizationServerMetadata_NoPrematureFlags(t *testing.T) {
-	doc := metadataJSON(t, "https://identity.example.com")
-	for _, key := range []string{
-		"client_id_metadata_document_supported",
-		"registration_endpoint",
-	} {
-		if _, present := doc[key]; present {
-			t.Errorf("%s is advertised but not yet supported", key)
+	for _, cimdEnabled := range []bool{false, true} {
+		doc := metadataJSONWithCIMD(t, "https://identity.example.com", cimdEnabled)
+		if _, present := doc["registration_endpoint"]; present {
+			t.Errorf("registration_endpoint is advertised but not supported")
 		}
+	}
+}
+
+// client_id_metadata_document_supported is advertised exactly when identity
+// accepts metadata-document clients (a non-empty CIMD_ALLOWED_HOSTS), and is
+// omitted rather than false otherwise. Claude needs it and "none" both.
+func TestAuthorizationServerMetadata_CIMDFlag(t *testing.T) {
+	const key = "client_id_metadata_document_supported"
+	if v, present := metadataJSONWithCIMD(t, "https://identity.example.com", false)[key]; present {
+		t.Errorf("%s = %v with CIMD disabled; want it omitted", key, v)
+	}
+	doc := metadataJSONWithCIMD(t, "https://identity.example.com", true)
+	if doc[key] != true {
+		t.Errorf("%s = %v with CIMD enabled; want true", key, doc[key])
+	}
+	if !slices.Contains(stringList(t, doc, "token_endpoint_auth_methods_supported"), "none") {
+		t.Errorf("CIMD is advertised without the \"none\" auth method it needs")
 	}
 }
 
