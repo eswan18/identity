@@ -243,6 +243,42 @@ func TestCLITrustedClients(t *testing.T) {
 	mustCLI("client", "update", first.ClientID, "--name", "First Party Renamed")
 	require.True(t, clientNamed("First Party Renamed").Trusted, "an update without --trusted keeps it")
 
+	// A trusted client may only have exact, non-loopback redirect URIs: the
+	// CLI refuses to create one with a wildcard or loopback entry, to trust a
+	// client that has one, and to add one to a client already trusted.
+	countClients := func() int {
+		t.Helper()
+		clients, err := q.ListOAuthClients(ctx)
+		require.NoError(t, err)
+		return len(clients)
+	}
+	before := countClients()
+	for _, bad := range []string{
+		"https://*.preview.example.com/cb", "http://localhost:5173/cb", "http://127.0.0.1/cb", "http://[::1]:3000/cb",
+	} {
+		err := cli("client", "create", "--name", "Bad Trusted", "--redirect-uris", "https://ok.example/cb,"+bad, "--trusted")
+		require.ErrorContains(t, err, bad, "create --trusted with %s", bad)
+		require.ErrorContains(t, err, "Trusted (first-party) clients")
+	}
+	require.Equal(t, before, countClients(), "a refused create leaves no client behind")
+
+	err = cli("client", "update", first.ClientID, "--add-redirect-uris", "http://localhost/cb")
+	require.ErrorContains(t, err, "is trusted")
+	err = cli("client", "update", first.ClientID, "--redirect-uris", "https://*.preview.example.com/cb")
+	require.ErrorContains(t, err, "wildcard")
+	require.Equal(t, []string{"https://app.example/cb"}, clientNamed("First Party Renamed").RedirectUris,
+		"a trusted client's redirect URIs are unchanged")
+
+	// An untrusted client may have them, but then cannot be trusted.
+	mustCLI("client", "create", "--name", "Staging", "--redirect-uris", "https://staging.example/cb,https://*.preview.example.com/cb")
+	staging := clientNamed("Staging")
+	err = cli("client", "update", staging.ClientID, "--trusted=true")
+	require.ErrorContains(t, err, "wildcard")
+	require.False(t, clientNamed("Staging").Trusted)
+	// ... unless the same update drops the wildcard.
+	mustCLI("client", "update", staging.ClientID, "--trusted=true", "--remove-redirect-uris", "https://*.preview.example.com/cb")
+	require.True(t, clientNamed("Staging").Trusted)
+
 	// A metadata-document client can never be trusted; the CLI says so and
 	// changes nothing (the other flags in the same command included).
 	const cimdURL = "https://claude.ai/oauth/claude-code-client-metadata"

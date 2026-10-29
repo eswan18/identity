@@ -8,7 +8,9 @@ authors; designs live in `docs/superpowers/specs/`.
 > **Creating or editing an OAuth client? Read README → [Trusted (first-party)
 > clients](README.md#trusted-first-party-clients) before setting `--trusted`.**
 > The default is untrusted. Never trust a third-party client, an MCP/AI client
-> (even one registered by hand), or a dynamic/metadata-document (CIMD) client.
+> (even one registered by hand), a dynamic/metadata-document (CIMD) client, or
+> a client with any wildcard or loopback redirect URI (a staging client with a
+> preview wildcard stays untrusted); identity-cli refuses the last two.
 > A trusted client gets user data with no consent screen and is hidden from the
 > user's Connected Apps page.
 

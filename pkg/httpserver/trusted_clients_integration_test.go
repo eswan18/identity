@@ -22,7 +22,25 @@ import (
 func (s *OAuthFlowSuite) trustedClientParams(name string) db.CreateOAuthClientParams {
 	params := s.connectedAppsClientParams(name)
 	params.Trusted = true
+	// Exact and not loopback, as a trusted client's must be (the test
+	// server's own localhost:8080/callback would be refused).
+	params.RedirectUris = []string{trustedRedirectURI}
 	return params
+}
+
+const trustedRedirectURI = "https://first-party.example/callback"
+
+// requireTrustedClientError asserts resp redirects to the trusted client's
+// callback with the given OAuth error and no code.
+func (s *OAuthFlowSuite) requireTrustedClientError(resp *http.Response, wantError string) {
+	s.T().Helper()
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusFound, resp.StatusCode)
+	location, err := url.Parse(resp.Header.Get("Location"))
+	s.Require().NoError(err)
+	s.Require().Equal(trustedRedirectURI, location.Scheme+"://"+location.Host+location.Path)
+	s.Equal(wantError, location.Query().Get("error"), "error_description: %s", location.Query().Get("error_description"))
+	s.Empty(location.Query().Get("code"))
 }
 
 // userConsentCount is how many consent rows user has for client.
@@ -163,11 +181,11 @@ func (s *OAuthFlowSuite) TestTrustedClient_RequestChecksStillApply() {
 		"response_type": {"code"}, "client_id": {client.ClientID},
 		"redirect_uri": {client.RedirectUris[0]}, "scope": {"openid"}, "state": {scv.State},
 	}
-	s.requireClientError(s.get(browser, testBaseURL+"/oauth/authorize?"+q.Encode()), "invalid_request")
+	s.requireTrustedClientError(s.get(browser, testBaseURL+"/oauth/authorize?"+q.Encode()), "invalid_request")
 
 	// A scope the client is not registered for.
 	query = authorizeQueryFor(client.ClientID, client.RedirectUris[0], "openid admin:users", scv, nil)
-	s.requireClientError(s.get(browser, testBaseURL+"/oauth/authorize?"+query), "invalid_scope")
+	s.requireTrustedClientError(s.get(browser, testBaseURL+"/oauth/authorize?"+query), "invalid_scope")
 
 	// A deactivated account gets no code.
 	s.Require().NoError(s.datastore.Q.DeactivateUser(s.T().Context(), user.ID))
@@ -240,4 +258,34 @@ func (s *OAuthFlowSuite) TestConnectedApps_HidesTrustedClientsWithOldConsents() 
 	location := s.postDisconnect(browser, url.Values{"client": {flow.Client.ID.String()}, "confirm": {"yes"}})
 	s.Equal("/oauth/connected-apps?error=not_connected", location)
 	s.False(s.tokenRow(flow.TokenResponse.RefreshToken).RevokedAt.Valid, "nothing is revoked")
+}
+
+// A trusted client row with a wildcard or loopback redirect URI (which
+// identity-cli refuses to create, but which some other path could write)
+// is not honoured: a request using such a redirect URI mints no code. The
+// same client's exact https URI still works without consent.
+func (s *OAuthFlowSuite) TestTrustedClient_WildcardAndLoopbackRedirectsMintNothing() {
+	const exact = "https://app.trusted.example/callback"
+	params := s.trustedClientParams("Misconfigured Trusted")
+	params.RedirectUris = []string{exact, "https://*.preview.trusted.example/callback", "http://localhost/callback"}
+	client := s.mustRegisterOAuthClient(params)
+	browser := s.mustSignInAs(s.newTestUser())
+	scv := s.mustCreateStateAndCodeVerifier()
+
+	for _, redirectURI := range []string{
+		"https://pr-1.preview.trusted.example/callback",
+		"http://localhost:4444/callback",
+		"http://localhost/callback",
+	} {
+		resp := s.get(browser, testBaseURL+"/oauth/authorize?"+authorizeQueryFor(client.ClientID, redirectURI, "openid", scv, nil))
+		resp.Body.Close()
+		s.Require().Equal(http.StatusFound, resp.StatusCode, redirectURI)
+		location, err := url.Parse(resp.Header.Get("Location"))
+		s.Require().NoError(err)
+		s.Empty(location.Query().Get("code"), "no code for %s", redirectURI)
+		s.Equal("unauthorized_client", location.Query().Get("error"), redirectURI)
+	}
+
+	resp := s.get(browser, testBaseURL+"/oauth/authorize?"+authorizeQueryFor(client.ClientID, exact, "openid", scv, nil))
+	s.requireCode(resp)
 }

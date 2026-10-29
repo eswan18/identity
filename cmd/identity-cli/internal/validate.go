@@ -68,16 +68,29 @@ func ValidateAdminScopes(scopes []string, isConfidential bool) error {
 	return nil
 }
 
-// ValidateTrustable refuses to mark a client trusted unless identity-cli
-// registered it (kind "registered"). A metadata-document ("cimd") client is
-// materialized from a document someone else publishes, so its code and
-// redirect URIs are not the operator's, and a trusted client gets user data
-// with no consent screen. The oauth_clients CHECK constraint refuses it too;
-// this gives the operator a clear message first. See README, "Trusted
-// (first-party) clients".
-func ValidateTrustable(kind string) error {
+// ValidateTrustable refuses a client as trusted unless identity-cli
+// registered it (kind "registered") and every one of its redirect URIs is
+// exact and not loopback (redirecturi.UnsafeForTrustedClient). A trusted
+// client gets user data with no consent screen, so:
+//
+//   - a metadata-document ("cimd") client, whose document, code and redirect
+//     URIs belong to someone else, can never be trusted (the oauth_clients
+//     CHECK constraint refuses it too; this gives the clear message);
+//   - a wildcard redirect URI would hand a signed-in user's code, with no
+//     interaction, to whoever can deploy a matching host, and a loopback one
+//     to any program on the user's machine.
+//
+// Callers run it whenever the result would be a trusted client: creating one,
+// trusting one, and changing the redirect URIs of one already trusted. See
+// README, "Trusted (first-party) clients".
+func ValidateTrustable(kind string, redirectURIs []string) error {
 	if kind != "registered" {
 		return fmt.Errorf("refusing to trust a %q client: only clients registered with identity-cli for apps the operator builds and controls can be trusted (see README, \"Trusted (first-party) clients\")", kind)
+	}
+	for _, uri := range redirectURIs {
+		if why := redirecturi.UnsafeForTrustedClient(uri); why != "" {
+			return fmt.Errorf("a trusted client may not have redirect URI %q: %s. A trusted client skips the consent screen, so it must have only exact, non-loopback redirect URIs; keep this client untrusted (it keeps the consent screen) or drop that URI (see README, \"Trusted (first-party) clients\")", uri, why)
+		}
 	}
 	return nil
 }

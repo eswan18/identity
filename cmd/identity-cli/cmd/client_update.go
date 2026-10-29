@@ -51,7 +51,10 @@ expire, and a refresh keeps it too.
 not listed on users' Connected Apps page); --trusted=false makes it ask for
 consent again. Only for an app the identity operator builds and controls --
 never a third-party, MCP or AI client, and never a metadata-document (cimd)
-client, which is refused. Read README, "Trusted (first-party) clients", first.`,
+client, which is refused. A trusted client's redirect URIs must all be exact and
+not loopback: trusting a client with a wildcard or loopback URI, or adding one
+to a client already trusted, is refused. Read README, "Trusted (first-party)
+clients", first.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runClientUpdate,
 	Example: `  # Update client name
@@ -165,17 +168,25 @@ func runClientUpdate(cmd *cobra.Command, args []string) error {
 		params.IsConfidential = sql.NullBool{Bool: currentClient.IsConfidential, Valid: true}
 	}
 
-	// Trust is left alone unless asked. Only a client registered here can be
-	// trusted: a metadata-document client's code and redirect URIs belong to
-	// whoever publishes the document. The table's CHECK refuses it too; this
-	// is the clear message.
+	// Trust is left alone unless asked. Whenever the result is a trusted
+	// client -- trusting one, or changing the redirect URIs of one already
+	// trusted -- it must pass ValidateTrustable against the redirect URIs it
+	// will have: only a client registered here (never a metadata-document
+	// one, whose code and redirect URIs belong to whoever publishes the
+	// document; the table's CHECK refuses that too), and only exact,
+	// non-loopback redirect URIs, since it skips the consent screen.
+	trusted := currentClient.Trusted
 	if flags.Changed("trusted") {
-		if updateTrusted {
-			if err := internal.ValidateTrustable(currentClient.Kind); err != nil {
-				return err
-			}
-		}
+		trusted = updateTrusted
 		params.Trusted = sql.NullBool{Bool: updateTrusted, Valid: true}
+	}
+	if trusted {
+		if err := internal.ValidateTrustable(currentClient.Kind, params.RedirectUris); err != nil {
+			if currentClient.Trusted && !flags.Changed("trusted") {
+				return fmt.Errorf("client %s is trusted: %w - nothing was changed", clientID, err)
+			}
+			return err
+		}
 	}
 
 	// The default resource is left alone unless asked; clearing it sets NULL,

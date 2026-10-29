@@ -41,8 +41,9 @@ own must be defined by the resource the request is for AND be in --scopes.
 --trusted marks a first-party client: it skips the consent screen and is not
 listed on users' Connected Apps page. Only for an app the identity operator
 builds and controls (its code and every redirect URI) -- never a third-party,
-MCP or AI client. Read README, "Trusted (first-party) clients", first. The
-default is untrusted.`,
+MCP or AI client. Its redirect URIs must all be exact and not loopback (no
+wildcard, no localhost/127.x/[::1]); anything else is refused. Read README,
+"Trusted (first-party) clients", first. The default is untrusted.`,
 	Example: `  # Register a public client (web app) whose tokens are for an API
   identity-cli client create --name "My Web App" --redirect-uris "http://localhost:3000/callback" --scopes "openid,profile,email" --default-resource "https://api.myapp.com"
 
@@ -86,6 +87,14 @@ func runClientCreate(cmd *cobra.Command, args []string) error {
 	// reasonable-looking command from producing a silently unusable client.
 	if err := internal.ValidateAdminScopes(scopeList, createIsConfidential); err != nil {
 		return err
+	}
+
+	// A trusted client skips consent, so it may only have exact, non-loopback
+	// redirect URIs (README, "Trusted (first-party) clients").
+	if createTrusted {
+		if err := internal.ValidateTrustable("registered", redirectURIList); err != nil {
+			return err
+		}
 	}
 
 	// Get shared datastore

@@ -301,8 +301,15 @@ the tokens it gets (same lifetimes, same `aud`, same refresh and revocation).
 - It is an app the identity operator builds and controls: a first-party web or
   mobile app (the Footstrike dashboard and iOS app, Sensibility's web login,
   haruspex, bifrost), or the staging twin of one.
-- The operator controls its code and **every** one of its redirect URIs
-  (including any wildcard preview pattern).
+- The operator controls its code and **every** one of its redirect URIs, and
+  every one is an **exact, non-loopback** URI. A trusted client skips the consent
+  screen, so a signed-in user is sent to its redirect URI with a code and no
+  interaction: a wildcard pattern would hand that code to whoever can deploy a
+  matching host (any preview environment), and a loopback URI (`localhost`,
+  `*.localhost`, `127.0.0.0/8`, `[::1]`, any scheme or port) to any program on
+  the user's machine. So a staging client that needs a wildcard preview pattern,
+  or a client with a local-development redirect, **stays untrusted and keeps the
+  consent screen** (give local development its own untrusted client).
 - Asking for consent would mean asking the user to approve the operator's own
   service.
 
@@ -318,6 +325,11 @@ the tokens it gets (same lifetimes, same `aud`, same refresh and revocation).
   `oauth_clients` makes such a row impossible, and the CLI refuses with a clear
   error.
 - Any client whose redirect URIs or code you don't control.
+- Any client with a wildcard or loopback redirect URI. identity enforces this
+  too: `identity-cli` refuses to create such a client trusted, to trust one, or
+  to add such a URI to a client already trusted; and identity mints no code for
+  a trusted client at a redirect URI it did not register exactly, or at a
+  loopback one, should such a row ever exist.
 
 **The risk if misused:** a trusted client gets the user's data (whatever its
 scopes and resources allow) with no consent screen, and the user can't see or
