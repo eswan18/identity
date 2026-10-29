@@ -101,7 +101,7 @@ VALUES (
 ON CONFLICT (client_id) DO NOTHING
 RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 `
 
 type CreateCIMDClientParams struct {
@@ -135,6 +135,7 @@ func (q *Queries) CreateCIMDClient(ctx context.Context, arg CreateCIMDClientPara
 		&i.DefaultResource,
 		&i.Kind,
 		&i.MetadataFetchedAt,
+		&i.Trusted,
 	)
 	return i, err
 }
@@ -217,12 +218,13 @@ INSERT INTO oauth_clients (
   redirect_uris,
   allowed_scopes,
   is_confidential,
-  default_resource
+  default_resource,
+  trusted
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 `
 
 type CreateOAuthClientParams struct {
@@ -233,6 +235,7 @@ type CreateOAuthClientParams struct {
 	AllowedScopes   []string       `json:"allowed_scopes"`
 	IsConfidential  bool           `json:"is_confidential"`
 	DefaultResource sql.NullString `json:"default_resource"`
+	Trusted         bool           `json:"trusted"`
 }
 
 // OAuth clients
@@ -251,6 +254,7 @@ func (q *Queries) CreateOAuthClient(ctx context.Context, arg CreateOAuthClientPa
 		pq.Array(arg.AllowedScopes),
 		arg.IsConfidential,
 		arg.DefaultResource,
+		arg.Trusted,
 	)
 	var i OauthClient
 	err := row.Scan(
@@ -266,6 +270,7 @@ func (q *Queries) CreateOAuthClient(ctx context.Context, arg CreateOAuthClientPa
 		&i.DefaultResource,
 		&i.Kind,
 		&i.MetadataFetchedAt,
+		&i.Trusted,
 	)
 	return i, err
 }
@@ -537,6 +542,43 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteUnconsumedClientAuthorizationCodes = `-- name: DeleteUnconsumedClientAuthorizationCodes :execrows
+DELETE FROM oauth_authorization_codes
+WHERE client_id = $1
+  AND consumed_at IS NULL
+`
+
+// Codes issued to one client, for any user, and not yet exchanged.
+func (q *Queries) DeleteUnconsumedClientAuthorizationCodes(ctx context.Context, clientID uuid.UUID) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteUnconsumedClientAuthorizationCodes, clientID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteUnconsumedUserClientAuthorizationCodes = `-- name: DeleteUnconsumedUserClientAuthorizationCodes :execrows
+DELETE FROM oauth_authorization_codes
+WHERE user_id = $1
+  AND client_id = $2
+  AND consumed_at IS NULL
+`
+
+type DeleteUnconsumedUserClientAuthorizationCodesParams struct {
+	UserID   uuid.UUID `json:"user_id"`
+	ClientID uuid.UUID `json:"client_id"`
+}
+
+// Codes issued to one user for one client and not yet exchanged, so one in
+// flight cannot be redeemed for tokens after the user disconnected the client.
+func (q *Queries) DeleteUnconsumedUserClientAuthorizationCodes(ctx context.Context, arg DeleteUnconsumedUserClientAuthorizationCodesParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteUnconsumedUserClientAuthorizationCodes, arg.UserID, arg.ClientID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteUserConsentsForClient = `-- name: DeleteUserConsentsForClient :execrows
 DELETE FROM oauth_user_consents
 WHERE client_id = $1
@@ -547,6 +589,27 @@ WHERE client_id = $1
 // users approved was sending answers to the old ones.
 func (q *Queries) DeleteUserConsentsForClient(ctx context.Context, clientID uuid.UUID) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteUserConsentsForClient, clientID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteUserConsentsForUserClient = `-- name: DeleteUserConsentsForUserClient :execrows
+DELETE FROM oauth_user_consents
+WHERE user_id = $1
+  AND client_id = $2
+`
+
+type DeleteUserConsentsForUserClientParams struct {
+	UserID   uuid.UUID `json:"user_id"`
+	ClientID uuid.UUID `json:"client_id"`
+}
+
+// One user's remembered consents for one client, for every resource, so the
+// next sign-in to it asks again. Returns how many there were.
+func (q *Queries) DeleteUserConsentsForUserClient(ctx context.Context, arg DeleteUserConsentsForUserClientParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteUserConsentsForUserClient, arg.UserID, arg.ClientID)
 	if err != nil {
 		return 0, err
 	}
@@ -691,7 +754,7 @@ func (q *Queries) GetMFAPending(ctx context.Context, id string) (GetMFAPendingRo
 const getOAuthClientByClientID = `-- name: GetOAuthClientByClientID :one
 SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 FROM oauth_clients
 WHERE client_id = $1
 `
@@ -712,6 +775,7 @@ func (q *Queries) GetOAuthClientByClientID(ctx context.Context, clientID string)
 		&i.DefaultResource,
 		&i.Kind,
 		&i.MetadataFetchedAt,
+		&i.Trusted,
 	)
 	return i, err
 }
@@ -720,7 +784,7 @@ const getOAuthClientByClientIDForUpdate = `-- name: GetOAuthClientByClientIDForU
 
 SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 FROM oauth_clients
 WHERE client_id = $1
 FOR UPDATE
@@ -747,6 +811,7 @@ func (q *Queries) GetOAuthClientByClientIDForUpdate(ctx context.Context, clientI
 		&i.DefaultResource,
 		&i.Kind,
 		&i.MetadataFetchedAt,
+		&i.Trusted,
 	)
 	return i, err
 }
@@ -754,7 +819,7 @@ func (q *Queries) GetOAuthClientByClientIDForUpdate(ctx context.Context, clientI
 const getOAuthClientByID = `-- name: GetOAuthClientByID :one
 SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 FROM oauth_clients
 WHERE id = $1
 `
@@ -775,6 +840,7 @@ func (q *Queries) GetOAuthClientByID(ctx context.Context, id uuid.UUID) (OauthCl
 		&i.DefaultResource,
 		&i.Kind,
 		&i.MetadataFetchedAt,
+		&i.Trusted,
 	)
 	return i, err
 }
@@ -1275,6 +1341,104 @@ func (q *Queries) InsertToken(ctx context.Context, arg InsertTokenParams) (Oauth
 	return i, err
 }
 
+const insertTokenIfConsented = `-- name: InsertTokenIfConsented :one
+WITH consent AS (
+  SELECT 1
+  FROM oauth_user_consents
+  WHERE user_id = $3::uuid
+    AND client_id = $4::uuid
+    AND (resource IS NOT DISTINCT FROM $11::text
+         OR resource IS NOT DISTINCT FROM $12::text)
+  FOR SHARE
+)
+INSERT INTO oauth_tokens (
+  access_token,
+  refresh_token,
+  user_id,
+  client_id,
+  scope,
+  token_type,
+  expires_at,
+  refresh_expires_at,
+  resource,
+  family_id
+)
+SELECT
+  $1::text,
+  $2::text,
+  $3::uuid,
+  $4::uuid,
+  $5::text[],
+  COALESCE($6::text, 'bearer'),
+  $7::timestamptz,
+  $8::timestamptz,
+  $9::text,
+  $10::uuid
+WHERE EXISTS (SELECT 1 FROM consent)
+RETURNING id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at, resource, family_id, revoked_reason
+`
+
+type InsertTokenIfConsentedParams struct {
+	AccessToken        sql.NullString `json:"access_token"`
+	RefreshToken       sql.NullString `json:"refresh_token"`
+	UserID             uuid.UUID      `json:"user_id"`
+	ClientID           uuid.UUID      `json:"client_id"`
+	Scope              []string       `json:"scope"`
+	TokenType          sql.NullString `json:"token_type"`
+	ExpiresAt          time.Time      `json:"expires_at"`
+	RefreshExpiresAt   sql.NullTime   `json:"refresh_expires_at"`
+	Resource           sql.NullString `json:"resource"`
+	FamilyID           uuid.NullUUID  `json:"family_id"`
+	ConsentResource    sql.NullString `json:"consent_resource"`
+	ConsentResourceAlt sql.NullString `json:"consent_resource_alt"`
+}
+
+// InsertToken for a code exchange by a client that asks for consent: the row
+// is written only while the user still has a consent for the client and the
+// grant's resource (consent_resource: NULL for identity itself), else no row
+// (sql.ErrNoRows). A grant for identity itself is recorded on codes and tokens
+// as the issuer, which a registered resource could also be named, so the
+// caller passes the issuer as consent_resource_alt for that case and a consent
+// under either key counts. FOR SHARE makes this atomic with a disconnect
+// (DeleteUserConsentsForUserClient, then RevokeUserClientTokens, in one
+// transaction): if the disconnect deleted the consent first, this waits for it
+// and finds none; if this locked it first, the disconnect waits for this
+// insert to commit and then revokes the new token with the rest.
+func (q *Queries) InsertTokenIfConsented(ctx context.Context, arg InsertTokenIfConsentedParams) (OauthToken, error) {
+	row := q.db.QueryRowContext(ctx, insertTokenIfConsented,
+		arg.AccessToken,
+		arg.RefreshToken,
+		arg.UserID,
+		arg.ClientID,
+		pq.Array(arg.Scope),
+		arg.TokenType,
+		arg.ExpiresAt,
+		arg.RefreshExpiresAt,
+		arg.Resource,
+		arg.FamilyID,
+		arg.ConsentResource,
+		arg.ConsentResourceAlt,
+	)
+	var i OauthToken
+	err := row.Scan(
+		&i.ID,
+		&i.AccessToken,
+		&i.RefreshToken,
+		&i.UserID,
+		&i.ClientID,
+		pq.Array(&i.Scope),
+		&i.TokenType,
+		&i.ExpiresAt,
+		&i.RefreshExpiresAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.Resource,
+		&i.FamilyID,
+		&i.RevokedReason,
+	)
+	return i, err
+}
+
 const listClientResources = `-- name: ListClientResources :many
 SELECT r.id, r.uri, r.name, r.scopes, r.dynamic_clients, r.created_at
 FROM oauth_client_resources cr
@@ -1361,7 +1525,7 @@ func (q *Queries) ListClientsReferencingResource(ctx context.Context, uri string
 const listOAuthClients = `-- name: ListOAuthClients :many
 SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 FROM oauth_clients
 ORDER BY created_at DESC
 `
@@ -1388,6 +1552,7 @@ func (q *Queries) ListOAuthClients(ctx context.Context) ([]OauthClient, error) {
 			&i.DefaultResource,
 			&i.Kind,
 			&i.MetadataFetchedAt,
+			&i.Trusted,
 		); err != nil {
 			return nil, err
 		}
@@ -1425,6 +1590,151 @@ func (q *Queries) ListOAuthResources(ctx context.Context) ([]OauthResource, erro
 			&i.DynamicClients,
 			&i.CreatedAt,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserConnectedApps = `-- name: ListUserConnectedApps :many
+
+WITH grants AS (
+  SELECT uc.client_id, uc.resource, uc.scopes, uc.created_at
+  FROM oauth_user_consents uc
+  WHERE uc.user_id = $1::uuid
+  UNION ALL
+  SELECT t.client_id,
+    NULLIF(t.resource, $2::text) AS resource,
+    array_remove(array_agg(DISTINCT sc.scope ORDER BY sc.scope), NULL)::text[] AS scopes,
+    min(t.created_at)::timestamptz AS created_at
+  FROM oauth_tokens t
+  LEFT JOIN LATERAL unnest(t.scope) AS sc(scope) ON true
+  WHERE t.user_id = $1::uuid
+    AND t.revoked_at IS NULL
+    AND (t.expires_at > now()
+         OR (t.refresh_token IS NOT NULL
+             AND (t.refresh_expires_at IS NULL OR t.refresh_expires_at > now())))
+    AND NOT EXISTS (
+          SELECT 1 FROM oauth_user_consents uc
+          WHERE uc.user_id = $1::uuid AND uc.client_id = t.client_id)
+  GROUP BY t.client_id, NULLIF(t.resource, $2::text)
+)
+SELECT
+  c.id AS client_uuid,
+  c.client_id,
+  c.name AS client_name,
+  c.kind AS client_kind,
+  g.resource,
+  r.name AS resource_name,
+  COALESCE(r.scopes, '{}'::jsonb)::jsonb AS resource_scopes,
+  g.scopes,
+  g.created_at
+FROM grants g
+JOIN oauth_clients c ON c.id = g.client_id
+LEFT JOIN oauth_resources r ON r.uri = g.resource
+WHERE NOT c.trusted
+ORDER BY c.name, c.id, g.resource NULLS FIRST
+`
+
+type ListUserConnectedAppsParams struct {
+	UserID uuid.UUID `json:"user_id"`
+	Issuer string    `json:"issuer"`
+}
+
+type ListUserConnectedAppsRow struct {
+	ClientUuid     uuid.UUID       `json:"client_uuid"`
+	ClientID       string          `json:"client_id"`
+	ClientName     string          `json:"client_name"`
+	ClientKind     string          `json:"client_kind"`
+	Resource       sql.NullString  `json:"resource"`
+	ResourceName   sql.NullString  `json:"resource_name"`
+	ResourceScopes json.RawMessage `json:"resource_scopes"`
+	Scopes         []string        `json:"scopes"`
+	CreatedAt      time.Time       `json:"created_at"`
+}
+
+// Connected apps (the account page that lists and disconnects them).
+// One row per grant one user has given an app: each remembered consent (the
+// client it was given to, and the resource it was for), and, for a client the
+// user has no consent for but that still holds a live token for them, one row
+// per resource those tokens are for, with their scopes. The second case is an
+// app whose consents were cleared but whose tokens were not (they can be, by
+// an older release), which must still be listed so it can be disconnected.
+// resource is NULL for identity itself (a token records that as the issuer,
+// passed in as issuer); resource_name is NULL for that, or for a resource since
+// removed from the registry. The page groups rows by client.
+//
+// A token is live when it is not revoked and either its access token or its
+// refresh token has not expired (a NULL refresh_expires_at never expires).
+//
+// Trusted (first-party) clients are never listed: identity writes no consent
+// for them, and one left over from before a client was trusted is ignored here
+// rather than shown, as are its tokens.
+func (q *Queries) ListUserConnectedApps(ctx context.Context, arg ListUserConnectedAppsParams) ([]ListUserConnectedAppsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUserConnectedApps, arg.UserID, arg.Issuer)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserConnectedAppsRow
+	for rows.Next() {
+		var i ListUserConnectedAppsRow
+		if err := rows.Scan(
+			&i.ClientUuid,
+			&i.ClientID,
+			&i.ClientName,
+			&i.ClientKind,
+			&i.Resource,
+			&i.ResourceName,
+			&i.ResourceScopes,
+			pq.Array(&i.Scopes),
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserTokenLastIssued = `-- name: ListUserTokenLastIssued :many
+SELECT client_id, max(created_at)::timestamptz AS last_issued_at
+FROM oauth_tokens
+WHERE user_id = $1::uuid
+GROUP BY client_id
+`
+
+type ListUserTokenLastIssuedRow struct {
+	ClientID     uuid.UUID `json:"client_id"`
+	LastIssuedAt time.Time `json:"last_issued_at"`
+}
+
+// When a token was last issued to one user, per client: by a code exchange or
+// a refresh, each of which inserts an oauth_tokens row. A client whose rows
+// are all gone (the cleanup sweep deletes dead ones) has no row here.
+func (q *Queries) ListUserTokenLastIssued(ctx context.Context, userID uuid.UUID) ([]ListUserTokenLastIssuedRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUserTokenLastIssued, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserTokenLastIssuedRow
+	for rows.Next() {
+		var i ListUserTokenLastIssuedRow
+		if err := rows.Scan(&i.ClientID, &i.LastIssuedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1565,6 +1875,30 @@ func (q *Queries) RevokeAllUserTokens(ctx context.Context, arg RevokeAllUserToke
 	return err
 }
 
+const revokeClientTokens = `-- name: RevokeClientTokens :execrows
+UPDATE oauth_tokens
+SET revoked_at = now(),
+    revoked_reason = $1::text
+WHERE client_id = $2
+  AND revoked_at IS NULL
+`
+
+type RevokeClientTokensParams struct {
+	Reason   string    `json:"reason"`
+	ClientID uuid.UUID `json:"client_id"`
+}
+
+// Every live token, of every user, for one client. Used with
+// DeleteUserConsentsForClient when a metadata-document client's redirect_uris
+// change: the grants users gave were for the old ones. Returns how many.
+func (q *Queries) RevokeClientTokens(ctx context.Context, arg RevokeClientTokensParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeClientTokens, arg.Reason, arg.ClientID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const revokeTokenByAccessToken = `-- name: RevokeTokenByAccessToken :exec
 UPDATE oauth_tokens
 SET revoked_at = now(),
@@ -1631,6 +1965,31 @@ func (q *Queries) RevokeTokenFamily(ctx context.Context, arg RevokeTokenFamilyPa
 	return result.RowsAffected()
 }
 
+const revokeUserClientTokens = `-- name: RevokeUserClientTokens :execrows
+UPDATE oauth_tokens
+SET revoked_at = now(),
+    revoked_reason = $1::text
+WHERE user_id = $2::uuid
+  AND client_id = $3
+  AND revoked_at IS NULL
+`
+
+type RevokeUserClientTokensParams struct {
+	Reason   string    `json:"reason"`
+	UserID   uuid.UUID `json:"user_id"`
+	ClientID uuid.UUID `json:"client_id"`
+}
+
+// Every live token (access and refresh: they share the row) one user holds for
+// one client. Returns how many were live.
+func (q *Queries) RevokeUserClientTokens(ctx context.Context, arg RevokeUserClientTokensParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeUserClientTokens, arg.Reason, arg.UserID, arg.ClientID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const rotateRefreshToken = `-- name: RotateRefreshToken :execrows
 UPDATE oauth_tokens
 SET revoked_at = now(),
@@ -1683,7 +2042,7 @@ SET
 WHERE id = $4 AND kind = 'cimd'
 RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 `
 
 type UpdateCIMDClientParams struct {
@@ -1714,6 +2073,7 @@ func (q *Queries) UpdateCIMDClient(ctx context.Context, arg UpdateCIMDClientPara
 		&i.DefaultResource,
 		&i.Kind,
 		&i.MetadataFetchedAt,
+		&i.Trusted,
 	)
 	return i, err
 }
@@ -1725,15 +2085,16 @@ SET
   redirect_uris = COALESCE($2::text[], redirect_uris),
   allowed_scopes = COALESCE($3::text[], allowed_scopes),
   is_confidential = COALESCE($4, is_confidential),
+  trusted = COALESCE($5, trusted),
   default_resource = CASE
-    WHEN $5::boolean THEN $6::text
+    WHEN $6::boolean THEN $7::text
     ELSE default_resource
   END,
   updated_at = now()
-WHERE client_id = $7
+WHERE client_id = $8
 RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 `
 
 type UpdateOAuthClientParams struct {
@@ -1741,6 +2102,7 @@ type UpdateOAuthClientParams struct {
 	RedirectUris       []string       `json:"redirect_uris"`
 	AllowedScopes      []string       `json:"allowed_scopes"`
 	IsConfidential     sql.NullBool   `json:"is_confidential"`
+	Trusted            sql.NullBool   `json:"trusted"`
 	SetDefaultResource bool           `json:"set_default_resource"`
 	DefaultResource    sql.NullString `json:"default_resource"`
 	ClientID           string         `json:"client_id"`
@@ -1749,12 +2111,15 @@ type UpdateOAuthClientParams struct {
 // default_resource is replaced only when set_default_resource is true, and then
 // with whatever default_resource holds, NULL included: that is how a client's
 // default is cleared, which a COALESCE(NULLIF(...)) like the others cannot do.
+// trusted is left alone when NULL; the table's CHECK refuses it for anything
+// but a registered client (README, "Trusted (first-party) clients").
 func (q *Queries) UpdateOAuthClient(ctx context.Context, arg UpdateOAuthClientParams) (OauthClient, error) {
 	row := q.db.QueryRowContext(ctx, updateOAuthClient,
 		arg.Name,
 		pq.Array(arg.RedirectUris),
 		pq.Array(arg.AllowedScopes),
 		arg.IsConfidential,
+		arg.Trusted,
 		arg.SetDefaultResource,
 		arg.DefaultResource,
 		arg.ClientID,
@@ -1773,6 +2138,7 @@ func (q *Queries) UpdateOAuthClient(ctx context.Context, arg UpdateOAuthClientPa
 		&i.DefaultResource,
 		&i.Kind,
 		&i.MetadataFetchedAt,
+		&i.Trusted,
 	)
 	return i, err
 }

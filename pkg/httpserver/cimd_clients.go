@@ -146,9 +146,13 @@ func cimdRowCurrent(row db.OauthClient, md *cimd.Metadata) bool {
 
 // storeCIMDClient creates or updates the row for md in one transaction, with
 // the row locked, so concurrent requests (on any pod) agree on the outcome
-// and on whether the redirect URIs changed. When they did, every remembered
-// consent for the client is deleted (CIMD §8.4): what users approved was
-// sending answers to the old ones.
+// and on whether the redirect URIs changed. When they did, every grant users
+// gave the client is withdrawn (CIMD §8.4), because what they approved was
+// sending answers to the old ones: every remembered consent is deleted, every
+// live token revoked (revokedClientRedirectsChanged), and every unexchanged
+// code deleted. Deleting only the consents would leave the client holding
+// tokens no consent backs, which a refresh would keep alive and the Connected
+// Apps page could not explain.
 func (s *Server) storeCIMDClient(ctx context.Context, md *cimd.Metadata) (db.OauthClient, error) {
 	tx, err := s.datastore.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -198,19 +202,27 @@ func (s *Server) storeCIMDClient(ctx context.Context, md *cimd.Metadata) (db.Oau
 	if err != nil {
 		return db.OauthClient{}, fmt.Errorf("updating client %s: %w", md.ClientID, err)
 	}
-	cleared := int64(0)
+	var cleared, revoked, codes int64
 	redirectsChanged := !sameStringSet(row.RedirectUris, md.RedirectURIs)
 	if redirectsChanged {
 		if cleared, err = q.DeleteUserConsentsForClient(ctx, row.ID); err != nil {
 			return db.OauthClient{}, fmt.Errorf("clearing consents for client %s: %w", md.ClientID, err)
+		}
+		if revoked, err = q.RevokeClientTokens(ctx, db.RevokeClientTokensParams{
+			ClientID: row.ID, Reason: string(revokedClientRedirectsChanged),
+		}); err != nil {
+			return db.OauthClient{}, fmt.Errorf("revoking tokens for client %s: %w", md.ClientID, err)
+		}
+		if codes, err = q.DeleteUnconsumedClientAuthorizationCodes(ctx, row.ID); err != nil {
+			return db.OauthClient{}, fmt.Errorf("deleting codes for client %s: %w", md.ClientID, err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
 		return db.OauthClient{}, fmt.Errorf("updating client %s: %w", md.ClientID, err)
 	}
 	if redirectsChanged {
-		log.Printf("cimd: client %s changed its redirect_uris from %v to %v; cleared %d remembered consents",
-			md.ClientID, row.RedirectUris, md.RedirectURIs, cleared)
+		log.Printf("cimd: client %s changed its redirect_uris from %v to %v; cleared %d remembered consents, revoked %d tokens, deleted %d unexchanged codes",
+			md.ClientID, row.RedirectUris, md.RedirectURIs, cleared, revoked, codes)
 	}
 	if row.Name != md.ClientName {
 		log.Printf("cimd: client %s now calls itself %q (was %q)", md.ClientID, md.ClientName, row.Name)

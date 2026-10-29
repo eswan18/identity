@@ -13,10 +13,13 @@ import templruntime "github.com/a-h/templ/runtime"
 // The OAuth authorization request (see AuthorizeQueryField) travels through
 // the page as a hidden field so it survives even if the server-side pending
 // row is gone by the time the code is submitted.
+//
+// ReturnTo is the page to land on after a direct sign-in (see ReturnToField).
 type MFAView struct {
 	Error          string
 	PendingID      string
 	AuthorizeQuery string
+	ReturnTo       string
 	CSRFToken      string
 }
 
@@ -71,7 +74,7 @@ func MFA(data MFAView) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.CSRFToken)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/mfa.templ`, Line: 26, Col: 64}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/mfa.templ`, Line: 29, Col: 64}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 			if templ_7745c5c3_Err != nil {
@@ -84,7 +87,7 @@ func MFA(data MFAView) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.PendingID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/mfa.templ`, Line: 43, Col: 64}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/mfa.templ`, Line: 46, Col: 64}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 			if templ_7745c5c3_Err != nil {
@@ -97,7 +100,7 @@ func MFA(data MFAView) templ.Component {
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(AuthorizeQueryField)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/mfa.templ`, Line: 44, Col: 50}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/mfa.templ`, Line: 47, Col: 50}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 			if templ_7745c5c3_Err != nil {
@@ -110,13 +113,49 @@ func MFA(data MFAView) templ.Component {
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.AuthorizeQuery)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/mfa.templ`, Line: 44, Col: 80}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/mfa.templ`, Line: 47, Col: 80}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\"> <button type=\"submit\" class=\"btn btn-primary w-full\">Verify</button></form><div class=\"text-center mt-6 text-sm text-base-content/60\"><a href=\"/oauth/login\" class=\"link link-primary\">Back to login</a></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\"> ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if data.ReturnTo != "" {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<input type=\"hidden\" name=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var7 string
+				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(ReturnToField)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/mfa.templ`, Line: 49, Col: 45}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\" value=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var8 string
+				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.ReturnTo)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/mfa.templ`, Line: 49, Col: 69}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var8)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\"> ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<button type=\"submit\" class=\"btn btn-primary w-full\">Verify</button></form><div class=\"text-center mt-6 text-sm text-base-content/60\"><a href=\"/oauth/login\" class=\"link link-primary\">Back to login</a></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

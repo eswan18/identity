@@ -223,7 +223,7 @@ func AccountSettings(data AccountSettingsView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "\"> <button type=\"submit\" class=\"btn btn-outline btn-error w-full\">Log Out</button></form></div><div class=\"mb-8\"><h2 class=\"text-base font-semibold text-base-content/70 mb-4 pb-2 border-b border-base-300\">Security</h2><div class=\"flex flex-col gap-3\"><a href=\"/oauth/change-password\" class=\"btn btn-outline w-full\">Change Password</a> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "\"> <button type=\"submit\" class=\"btn btn-outline btn-error w-full\">Log Out</button></form></div><div class=\"mb-8\"><h2 class=\"text-base font-semibold text-base-content/70 mb-4 pb-2 border-b border-base-300\">Connected Apps</h2><p class=\"text-sm text-base-content/60 mb-3\">See the apps you have allowed to access your account, and disconnect any you no longer use.</p><a href=\"/oauth/connected-apps\" class=\"btn btn-outline w-full\">Manage connected apps</a></div><div class=\"mb-8\"><h2 class=\"text-base font-semibold text-base-content/70 mb-4 pb-2 border-b border-base-300\">Security</h2><div class=\"flex flex-col gap-3\"><a href=\"/oauth/change-password\" class=\"btn btn-outline w-full\">Change Password</a> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -235,7 +235,7 @@ func AccountSettings(data AccountSettingsView) templ.Component {
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.CSRFToken)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 141, Col: 68}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 146, Col: 68}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
 				if templ_7745c5c3_Err != nil {
@@ -263,7 +263,7 @@ func AccountSettings(data AccountSettingsView) templ.Component {
 				var templ_7745c5c3_Var10 string
 				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.CSRFToken)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 163, Col: 66}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 168, Col: 66}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
 				if templ_7745c5c3_Err != nil {
@@ -281,7 +281,7 @@ func AccountSettings(data AccountSettingsView) templ.Component {
 				var templ_7745c5c3_Var11 string
 				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.CSRFToken)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 176, Col: 66}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 181, Col: 66}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var11)
 				if templ_7745c5c3_Err != nil {

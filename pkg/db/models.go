@@ -92,6 +92,7 @@ type OauthClient struct {
 	DefaultResource   sql.NullString `json:"default_resource"`
 	Kind              string         `json:"kind"`
 	MetadataFetchedAt sql.NullTime   `json:"metadata_fetched_at"`
+	Trusted           bool           `json:"trusted"`
 }
 
 type OauthClientResource struct {

@@ -37,31 +37,32 @@ INSERT INTO oauth_clients (
   redirect_uris,
   allowed_scopes,
   is_confidential,
-  default_resource
+  default_resource,
+  trusted
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at;
+  metadata_fetched_at, trusted;
 
 -- name: GetOAuthClientByClientID :one
 SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 FROM oauth_clients
 WHERE client_id = $1;
 
 -- name: GetOAuthClientByID :one
 SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 FROM oauth_clients
 WHERE id = $1;
 
 -- name: ListOAuthClients :many
 SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 FROM oauth_clients
 ORDER BY created_at DESC;
 
@@ -69,12 +70,15 @@ ORDER BY created_at DESC;
 -- default_resource is replaced only when set_default_resource is true, and then
 -- with whatever default_resource holds, NULL included: that is how a client's
 -- default is cleared, which a COALESCE(NULLIF(...)) like the others cannot do.
+-- trusted is left alone when NULL; the table's CHECK refuses it for anything
+-- but a registered client (README, "Trusted (first-party) clients").
 UPDATE oauth_clients
 SET
   name = COALESCE(NULLIF(sqlc.narg(name)::text, ''), name),
   redirect_uris = COALESCE(sqlc.narg(redirect_uris)::text[], redirect_uris),
   allowed_scopes = COALESCE(sqlc.narg(allowed_scopes)::text[], allowed_scopes),
   is_confidential = COALESCE(sqlc.narg(is_confidential), is_confidential),
+  trusted = COALESCE(sqlc.narg(trusted), trusted),
   default_resource = CASE
     WHEN sqlc.arg(set_default_resource)::boolean THEN sqlc.narg(default_resource)::text
     ELSE default_resource
@@ -83,7 +87,7 @@ SET
 WHERE client_id = sqlc.arg(client_id)
 RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at;
+  metadata_fetched_at, trusted;
 
 -- name: DeleteOAuthClient :exec
 DELETE FROM oauth_clients
@@ -98,7 +102,7 @@ WHERE client_id = $1;
 -- name: GetOAuthClientByClientIDForUpdate :one
 SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 FROM oauth_clients
 WHERE client_id = $1
 FOR UPDATE;
@@ -125,7 +129,7 @@ VALUES (
 ON CONFLICT (client_id) DO NOTHING
 RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at;
+  metadata_fetched_at, trusted;
 
 -- name: UpdateCIMDClient :one
 UPDATE oauth_clients
@@ -137,7 +141,7 @@ SET
 WHERE id = sqlc.arg(id) AND kind = 'cimd'
 RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at;
+  metadata_fetched_at, trusted;
 
 -- OAuth resources: the APIs tokens are minted for (a token's aud is its uri).
 
@@ -257,6 +261,53 @@ INSERT INTO oauth_tokens (
   family_id
 )
 VALUES ($1, $2, $3, $4, $5, COALESCE(sqlc.narg(token_type)::text, 'bearer'), $6, $7, sqlc.narg(resource), sqlc.narg(family_id))
+RETURNING *;
+
+-- name: InsertTokenIfConsented :one
+-- InsertToken for a code exchange by a client that asks for consent: the row
+-- is written only while the user still has a consent for the client and the
+-- grant's resource (consent_resource: NULL for identity itself), else no row
+-- (sql.ErrNoRows). A grant for identity itself is recorded on codes and tokens
+-- as the issuer, which a registered resource could also be named, so the
+-- caller passes the issuer as consent_resource_alt for that case and a consent
+-- under either key counts. FOR SHARE makes this atomic with a disconnect
+-- (DeleteUserConsentsForUserClient, then RevokeUserClientTokens, in one
+-- transaction): if the disconnect deleted the consent first, this waits for it
+-- and finds none; if this locked it first, the disconnect waits for this
+-- insert to commit and then revokes the new token with the rest.
+WITH consent AS (
+  SELECT 1
+  FROM oauth_user_consents
+  WHERE user_id = sqlc.arg(user_id)::uuid
+    AND client_id = sqlc.arg(client_id)::uuid
+    AND (resource IS NOT DISTINCT FROM sqlc.narg(consent_resource)::text
+         OR resource IS NOT DISTINCT FROM sqlc.narg(consent_resource_alt)::text)
+  FOR SHARE
+)
+INSERT INTO oauth_tokens (
+  access_token,
+  refresh_token,
+  user_id,
+  client_id,
+  scope,
+  token_type,
+  expires_at,
+  refresh_expires_at,
+  resource,
+  family_id
+)
+SELECT
+  sqlc.narg(access_token)::text,
+  sqlc.narg(refresh_token)::text,
+  sqlc.arg(user_id)::uuid,
+  sqlc.arg(client_id)::uuid,
+  sqlc.arg(scope)::text[],
+  COALESCE(sqlc.narg(token_type)::text, 'bearer'),
+  sqlc.arg(expires_at)::timestamptz,
+  sqlc.narg(refresh_expires_at)::timestamptz,
+  sqlc.narg(resource)::text,
+  sqlc.narg(family_id)::uuid
+WHERE EXISTS (SELECT 1 FROM consent)
 RETURNING *;
 
 -- name: GetTokenByAccessToken :one
@@ -574,3 +625,109 @@ DO UPDATE SET scopes = EXCLUDED.scopes, updated_at = now();
 -- users approved was sending answers to the old ones.
 DELETE FROM oauth_user_consents
 WHERE client_id = sqlc.arg(client_id);
+
+-- name: RevokeClientTokens :execrows
+-- Every live token, of every user, for one client. Used with
+-- DeleteUserConsentsForClient when a metadata-document client's redirect_uris
+-- change: the grants users gave were for the old ones. Returns how many.
+UPDATE oauth_tokens
+SET revoked_at = now(),
+    revoked_reason = sqlc.arg(reason)::text
+WHERE client_id = sqlc.arg(client_id)
+  AND revoked_at IS NULL;
+
+-- name: DeleteUnconsumedClientAuthorizationCodes :execrows
+-- Codes issued to one client, for any user, and not yet exchanged.
+DELETE FROM oauth_authorization_codes
+WHERE client_id = sqlc.arg(client_id)
+  AND consumed_at IS NULL;
+
+-- Connected apps (the account page that lists and disconnects them).
+
+-- name: ListUserConnectedApps :many
+-- One row per grant one user has given an app: each remembered consent (the
+-- client it was given to, and the resource it was for), and, for a client the
+-- user has no consent for but that still holds a live token for them, one row
+-- per resource those tokens are for, with their scopes. The second case is an
+-- app whose consents were cleared but whose tokens were not (they can be, by
+-- an older release), which must still be listed so it can be disconnected.
+-- resource is NULL for identity itself (a token records that as the issuer,
+-- passed in as issuer); resource_name is NULL for that, or for a resource since
+-- removed from the registry. The page groups rows by client.
+--
+-- A token is live when it is not revoked and either its access token or its
+-- refresh token has not expired (a NULL refresh_expires_at never expires).
+--
+-- Trusted (first-party) clients are never listed: identity writes no consent
+-- for them, and one left over from before a client was trusted is ignored here
+-- rather than shown, as are its tokens.
+WITH grants AS (
+  SELECT uc.client_id, uc.resource, uc.scopes, uc.created_at
+  FROM oauth_user_consents uc
+  WHERE uc.user_id = sqlc.arg(user_id)::uuid
+  UNION ALL
+  SELECT t.client_id,
+    NULLIF(t.resource, sqlc.arg(issuer)::text) AS resource,
+    array_remove(array_agg(DISTINCT sc.scope ORDER BY sc.scope), NULL)::text[] AS scopes,
+    min(t.created_at)::timestamptz AS created_at
+  FROM oauth_tokens t
+  LEFT JOIN LATERAL unnest(t.scope) AS sc(scope) ON true
+  WHERE t.user_id = sqlc.arg(user_id)::uuid
+    AND t.revoked_at IS NULL
+    AND (t.expires_at > now()
+         OR (t.refresh_token IS NOT NULL
+             AND (t.refresh_expires_at IS NULL OR t.refresh_expires_at > now())))
+    AND NOT EXISTS (
+          SELECT 1 FROM oauth_user_consents uc
+          WHERE uc.user_id = sqlc.arg(user_id)::uuid AND uc.client_id = t.client_id)
+  GROUP BY t.client_id, NULLIF(t.resource, sqlc.arg(issuer)::text)
+)
+SELECT
+  c.id AS client_uuid,
+  c.client_id,
+  c.name AS client_name,
+  c.kind AS client_kind,
+  g.resource,
+  r.name AS resource_name,
+  COALESCE(r.scopes, '{}'::jsonb)::jsonb AS resource_scopes,
+  g.scopes,
+  g.created_at
+FROM grants g
+JOIN oauth_clients c ON c.id = g.client_id
+LEFT JOIN oauth_resources r ON r.uri = g.resource
+WHERE NOT c.trusted
+ORDER BY c.name, c.id, g.resource NULLS FIRST;
+
+-- name: ListUserTokenLastIssued :many
+-- When a token was last issued to one user, per client: by a code exchange or
+-- a refresh, each of which inserts an oauth_tokens row. A client whose rows
+-- are all gone (the cleanup sweep deletes dead ones) has no row here.
+SELECT client_id, max(created_at)::timestamptz AS last_issued_at
+FROM oauth_tokens
+WHERE user_id = sqlc.arg(user_id)::uuid
+GROUP BY client_id;
+
+-- name: DeleteUserConsentsForUserClient :execrows
+-- One user's remembered consents for one client, for every resource, so the
+-- next sign-in to it asks again. Returns how many there were.
+DELETE FROM oauth_user_consents
+WHERE user_id = sqlc.arg(user_id)
+  AND client_id = sqlc.arg(client_id);
+
+-- name: RevokeUserClientTokens :execrows
+-- Every live token (access and refresh: they share the row) one user holds for
+-- one client. Returns how many were live.
+UPDATE oauth_tokens
+SET revoked_at = now(),
+    revoked_reason = sqlc.arg(reason)::text
+WHERE user_id = sqlc.arg(user_id)::uuid
+  AND client_id = sqlc.arg(client_id)
+  AND revoked_at IS NULL;
+
+-- name: DeleteUnconsumedUserClientAuthorizationCodes :execrows
+-- Codes issued to one user for one client and not yet exchanged, so one in
+-- flight cannot be redeemed for tokens after the user disconnected the client.
+DELETE FROM oauth_authorization_codes
+WHERE user_id = sqlc.arg(user_id)
+  AND client_id = sqlc.arg(client_id)
+  AND consumed_at IS NULL;

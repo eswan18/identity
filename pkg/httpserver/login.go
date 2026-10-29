@@ -64,6 +64,7 @@ func (s *Server) HandleLoginGet(w http.ResponseWriter, r *http.Request) {
 	view := views.LoginView{
 		Error:          errorMsg,
 		AuthorizeQuery: string(request),
+		ReturnTo:       carriedReturnTo(r),
 		CSRFToken:      s.ensureCSRFToken(w, r),
 	}
 	if err := views.Login(view).Render(r.Context(), w); err != nil {
@@ -123,8 +124,8 @@ func (s *Server) HandleLoginPost(w http.ResponseWriter, r *http.Request) {
 			s.renderLoginError(w, r, http.StatusInternalServerError, "An error occurred", request)
 			return
 		}
-		// Redirect to MFA verification page
-		http.Redirect(w, r, "/oauth/mfa?pending="+pendingID, http.StatusFound)
+		// Redirect to MFA verification page, still carrying the page to return to.
+		http.Redirect(w, r, withReturnTo("/oauth/mfa?pending="+pendingID, carriedReturnTo(r)), http.StatusFound)
 		return
 	}
 
@@ -168,6 +169,7 @@ func (s *Server) renderLoginError(w http.ResponseWriter, r *http.Request, status
 	err := views.Login(views.LoginView{
 		Error:          errorMsg,
 		AuthorizeQuery: string(request),
+		ReturnTo:       carriedReturnTo(r),
 		CSRFToken:      csrfToken,
 	}).Render(r.Context(), w)
 	if err != nil {
@@ -204,11 +206,22 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, session Session) {
 // redirectAfterAuth sends a freshly-authenticated user onward. When an OAuth client
 // initiated the flow the user is routed back through /oauth/authorize, with the
 // client's original request, to handle consent and authorization-code issuance;
-// otherwise this was a direct login and the user is taken to account settings.
+// otherwise this was a direct login and the user is taken to the page they asked
+// for before signing in (carriedReturnTo), or to account settings.
 func (s *Server) redirectAfterAuth(w http.ResponseWriter, r *http.Request, request authorizeRequest) {
 	if !request.inFlow() {
-		http.Redirect(w, r, "/oauth/account-settings", http.StatusFound)
+		http.Redirect(w, r, directSignInDestination(r), http.StatusFound)
 		return
 	}
 	http.Redirect(w, r, request.authorizeURL(), http.StatusFound)
+}
+
+// directSignInDestination is where a sign-in outside an OAuth flow lands: the
+// page the request carried as the one to return to, if it is a safe path, or
+// account settings.
+func directSignInDestination(r *http.Request) string {
+	if returnTo := carriedReturnTo(r); returnTo != "" {
+		return returnTo
+	}
+	return defaultAfterSignIn
 }

@@ -156,7 +156,10 @@ the document's name and redirect URIs, public, no default resource), and keeps
 the row in step with each later fetch. `identity-cli client list` lists these
 too, and `client get` shows their kind. Edit the document, not the row: the
 next fetch overwrites it. If a re-fetched document lists different redirect URIs, every user's
-remembered consent for that client is forgotten, so each is asked again.
+remembered consent for that client is forgotten, so each is asked again, and
+every grant made under the old ones goes with it: live tokens are revoked
+(`revoked_reason = 'client_redirects_changed'`, so refreshes fail) and
+unexchanged codes are deleted. Such a client can never be marked trusted.
 
 Such a client:
 

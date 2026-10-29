@@ -47,6 +47,7 @@ func runClientGet(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Allowed Resources: %s\n", allowedResourcesValue(allowed))
 	fmt.Printf("  Kind:           %s\n", client.Kind)
 	fmt.Printf("  Confidential:   %v\n", client.IsConfidential)
+	fmt.Printf("  Trusted:        %v\n", client.Trusted)
 	fmt.Printf("  Created:        %s\n", client.CreatedAt.Format("2006-01-02 15:04:05"))
 	fmt.Printf("  Updated:        %s\n", client.UpdatedAt.Format("2006-01-02 15:04:05"))
 	fmt.Println()

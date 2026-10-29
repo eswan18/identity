@@ -19,6 +19,7 @@ var (
 	createIsConfidential bool
 	createDefaultRes     string
 	createResources      string
+	createTrusted        bool
 )
 
 var clientCreateCmd = &cobra.Command{
@@ -35,12 +36,22 @@ the tokens' aud. Without it, the client's access tokens are for identity itself
 --resources is the client's allow-list: other registered resources it may ask
 for by name with the resource parameter (RFC 8707). Its default is always
 allowed and need not be listed. A requested scope that is not one of identity's
-own must be defined by the resource the request is for AND be in --scopes.`,
+own must be defined by the resource the request is for AND be in --scopes.
+
+--trusted marks a first-party client: it skips the consent screen and is not
+listed on users' Connected Apps page. Only for an app the identity operator
+builds and controls (its code and every redirect URI) -- never a third-party,
+MCP or AI client. Its redirect URIs must all be exact and not loopback (no
+wildcard, no localhost/127.x/[::1]); anything else is refused. Read README,
+"Trusted (first-party) clients", first. The default is untrusted.`,
 	Example: `  # Register a public client (web app) whose tokens are for an API
   identity-cli client create --name "My Web App" --redirect-uris "http://localhost:3000/callback" --scopes "openid,profile,email" --default-resource "https://api.myapp.com"
 
   # Register Claude Code (a native app on loopback) for an MCP server
   identity-cli client create --name "Claude Code" --redirect-uris "http://localhost/callback" --scopes "sensibility:read,sensibility:write" --resources "https://sensibility.money/mcp"
+
+  # Register the operator's own first-party web app (skips consent; read README first)
+  identity-cli client create --name "My Own App" --redirect-uris "https://app.example.com/callback" --scopes "openid,profile,email" --trusted
 
   # Register a confidential client that only signs users in
   identity-cli client create --name "My Backend" --redirect-uris "http://localhost:3000/callback" --scopes "openid" --confidential`,
@@ -54,6 +65,8 @@ func init() {
 	clientCreateCmd.Flags().BoolVar(&createIsConfidential, "confidential", false, "Whether the client is confidential (requires client_secret)")
 	clientCreateCmd.Flags().StringVar(&createDefaultRes, "default-resource", "", "URI of a registered resource its tokens are for by default (omit: identity itself)")
 	clientCreateCmd.Flags().StringVar(&createResources, "resources", "", "Comma-separated URIs of registered resources it may request by name (its allow-list)")
+
+	clientCreateCmd.Flags().BoolVar(&createTrusted, "trusted", false, "First-party client: skip consent and hide from Connected Apps (README, \"Trusted (first-party) clients\")")
 
 	clientCreateCmd.MarkFlagRequired("name")
 	clientCreateCmd.MarkFlagRequired("redirect-uris")
@@ -74,6 +87,14 @@ func runClientCreate(cmd *cobra.Command, args []string) error {
 	// reasonable-looking command from producing a silently unusable client.
 	if err := internal.ValidateAdminScopes(scopeList, createIsConfidential); err != nil {
 		return err
+	}
+
+	// A trusted client skips consent, so it may only have exact, non-loopback
+	// redirect URIs (README, "Trusted (first-party) clients").
+	if createTrusted {
+		if err := internal.ValidateTrustable("registered", redirectURIList); err != nil {
+			return err
+		}
 	}
 
 	// Get shared datastore
@@ -129,6 +150,7 @@ func runClientCreate(cmd *cobra.Command, args []string) error {
 		AllowedScopes:   scopeList,
 		IsConfidential:  createIsConfidential,
 		DefaultResource: defaultResource,
+		Trusted:         createTrusted,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create OAuth client: %w", err)
@@ -157,6 +179,7 @@ func runClientCreate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Default Resource: %s\n", internal.DefaultResourceValue(client.DefaultResource))
 	fmt.Printf("  Allowed Resources: %s\n", allowedResourcesValue(allowedResources))
 	fmt.Printf("  Confidential:   %v\n", client.IsConfidential)
+	fmt.Printf("  Trusted:        %v\n", client.Trusted)
 	fmt.Printf("  Created:        %s\n", client.CreatedAt.Format("2006-01-02 15:04:05"))
 	fmt.Println()
 

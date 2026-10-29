@@ -5,10 +5,13 @@ package views
 // The OAuth authorization request (see AuthorizeQueryField) travels through
 // the page as a hidden field so it survives even if the server-side pending
 // row is gone by the time the code is submitted.
+//
+// ReturnTo is the page to land on after a direct sign-in (see ReturnToField).
 type MFAView struct {
 	Error          string
 	PendingID      string
 	AuthorizeQuery string
+	ReturnTo       string
 	CSRFToken      string
 }
 
@@ -42,6 +45,9 @@ templ MFA(data MFAView) {
 			</fieldset>
 			<input type="hidden" name="pending_id" value={ data.PendingID }/>
 			<input type="hidden" name={ AuthorizeQueryField } value={ data.AuthorizeQuery }/>
+			if data.ReturnTo != "" {
+				<input type="hidden" name={ ReturnToField } value={ data.ReturnTo }/>
+			}
 			<button type="submit" class="btn btn-primary w-full">Verify</button>
 		</form>
 		<div class="text-center mt-6 text-sm text-base-content/60">

@@ -93,15 +93,24 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	// Phase 4: Check consent. If user hasn't consented to these scopes for this
 	// resource, redirect to consent page. Consent is remembered per (user,
 	// client, resource): approving one resource does not approve another.
-	consent, err := s.datastore.Q.GetUserConsent(r.Context(), db.GetUserConsentParams{
-		UserID:   session.UserID,
-		ClientID: client.ID,
-		Resource: grant.Resource.uri(),
-	})
-	scopesOK, _ := containsAll(consent.Scopes, p.Scope)
-	if err != nil || !scopesOK {
-		http.Redirect(w, r, request.consentURL(), http.StatusFound)
-		return
+	//
+	// A trusted (first-party) client skips this phase and only this phase:
+	// consent is implied, so there is no screen and no consent row (README,
+	// "Trusted (first-party) clients"). Everything above -- client and
+	// redirect_uri validation, PKCE, resource and scope checks, the session
+	// (so login and MFA) and the active-account check -- has already run for
+	// it exactly as for any other client.
+	if !client.Trusted {
+		consent, err := s.datastore.Q.GetUserConsent(r.Context(), db.GetUserConsentParams{
+			UserID:   session.UserID,
+			ClientID: client.ID,
+			Resource: grant.Resource.uri(),
+		})
+		scopesOK, _ := containsAll(consent.Scopes, p.Scope)
+		if err != nil || !scopesOK {
+			http.Redirect(w, r, request.consentURL(), http.StatusFound)
+			return
+		}
 	}
 
 	// Phase 5: Generate authorization code and redirect.
@@ -281,7 +290,21 @@ func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Req
 	}
 	// The token is for the resource the code was issued for (none: identity
 	// itself), never the client's current default.
-	s.writeTokenResponse(w, r, client.ID, authCode.UserID, authCode.Scope, nonce, resource, family)
+	//
+	// For a client that asks for consent, the tokens are stored only if the
+	// user's consent is still there, checked atomically with the insert: the
+	// user may have disconnected the app since authorize found the consent and
+	// issued this code. A trusted client has no consent to check.
+	tokens, err := s.generateTokens(r.Context(), client.ID, authCode.UserID, authCode.Scope, nonce, resource, family, !client.Trusted)
+	if errors.Is(err, errConsentWithdrawn) {
+		s.writeTokenError(w, "invalid_grant", "The user has withdrawn consent for this client")
+		return
+	}
+	if err != nil {
+		s.writeTokenError(w, "server_error", "Failed to generate tokens")
+		return
+	}
+	s.writeTokens(w, tokens)
 }
 
 // tokenRequestResource is every resource parameter a token request carried.
@@ -393,7 +416,7 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 	if token.UserID.Valid {
 		userID = token.UserID.UUID
 	}
-	tokens, err := s.generateTokens(r.Context(), client.ID, userID, token.Scope, "", token.Resource, family)
+	tokens, err := s.generateTokens(r.Context(), client.ID, userID, token.Scope, "", token.Resource, family, false)
 	if err != nil {
 		s.writeTokenError(w, "server_error", "Failed to generate tokens")
 		return
@@ -435,19 +458,6 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	s.writeTokens(w, tokens)
-}
-
-// writeTokenResponse generates tokens and writes the JSON response.
-// nonce is included in the ID token if non-empty (per OIDC Core 3.1.2.1).
-// resource is what the access token is for (see generateTokens).
-// family is the refresh-token family the tokens join.
-func (s *Server) writeTokenResponse(w http.ResponseWriter, r *http.Request, clientID uuid.UUID, userID uuid.UUID, scope []string, nonce string, resource sql.NullString, family uuid.UUID) {
-	tokens, err := s.generateTokens(r.Context(), clientID, userID, scope, nonce, resource, family)
-	if err != nil {
-		s.writeTokenError(w, "server_error", "Failed to generate tokens")
-		return
-	}
 	s.writeTokens(w, tokens)
 }
 
@@ -1218,6 +1228,15 @@ func (s *Server) HandleConsentGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A trusted client has no consent screen. The authorize endpoint never
+	// sends one here, but a request that arrives anyway (an old link, a
+	// hand-typed URL) goes back to authorize, which issues the code after the
+	// same checks.
+	if client.Trusted {
+		http.Redirect(w, r, request.authorizeURL(), http.StatusFound)
+		return
+	}
+
 	data := consentView(client, p, grant.Resource)
 	data.AuthorizeQuery = string(request)
 	data.CSRFToken = s.ensureCSRFToken(w, r)
@@ -1279,17 +1298,23 @@ func (s *Server) HandleConsentPost(w http.ResponseWriter, r *http.Request) {
 	}
 	session := grant.Session
 
-	// Store consent, for this resource only.
-	err = s.datastore.Q.UpsertUserConsent(r.Context(), db.UpsertUserConsentParams{
-		UserID:   session.UserID,
-		ClientID: client.ID,
-		Resource: grant.Resource.uri(),
-		Scopes:   p.Scope,
-	})
-	if err != nil {
-		log.Printf("HandleConsentPost: failed to store consent: %v", err)
-		redirectError("server_error", "Failed to store consent")
-		return
+	// Store consent, for this resource only. Never for a trusted client:
+	// its consent is implied, and a row would only be noise (the Connected
+	// Apps page ignores it anyway). A POST for one is not reachable from the
+	// screen, which a trusted client never gets, but is harmless: the checks
+	// above are the authorize endpoint's.
+	if !client.Trusted {
+		err = s.datastore.Q.UpsertUserConsent(r.Context(), db.UpsertUserConsentParams{
+			UserID:   session.UserID,
+			ClientID: client.ID,
+			Resource: grant.Resource.uri(),
+			Scopes:   p.Scope,
+		})
+		if err != nil {
+			log.Printf("HandleConsentPost: failed to store consent: %v", err)
+			redirectError("server_error", "Failed to store consent")
+			return
+		}
 	}
 
 	// Generate authorization code and redirect to client

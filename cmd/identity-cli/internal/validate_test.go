@@ -1,6 +1,9 @@
 package internal
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestValidateRedirectURIs(t *testing.T) {
 	cases := []struct {
@@ -53,5 +56,31 @@ func TestValidateAdminScopes(t *testing.T) {
 					tc.scopes, tc.isConfidential, err, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestValidateTrustable(t *testing.T) {
+	exact := []string{"https://app.example.com/callback", "myapp://oauth/callback"}
+	if err := ValidateTrustable("registered", exact); err != nil {
+		t.Fatalf("a registered client with exact redirect URIs can be trusted: %v", err)
+	}
+	for _, kind := range []string{"cimd", "", "dynamic"} {
+		if err := ValidateTrustable(kind, exact); err == nil {
+			t.Fatalf("a %q client must not be trustable", kind)
+		}
+	}
+	for _, bad := range []string{
+		"https://*.preview.example.com/callback",
+		"http://localhost:5173/callback",
+		"http://127.0.0.1/callback",
+		"http://[::1]:8080/callback",
+	} {
+		err := ValidateTrustable("registered", append(exact, bad))
+		if err == nil {
+			t.Fatalf("redirect URI %q must make a client untrustable", bad)
+		}
+		if !strings.Contains(err.Error(), bad) || !strings.Contains(err.Error(), "Trusted (first-party) clients") {
+			t.Fatalf("error should name the URI and point at the README: %v", err)
+		}
 	}
 }

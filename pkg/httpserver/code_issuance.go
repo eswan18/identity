@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"slices"
 
 	"github.com/eswan18/identity/pkg/db"
+	"github.com/eswan18/identity/pkg/redirecturi"
 )
 
 // Preconditions for issuing an authorization code.
@@ -112,6 +114,9 @@ func (s *Server) checkCodeIssuance(
 	if authErr := validateAuthorizeParams(client, p.ResponseType, p.CodeChallenge, p.CodeChallengeMethod, p.Scope); authErr != nil {
 		return nil, &codeIssuanceDenial{Kind: denialInvalidParams, OAuthError: authErr}
 	}
+	if authErr := checkTrustedRedirect(client, p.RedirectURI); authErr != nil {
+		return nil, &codeIssuanceDenial{Kind: denialInvalidParams, OAuthError: authErr}
+	}
 
 	// Which resource the request is for (RFC 8707), and whether its scopes
 	// are ones identity or that resource defines. Checked before the session
@@ -195,4 +200,22 @@ func (s *Server) denyCodeIssuance(w http.ResponseWriter, r *http.Request, d *cod
 		// land here. Denying is always a safe answer; issuing a code is not.
 		to.ToClient("server_error", "An error occurred")
 	}
+}
+
+// checkTrustedRedirect refuses a trusted client's request whose redirect URI
+// is not one it registered exactly, or is loopback. A trusted client skips the
+// consent screen, so a code goes to its redirect URI with no interaction;
+// identity-cli never lets a trusted client have a wildcard or loopback entry
+// (README, "Trusted (first-party) clients"), and this keeps a row that got one
+// some other way from being honoured: such a request mints nothing, rather
+// than a code for a preview host or a local program.
+func checkTrustedRedirect(client db.OauthClient, redirectURI string) *oauthAuthorizeError {
+	if !client.Trusted {
+		return nil
+	}
+	if !slices.Contains(client.RedirectUris, redirectURI) || redirecturi.UnsafeForTrustedClient(redirectURI) != "" {
+		return &oauthAuthorizeError{"unauthorized_client",
+			"A trusted client may only use an exact, non-loopback redirect URI"}
+	}
+	return nil
 }
