@@ -62,8 +62,11 @@ const (
 // bidirectional-formatting characters, at most 200 characters (it is shown
 // on the consent screen); redirect_uris a non-empty array of at most 20
 // strings, each https or a loopback http URI, with no fragment and no "*";
-// token_endpoint_auth_method absent or "none" (no secrets, and private_key_jwt
-// is not supported yet); no client_secret or client_secret_expires_at at all;
+// token_endpoint_auth_methods_supported, when present, a non-empty array of
+// non-empty strings including "none". Otherwise token_endpoint_auth_method
+// must be absent or "none". The singular field is a legacy preference when
+// the plural field is present; identity only implements public-client "none",
+// not private_key_jwt. No client_secret or client_secret_expires_at at all;
 // grant_types, if present, including authorization_code (other values are
 // the client's own declarations and are ignored: claude.ai lists jwt-bearer,
 // and the token endpoint refuses every grant a CIMD client may not use, so a
@@ -166,7 +169,24 @@ func parseDocument(clientID string, body []byte) (*Metadata, error) {
 	if err != nil {
 		return nil, err
 	}
-	if ok && method != "none" {
+	if ok && strings.TrimSpace(method) == "" {
+		return nil, fail("token_endpoint_auth_method must not be empty")
+	}
+	methods, hasMethods, err := strs("token_endpoint_auth_methods_supported")
+	if err != nil {
+		return nil, err
+	}
+	if hasMethods {
+		for _, m := range methods {
+			// json.Unmarshal turns null array elements into empty strings too.
+			if strings.TrimSpace(m) == "" {
+				return nil, fail("token_endpoint_auth_methods_supported must contain non-empty strings")
+			}
+		}
+		if !slices.Contains(methods, "none") {
+			return nil, fail("token_endpoint_auth_methods_supported must include none")
+		}
+	} else if ok && method != "none" {
 		return nil, fail("token_endpoint_auth_method %q is not supported; only \"none\" is", truncate(method))
 	}
 	for _, forbidden := range []string{"client_secret", "client_secret_expires_at"} {

@@ -75,7 +75,7 @@ type OAuthFlowSuite struct {
 	pgContainer *postgres.PostgresContainer
 	datastore   *store.Store
 	server      *Server
-	// cimd stands in for the metadata-document resolver, allowing claude.ai.
+	// cimd stands in for the metadata-document resolver, allowing claude.ai and chatgpt.com.
 	// Tests serve documents through it (cimd_integration_test.go).
 	cimd *fakeClientMetadata
 }
@@ -102,7 +102,7 @@ func (s *OAuthFlowSuite) SetupSuite() {
 	storageProvider := storage.NewLogStorage()
 	s.server = New(config, s.datastore, emailSender, storageProvider)
 	// Set before Run, so no request ever sees the field change.
-	s.cimd = newFakeClientMetadata("claude.ai")
+	s.cimd = newFakeClientMetadata("claude.ai", "chatgpt.com")
 	s.server.clientMetadata = s.cimd
 	go s.server.Run()
 	// Wait for the server to be listening before returning.
