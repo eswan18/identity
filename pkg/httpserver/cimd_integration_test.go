@@ -466,3 +466,39 @@ func (s *OAuthFlowSuite) TestCIMDLogoutHonoursDocumentRedirects() {
 	s.Equal(http.StatusFound, resp.StatusCode)
 	s.Equal(redirectURI, resp.Header.Get("Location"))
 }
+
+// Parser tests use the captured ChatGPT document. This layer uses the suite's
+// resolver seam to test the resulting public client's full consent/PKCE flow.
+func (s *OAuthFlowSuite) TestCIMDChatGPTFlow() {
+	const clientID = "https://chatgpt.com/oauth/client.json"
+	const redirectURI = "https://chatgpt.com/connector_platform_oauth_redirect"
+	s.cimd.serve(clientID, "ChatGPT", redirectURI)
+	resource := s.mustRegisterDynamicResource(s.randomResourceURI(), "Footstrike Test", map[string]string{"footstrike:read": "Read your runs, training load and shoes"})
+	browser := s.mustSignIn()
+	scv := s.mustCreateStateAndCodeVerifier()
+	query := cimdAuthorizeQuery(clientID, redirectURI, "openid profile email offline_access footstrike:read", scv, resource.Uri)
+	consentURL := s.requireConsentRedirect(s.get(browser, testBaseURL+"/oauth/authorize?"+query))
+	page := s.mustConsentPage(browser, consentURL)
+	s.Contains(page, "<strong>chatgpt.com</strong> is requesting")
+	s.Contains(page, "Footstrike Test")
+	s.Contains(page, "Read your runs, training load and shoes")
+	s.NotContains(page, loopbackWarning)
+	row := s.cimdClientRow(clientID)
+	s.False(row.Trusted)
+	s.False(row.IsConfidential)
+	s.False(row.ClientSecret.Valid)
+	s.False(row.DefaultResource.Valid)
+	code := s.mustApprove(browser, consentURL)
+	// No shared secret is accepted, despite the legacy private_key_jwt preference.
+	status, body := s.cimdExchange(clientID, redirectURI, code, scv, url.Values{"client_secret": {"not-a-secret"}})
+	s.Equal(http.StatusUnauthorized, status)
+	s.Equal("invalid_client", body["error"])
+	status, body = s.cimdExchange(clientID, redirectURI, code, scv, url.Values{"resource": {resource.Uri}})
+	s.Require().Equal(http.StatusOK, status, "%v", body)
+	s.Equal(`["`+resource.Uri+`"]`, s.accessTokenRawAud(body["access_token"].(string)))
+	s.NotEmpty(body["id_token"])
+	refreshed := s.mustRefreshAt(testBaseURL, clientID, body["refresh_token"].(string))
+	s.Equal(`["`+resource.Uri+`"]`, s.accessTokenRawAud(refreshed.AccessToken))
+	// A forged redirect remains invalid even for the newly allowed host.
+	s.requireErrorPage(s.get(browser, testBaseURL+"/oauth/authorize?"+cimdAuthorizeQuery(clientID, "https://chatgpt.com/other", "footstrike:read", scv, resource.Uri)))
+}

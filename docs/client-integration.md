@@ -56,8 +56,9 @@ scheme and host, no default port, no trailing slash). An existing client's
 default can be changed with `client update --default-resource <uri>` or removed
 with `client update --clear-default-resource`; either affects tokens issued from
 then on, since a refresh keeps the resource its original token was for.
-Register resources and clients in **both** identity databases (staging's is
-periodically replaced by a copy of prod's).
+Register resources and clients in **production identity only**, then refresh
+staging from prod using the operator workflow. Do not maintain separate staging
+registrations: that database is periodically replaced by a copy of prod's.
 
 ### Asking for a resource by name (RFC 8707)
 
@@ -126,7 +127,7 @@ it also warns the user that the app runs on their computer.
 
 ### Clients identified by a metadata document (CIMD)
 
-Some clients are never registered by hand. Claude (claude.ai) and Claude Code
+Some clients are never registered by hand. Claude (claude.ai), Claude Code and ChatGPT
 identify themselves with a **Client ID Metadata Document**
 ([draft-ietf-oauth-client-id-metadata-document-02](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-client-id-metadata-document-02)):
 their `client_id` is an https URL, and the JSON document served there lists
@@ -134,7 +135,7 @@ their name and redirect URIs. Claude Code's is
 `https://claude.ai/oauth/claude-code-client-metadata`.
 
 **Which documents identity accepts.** Only those on hosts in
-`CIMD_ALLOWED_HOSTS` (comma-separated; `claude.ai` in staging and prod). With
+`CIMD_ALLOWED_HOSTS` (comma-separated; `claude.ai,chatgpt.com` in staging and prod). With
 the variable empty, CIMD is off: an https `client_id` is an unknown client and
 nothing is fetched. The host check happens before any network activity, so a
 `client_id` on any other host costs identity nothing. Widening the list is a
@@ -146,7 +147,29 @@ port, lowercase host), over https, as JSON of at most 5 KB, answering within
 loopback or other special-use addresses. It must contain `client_id` equal to
 that URL, `client_name` and `redirect_uris` (each https, or a loopback http URI
 as in Step 1), and no `client_secret`; `token_endpoint_auth_method`, if
-present, must be `none`. Identity caches a valid document for its
+present without `token_endpoint_auth_methods_supported`, must be `none`.
+When the plural field is present, it must be a non-empty array of non-empty
+strings containing `none`; identity uses that mutually supported method, even
+when the legacy singular preference is `private_key_jwt`. The singular field,
+if supplied, must still be a non-empty string. Identity does not implement
+private-key JWT authentication and does not fetch a document's `jwks_uri`.
+This accepts ChatGPT's metadata at `https://chatgpt.com/oauth/client.json`
+(and callback-specific documents on the same host) as a public PKCE client.
+No manual client registration or client secret is needed. These clients remain
+untrusted and require user consent, just like Claude. See OpenAI's
+[authentication requirements](https://developers.openai.com/plugins/build/auth).
+
+To test ChatGPT after deployment, choose OAuth/CIMD when adding the MCP URL.
+The resource must already allow dynamic clients and define the requested scopes.
+Identity advertises `none`, S256 PKCE, and issuer-bound authorization responses,
+so ChatGPT can use its stable document and exchange the code without a secret.
+Both the updated image and `CIMD_ALLOWED_HOSTS` must be active in the running
+pods; a ConfigMap sync alone does not restart them. Promote identity through the
+normal staging-to-production workflow before testing the hosted ChatGPT client.
+An actual ChatGPT sign-in and MCP tool call remain the final interoperability
+check; the automated tests use a captured document and local OAuth flows.
+
+Identity caches a valid document for its
 `Cache-Control: max-age`, clamped to between 5 minutes and 24 hours, and never
 caches a failure.
 

@@ -6,6 +6,6 @@ data:
   JWT_ISSUER: "https://identity.ethanswan.com"
   STORAGE_BUCKET: "identity"
   STORAGE_PUBLIC_URL: "https://pub-1d13c59f88df4a11aeb5ba90c814163c.r2.dev"
-  # Hosts whose OAuth Client ID Metadata Documents identity accepts (Claude
-  # and Claude Code). Empty disables CIMD. See docs/client-integration.md.
-  CIMD_ALLOWED_HOSTS: "claude.ai"
+  # Hosts whose OAuth Client ID Metadata Documents identity accepts (Claude,
+  # Claude Code and ChatGPT). Empty disables CIMD. See docs/client-integration.md.
+  CIMD_ALLOWED_HOSTS: "claude.ai,chatgpt.com"

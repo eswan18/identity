@@ -72,7 +72,7 @@ PROTOCOL_RATE_LIMIT_PER_MINUTE=300
 
 # Hosts whose Client ID Metadata Documents are accepted, comma-separated
 # (optional; empty disables CIMD). See docs/client-integration.md.
-CIMD_ALLOWED_HOSTS=claude.ai
+CIMD_ALLOWED_HOSTS=claude.ai,chatgpt.com
 ```
 
 ## Setup
