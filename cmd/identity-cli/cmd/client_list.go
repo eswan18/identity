@@ -33,13 +33,17 @@ func runClientList(cmd *cobra.Command, args []string) error {
 
 	// Print table
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "CLIENT ID\tNAME\tDEFAULT RESOURCE\tALLOWED RESOURCES\tCONFIDENTIAL\tCREATED")
-	fmt.Fprintln(w, "---------\t----\t----------------\t-----------------\t------------\t-------")
+	fmt.Fprintln(w, "CLIENT ID\tNAME\tDEFAULT RESOURCE\tALLOWED RESOURCES\tCONFIDENTIAL\tTRUSTED\tCREATED")
+	fmt.Fprintln(w, "---------\t----\t----------------\t-----------------\t------------\t-------\t-------")
 
 	for _, client := range clients {
 		confidential := "No"
 		if client.IsConfidential {
 			confidential = "Yes"
+		}
+		trusted := "No"
+		if client.Trusted {
+			trusted = "Yes"
 		}
 		// No default resource: the client's tokens are for identity itself.
 		defaultResource := "(identity)"
@@ -58,12 +62,13 @@ func runClientList(cmd *cobra.Command, args []string) error {
 			}
 			allowedURIs = strings.Join(uris, " ")
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			client.ClientID,
 			client.Name,
 			defaultResource,
 			allowedURIs,
 			confidential,
+			trusted,
 			client.CreatedAt.Format("2006-01-02 15:04:05"),
 		)
 	}

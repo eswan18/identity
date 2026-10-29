@@ -37,31 +37,32 @@ INSERT INTO oauth_clients (
   redirect_uris,
   allowed_scopes,
   is_confidential,
-  default_resource
+  default_resource,
+  trusted
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at;
+  metadata_fetched_at, trusted;
 
 -- name: GetOAuthClientByClientID :one
 SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 FROM oauth_clients
 WHERE client_id = $1;
 
 -- name: GetOAuthClientByID :one
 SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 FROM oauth_clients
 WHERE id = $1;
 
 -- name: ListOAuthClients :many
 SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 FROM oauth_clients
 ORDER BY created_at DESC;
 
@@ -69,12 +70,15 @@ ORDER BY created_at DESC;
 -- default_resource is replaced only when set_default_resource is true, and then
 -- with whatever default_resource holds, NULL included: that is how a client's
 -- default is cleared, which a COALESCE(NULLIF(...)) like the others cannot do.
+-- trusted is left alone when NULL; the table's CHECK refuses it for anything
+-- but a registered client (README, "Trusted (first-party) clients").
 UPDATE oauth_clients
 SET
   name = COALESCE(NULLIF(sqlc.narg(name)::text, ''), name),
   redirect_uris = COALESCE(sqlc.narg(redirect_uris)::text[], redirect_uris),
   allowed_scopes = COALESCE(sqlc.narg(allowed_scopes)::text[], allowed_scopes),
   is_confidential = COALESCE(sqlc.narg(is_confidential), is_confidential),
+  trusted = COALESCE(sqlc.narg(trusted), trusted),
   default_resource = CASE
     WHEN sqlc.arg(set_default_resource)::boolean THEN sqlc.narg(default_resource)::text
     ELSE default_resource
@@ -83,7 +87,7 @@ SET
 WHERE client_id = sqlc.arg(client_id)
 RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at;
+  metadata_fetched_at, trusted;
 
 -- name: DeleteOAuthClient :exec
 DELETE FROM oauth_clients
@@ -98,7 +102,7 @@ WHERE client_id = $1;
 -- name: GetOAuthClientByClientIDForUpdate :one
 SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 FROM oauth_clients
 WHERE client_id = $1
 FOR UPDATE;
@@ -125,7 +129,7 @@ VALUES (
 ON CONFLICT (client_id) DO NOTHING
 RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at;
+  metadata_fetched_at, trusted;
 
 -- name: UpdateCIMDClient :one
 UPDATE oauth_clients
@@ -137,7 +141,7 @@ SET
 WHERE id = sqlc.arg(id) AND kind = 'cimd'
 RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at;
+  metadata_fetched_at, trusted;
 
 -- OAuth resources: the APIs tokens are minted for (a token's aud is its uri).
 
@@ -581,7 +585,9 @@ WHERE client_id = sqlc.arg(client_id);
 -- One row per remembered consent of one user: the client it was given to, and
 -- the resource it was for (resource_name is NULL for a consent for identity
 -- itself, or for a resource since removed from the registry). The page groups
--- rows by client.
+-- rows by client. Trusted (first-party) clients are never listed: identity
+-- writes no consent for them, and one left over from before a client was
+-- trusted is ignored here rather than shown.
 SELECT
   c.id AS client_uuid,
   c.client_id,
@@ -597,6 +603,7 @@ FROM oauth_user_consents uc
 JOIN oauth_clients c ON c.id = uc.client_id
 LEFT JOIN oauth_resources r ON r.uri = uc.resource
 WHERE uc.user_id = sqlc.arg(user_id)
+  AND NOT c.trusted
 ORDER BY c.name, c.id, uc.resource NULLS FIRST;
 
 -- name: ListUserTokenLastIssued :many

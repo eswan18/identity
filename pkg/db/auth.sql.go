@@ -101,7 +101,7 @@ VALUES (
 ON CONFLICT (client_id) DO NOTHING
 RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 `
 
 type CreateCIMDClientParams struct {
@@ -135,6 +135,7 @@ func (q *Queries) CreateCIMDClient(ctx context.Context, arg CreateCIMDClientPara
 		&i.DefaultResource,
 		&i.Kind,
 		&i.MetadataFetchedAt,
+		&i.Trusted,
 	)
 	return i, err
 }
@@ -217,12 +218,13 @@ INSERT INTO oauth_clients (
   redirect_uris,
   allowed_scopes,
   is_confidential,
-  default_resource
+  default_resource,
+  trusted
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 `
 
 type CreateOAuthClientParams struct {
@@ -233,6 +235,7 @@ type CreateOAuthClientParams struct {
 	AllowedScopes   []string       `json:"allowed_scopes"`
 	IsConfidential  bool           `json:"is_confidential"`
 	DefaultResource sql.NullString `json:"default_resource"`
+	Trusted         bool           `json:"trusted"`
 }
 
 // OAuth clients
@@ -251,6 +254,7 @@ func (q *Queries) CreateOAuthClient(ctx context.Context, arg CreateOAuthClientPa
 		pq.Array(arg.AllowedScopes),
 		arg.IsConfidential,
 		arg.DefaultResource,
+		arg.Trusted,
 	)
 	var i OauthClient
 	err := row.Scan(
@@ -266,6 +270,7 @@ func (q *Queries) CreateOAuthClient(ctx context.Context, arg CreateOAuthClientPa
 		&i.DefaultResource,
 		&i.Kind,
 		&i.MetadataFetchedAt,
+		&i.Trusted,
 	)
 	return i, err
 }
@@ -734,7 +739,7 @@ func (q *Queries) GetMFAPending(ctx context.Context, id string) (GetMFAPendingRo
 const getOAuthClientByClientID = `-- name: GetOAuthClientByClientID :one
 SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 FROM oauth_clients
 WHERE client_id = $1
 `
@@ -755,6 +760,7 @@ func (q *Queries) GetOAuthClientByClientID(ctx context.Context, clientID string)
 		&i.DefaultResource,
 		&i.Kind,
 		&i.MetadataFetchedAt,
+		&i.Trusted,
 	)
 	return i, err
 }
@@ -763,7 +769,7 @@ const getOAuthClientByClientIDForUpdate = `-- name: GetOAuthClientByClientIDForU
 
 SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 FROM oauth_clients
 WHERE client_id = $1
 FOR UPDATE
@@ -790,6 +796,7 @@ func (q *Queries) GetOAuthClientByClientIDForUpdate(ctx context.Context, clientI
 		&i.DefaultResource,
 		&i.Kind,
 		&i.MetadataFetchedAt,
+		&i.Trusted,
 	)
 	return i, err
 }
@@ -797,7 +804,7 @@ func (q *Queries) GetOAuthClientByClientIDForUpdate(ctx context.Context, clientI
 const getOAuthClientByID = `-- name: GetOAuthClientByID :one
 SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 FROM oauth_clients
 WHERE id = $1
 `
@@ -818,6 +825,7 @@ func (q *Queries) GetOAuthClientByID(ctx context.Context, id uuid.UUID) (OauthCl
 		&i.DefaultResource,
 		&i.Kind,
 		&i.MetadataFetchedAt,
+		&i.Trusted,
 	)
 	return i, err
 }
@@ -1404,7 +1412,7 @@ func (q *Queries) ListClientsReferencingResource(ctx context.Context, uri string
 const listOAuthClients = `-- name: ListOAuthClients :many
 SELECT id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 FROM oauth_clients
 ORDER BY created_at DESC
 `
@@ -1431,6 +1439,7 @@ func (q *Queries) ListOAuthClients(ctx context.Context) ([]OauthClient, error) {
 			&i.DefaultResource,
 			&i.Kind,
 			&i.MetadataFetchedAt,
+			&i.Trusted,
 		); err != nil {
 			return nil, err
 		}
@@ -1498,6 +1507,7 @@ FROM oauth_user_consents uc
 JOIN oauth_clients c ON c.id = uc.client_id
 LEFT JOIN oauth_resources r ON r.uri = uc.resource
 WHERE uc.user_id = $1
+  AND NOT c.trusted
 ORDER BY c.name, c.id, uc.resource NULLS FIRST
 `
 
@@ -1518,7 +1528,9 @@ type ListUserConnectedAppsRow struct {
 // One row per remembered consent of one user: the client it was given to, and
 // the resource it was for (resource_name is NULL for a consent for identity
 // itself, or for a resource since removed from the registry). The page groups
-// rows by client.
+// rows by client. Trusted (first-party) clients are never listed: identity
+// writes no consent for them, and one left over from before a client was
+// trusted is ignored here rather than shown.
 func (q *Queries) ListUserConnectedApps(ctx context.Context, userID uuid.UUID) ([]ListUserConnectedAppsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listUserConnectedApps, userID)
 	if err != nil {
@@ -1861,7 +1873,7 @@ SET
 WHERE id = $4 AND kind = 'cimd'
 RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 `
 
 type UpdateCIMDClientParams struct {
@@ -1892,6 +1904,7 @@ func (q *Queries) UpdateCIMDClient(ctx context.Context, arg UpdateCIMDClientPara
 		&i.DefaultResource,
 		&i.Kind,
 		&i.MetadataFetchedAt,
+		&i.Trusted,
 	)
 	return i, err
 }
@@ -1903,15 +1916,16 @@ SET
   redirect_uris = COALESCE($2::text[], redirect_uris),
   allowed_scopes = COALESCE($3::text[], allowed_scopes),
   is_confidential = COALESCE($4, is_confidential),
+  trusted = COALESCE($5, trusted),
   default_resource = CASE
-    WHEN $5::boolean THEN $6::text
+    WHEN $6::boolean THEN $7::text
     ELSE default_resource
   END,
   updated_at = now()
-WHERE client_id = $7
+WHERE client_id = $8
 RETURNING id, client_id, client_secret, name, redirect_uris, allowed_scopes,
   is_confidential, created_at, updated_at, default_resource, kind,
-  metadata_fetched_at
+  metadata_fetched_at, trusted
 `
 
 type UpdateOAuthClientParams struct {
@@ -1919,6 +1933,7 @@ type UpdateOAuthClientParams struct {
 	RedirectUris       []string       `json:"redirect_uris"`
 	AllowedScopes      []string       `json:"allowed_scopes"`
 	IsConfidential     sql.NullBool   `json:"is_confidential"`
+	Trusted            sql.NullBool   `json:"trusted"`
 	SetDefaultResource bool           `json:"set_default_resource"`
 	DefaultResource    sql.NullString `json:"default_resource"`
 	ClientID           string         `json:"client_id"`
@@ -1927,12 +1942,15 @@ type UpdateOAuthClientParams struct {
 // default_resource is replaced only when set_default_resource is true, and then
 // with whatever default_resource holds, NULL included: that is how a client's
 // default is cleared, which a COALESCE(NULLIF(...)) like the others cannot do.
+// trusted is left alone when NULL; the table's CHECK refuses it for anything
+// but a registered client (README, "Trusted (first-party) clients").
 func (q *Queries) UpdateOAuthClient(ctx context.Context, arg UpdateOAuthClientParams) (OauthClient, error) {
 	row := q.db.QueryRowContext(ctx, updateOAuthClient,
 		arg.Name,
 		pq.Array(arg.RedirectUris),
 		pq.Array(arg.AllowedScopes),
 		arg.IsConfidential,
+		arg.Trusted,
 		arg.SetDefaultResource,
 		arg.DefaultResource,
 		arg.ClientID,
@@ -1951,6 +1969,7 @@ func (q *Queries) UpdateOAuthClient(ctx context.Context, arg UpdateOAuthClientPa
 		&i.DefaultResource,
 		&i.Kind,
 		&i.MetadataFetchedAt,
+		&i.Trusted,
 	)
 	return i, err
 }

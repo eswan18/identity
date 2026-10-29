@@ -24,6 +24,7 @@ var (
 	updateResources          string
 	updateAddResources       string
 	updateRemoveResources    string
+	updateTrusted            bool
 )
 
 var clientUpdateCmd = &cobra.Command{
@@ -45,7 +46,12 @@ request by name; "" empties it), --add-resources appends to it and
 --remove-resources drops entries, like the redirect-URI flags: removing a
 resource the client does not have is an error and changes nothing. Removing a
 resource stops new grants for it; tokens already issued keep it until they
-expire, and a refresh keeps it too.`,
+expire, and a refresh keeps it too.
+--trusted=true marks a first-party client (it skips the consent screen and is
+not listed on users' Connected Apps page); --trusted=false makes it ask for
+consent again. Only for an app the identity operator builds and controls --
+never a third-party, MCP or AI client, and never a metadata-document (cimd)
+client, which is refused. Read README, "Trusted (first-party) clients", first.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runClientUpdate,
 	Example: `  # Update client name
@@ -67,6 +73,10 @@ expire, and a refresh keeps it too.`,
   # Let the client request another registered resource by name
   identity-client client update abc123 --add-resources "https://staging.sensibility.money/mcp"
 
+  # Mark the operator's own first-party app trusted, or untrusted again
+  identity-client client update abc123 --trusted=true
+  identity-client client update abc123 --trusted=false
+
   # Update multiple fields
   identity-client client update abc123 --name "New Name" --scopes "openid,profile"`,
 }
@@ -84,6 +94,7 @@ func init() {
 	clientUpdateCmd.Flags().StringVar(&updateResources, "resources", "", "Comma-separated resource URIs it may request by name (replaces the allow-list)")
 	clientUpdateCmd.Flags().StringVar(&updateAddResources, "add-resources", "", "Comma-separated resource URIs to add to the allow-list")
 	clientUpdateCmd.Flags().StringVar(&updateRemoveResources, "remove-resources", "", "Comma-separated resource URIs to remove from the allow-list")
+	clientUpdateCmd.Flags().BoolVar(&updateTrusted, "trusted", false, "First-party client: skip consent and hide from Connected Apps (--trusted=true|false)")
 	clientUpdateCmd.MarkFlagsMutuallyExclusive("default-resource", "clear-default-resource")
 	clientUpdateCmd.MarkFlagsMutuallyExclusive("resources", "add-resources", "remove-resources")
 }
@@ -152,6 +163,19 @@ func runClientUpdate(cmd *cobra.Command, args []string) error {
 		params.IsConfidential = sql.NullBool{Bool: updateIsConfidential, Valid: true}
 	} else {
 		params.IsConfidential = sql.NullBool{Bool: currentClient.IsConfidential, Valid: true}
+	}
+
+	// Trust is left alone unless asked. Only a client registered here can be
+	// trusted: a metadata-document client's code and redirect URIs belong to
+	// whoever publishes the document. The table's CHECK refuses it too; this
+	// is the clear message.
+	if flags.Changed("trusted") {
+		if updateTrusted {
+			if err := internal.ValidateTrustable(currentClient.Kind); err != nil {
+				return err
+			}
+		}
+		params.Trusted = sql.NullBool{Bool: updateTrusted, Valid: true}
 	}
 
 	// The default resource is left alone unless asked; clearing it sets NULL,
@@ -258,6 +282,7 @@ func runClientUpdate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Default Resource: %s\n", internal.DefaultResourceValue(updatedClient.DefaultResource))
 	fmt.Printf("  Allowed Resources: %s\n", allowedResourcesValue(allowed))
 	fmt.Printf("  Confidential:   %v\n", updatedClient.IsConfidential)
+	fmt.Printf("  Trusted:        %v\n", updatedClient.Trusted)
 	fmt.Printf("  Updated:        %s\n", updatedClient.UpdatedAt.Format("2006-01-02 15:04:05"))
 	if len(updatedClient.RedirectUris) == 0 {
 		fmt.Println("\n⚠️  This client now has no redirect URIs and cannot complete an authorization flow until one is added.")

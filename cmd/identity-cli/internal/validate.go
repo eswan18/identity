@@ -67,3 +67,17 @@ func ValidateAdminScopes(scopes []string, isConfidential bool) error {
 	}
 	return nil
 }
+
+// ValidateTrustable refuses to mark a client trusted unless identity-cli
+// registered it (kind "registered"). A metadata-document ("cimd") client is
+// materialized from a document someone else publishes, so its code and
+// redirect URIs are not the operator's, and a trusted client gets user data
+// with no consent screen. The oauth_clients CHECK constraint refuses it too;
+// this gives the operator a clear message first. See README, "Trusted
+// (first-party) clients".
+func ValidateTrustable(kind string) error {
+	if kind != "registered" {
+		return fmt.Errorf("refusing to trust a %q client: only clients registered with identity-cli for apps the operator builds and controls can be trusted (see README, \"Trusted (first-party) clients\")", kind)
+	}
+	return nil
+}

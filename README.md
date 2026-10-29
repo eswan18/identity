@@ -141,6 +141,11 @@ was last used (the latest token issued to it for that user). Disconnecting delet
 the user's consents for the app, so using it again asks for consent again, and
 revokes every live token the user holds for it (`revoked_reason = 'user_disconnected'`).
 
+The page is for apps the user explicitly let in. **Trusted (first-party) clients
+are never listed** (see [Trusted (first-party) clients](#trusted-first-party-clients)):
+they skip consent, so they have no consent rows, and the page's query ignores any
+left over from before a client was trusted. Nor can they be disconnected from it.
+
 A signed-out visit to an account page goes through login (and MFA) and back to
 that page: the page travels as `return_to`, which only accepts a path on identity
 itself.
@@ -257,6 +262,75 @@ migrate: ["/app/auth-service", "migrate"]
 - `./identity-cli client get <client-id>` - Get client details
 - `./identity-cli client update <client-id> --name "New Name"` - Update client
 - `./identity-cli client delete <client-id>` - Delete client
+- `./identity-cli client update <client-id> --trusted=true|false` - Mark a client
+  trusted (first-party) or not; read the next section first
+
+### Trusted (first-party) clients
+
+Every client asks the user for consent the first time they use it, and every
+client the user has consented to appears on their
+[Connected Apps](#connected-apps) page, which is where they can cut it off. A
+client marked **trusted** is the exception. It is for the identity operator's
+*own* apps, where a consent screen would only be asking the user to approve the
+operator's own service ("Footstrike would like to access your Footstrike
+account").
+
+**What trusted changes, and nothing else:**
+
+- It **skips the consent screen**. Consent is implied; no consent row is written.
+- It is **not listed on Connected Apps**, and cannot be disconnected there.
+
+Everything else is exactly as for any other client: login, MFA, redirect-URI
+validation, PKCE, resource and scope checks, the deactivated-account check, and
+the tokens it gets (same lifetimes, same `aud`, same refresh and revocation).
+
+**Trust a client only if all of these hold:**
+
+- It is an app the identity operator builds and controls: a first-party web or
+  mobile app (the Footstrike dashboard and iOS app, Sensibility's web login,
+  haruspex, bifrost), or the staging twin of one.
+- The operator controls its code and **every** one of its redirect URIs
+  (including any wildcard preview pattern).
+- Asking for consent would mean asking the user to approve the operator's own
+  service.
+
+**Never trust:**
+
+- Any third-party app, whoever wrote it and however reputable.
+- Any MCP or AI client: Claude, Claude Code, ChatGPT and the like, **even one you
+  registered by hand with `identity-cli`**. These act on the user's data on
+  someone else's behalf, and the consent screen and Connected Apps page are how
+  the user stays in control of them.
+- Any metadata-document (CIMD, `kind = 'cimd'`) or otherwise dynamically
+  registered client. identity enforces this one: a `CHECK` constraint on
+  `oauth_clients` makes such a row impossible, and the CLI refuses with a clear
+  error.
+- Any client whose redirect URIs or code you don't control.
+
+**The risk if misused:** a trusted client gets the user's data (whatever its
+scopes and resources allow) with no consent screen, and the user can't see or
+revoke it from Connected Apps. Trusting the wrong client hands it silent access
+to every user who signs in through it. When in doubt, leave it untrusted: the
+cost is one consent click.
+
+**Setting it.** The default is untrusted. Only `identity-cli` sets it; no HTTP
+endpoint (admin routes included) can.
+
+```shell
+# A new first-party client
+./identity-cli client create --name "My Own App" \
+  --redirect-uris "https://app.example.com/callback" \
+  --scopes "openid,profile,email" --trusted
+
+# An existing one (find its client_id with `client list`), and back again
+./identity-cli client update <client-id> --trusted=true
+./identity-cli client update <client-id> --trusted=false
+```
+
+`client list` (the `TRUSTED` column) and `client get` show the flag. Untrusting
+a client makes it ask each user for consent again the next time they use it;
+tokens already issued are unaffected. Trusting one hides it from Connected Apps
+at once, consent rows from before included.
 
 ## OAuth Endpoints
 

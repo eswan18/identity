@@ -2,7 +2,9 @@ package httpserver
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -25,6 +27,11 @@ import (
 // (revokedUserDisconnected), so it loses access at once rather than when its
 // access token expires: a refresh with a revoked refresh token is refused, and
 // the access token stops passing introspection.
+//
+// Trusted (first-party) clients are never connected apps: they skip consent,
+// so they have no consent rows, and the page's query ignores any left over
+// from before the client was trusted. Disconnecting one is refused as not
+// connected, the same as for an app the page does not list.
 
 const connectedAppsPath = "/oauth/connected-apps"
 
@@ -122,6 +129,17 @@ func (s *Server) disconnectApp(ctx context.Context, userID, clientID uuid.UUID) 
 	}
 	defer tx.Rollback()
 	q := s.datastore.Q.WithTx(tx)
+
+	client, err := q.GetOAuthClientByID(ctx, clientID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("reading client: %w", err)
+	}
+	if client.Trusted {
+		return false, nil
+	}
 
 	consents, err := q.DeleteUserConsentsForUserClient(ctx, db.DeleteUserConsentsForUserClientParams{
 		UserID: userID, ClientID: clientID,

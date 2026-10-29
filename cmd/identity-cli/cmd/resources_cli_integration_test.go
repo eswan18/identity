@@ -172,6 +172,102 @@ func TestCLIResourcesAndAllowLists(t *testing.T) {
 	require.ErrorIs(t, err, sql.ErrNoRows)
 }
 
+// TestCLITrustedClients drives --trusted on client create and update against
+// a real, migrated database: it defaults to untrusted, can be set and unset,
+// is shown by get and list, and is refused for a metadata-document client.
+func TestCLITrustedClients(t *testing.T) {
+	ctx := context.Background()
+	pg, err := postgres.Run(ctx, "postgres:17",
+		postgres.WithDatabase("identity"),
+		postgres.WithUsername("postgres"),
+		postgres.WithPassword("postgres"),
+		postgres.BasicWaitStrategies(),
+		postgres.WithSQLDriver("pgx"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = pg.Terminate(context.Background()) })
+	dbURL, err := pg.ConnectionString(ctx, "sslmode=disable")
+	require.NoError(t, err)
+	require.NoError(t, migrations.Up(dbURL))
+	t.Setenv("DATABASE_URL", dbURL)
+	t.Setenv("HTTP_ADDRESS", ":0")
+	t.Setenv("JWT_ISSUER", "http://localhost:8080")
+	t.Setenv("JWT_PRIVATE_KEY", testJWTPrivateKey)
+
+	ds, err := store.New(dbURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ds.DB.Close() })
+	q := ds.Q
+
+	cli := func(args ...string) error {
+		t.Helper()
+		resetFlags(rootCmd)
+		rootCmd.SilenceUsage = true
+		rootCmd.SilenceErrors = true
+		rootCmd.SetArgs(args)
+		return rootCmd.Execute()
+	}
+	mustCLI := func(args ...string) {
+		t.Helper()
+		require.NoError(t, cli(args...), "identity-cli %v", args)
+	}
+	clientNamed := func(name string) db.OauthClient {
+		t.Helper()
+		clients, err := q.ListOAuthClients(ctx)
+		require.NoError(t, err)
+		for _, c := range clients {
+			if c.Name == name {
+				return c
+			}
+		}
+		t.Fatalf("no client named %s", name)
+		return db.OauthClient{}
+	}
+
+	// Untrusted unless asked.
+	mustCLI("client", "create", "--name", "Third Party", "--redirect-uris", "https://third.example/cb")
+	require.False(t, clientNamed("Third Party").Trusted, "the default is untrusted")
+
+	// create --trusted.
+	mustCLI("client", "create", "--name", "First Party", "--redirect-uris", "https://app.example/cb", "--trusted")
+	first := clientNamed("First Party")
+	require.True(t, first.Trusted)
+	mustCLI("client", "get", first.ClientID)
+	mustCLI("client", "list")
+
+	// update --trusted=false / --trusted=true; other updates leave it alone.
+	mustCLI("client", "update", first.ClientID, "--trusted=false")
+	require.False(t, clientNamed("First Party").Trusted)
+	mustCLI("client", "update", first.ClientID, "--trusted=true")
+	require.True(t, clientNamed("First Party").Trusted)
+	mustCLI("client", "update", first.ClientID, "--name", "First Party Renamed")
+	require.True(t, clientNamed("First Party Renamed").Trusted, "an update without --trusted keeps it")
+
+	// A metadata-document client can never be trusted; the CLI says so and
+	// changes nothing (the other flags in the same command included).
+	const cimdURL = "https://claude.ai/oauth/claude-code-client-metadata"
+	_, err = q.CreateCIMDClient(ctx, db.CreateCIMDClientParams{
+		ClientID:     cimdURL,
+		Name:         "Claude",
+		RedirectUris: []string{"https://claude.ai/api/mcp/auth_callback"},
+	})
+	require.NoError(t, err)
+	err = cli("client", "update", cimdURL, "--trusted=true", "--name", "Sneaky")
+	require.ErrorContains(t, err, "refusing to trust")
+	cimdClient, err := q.GetOAuthClientByClientID(ctx, cimdURL)
+	require.NoError(t, err)
+	require.False(t, cimdClient.Trusted)
+	require.Equal(t, "Claude", cimdClient.Name, "a refused update changes nothing")
+	mustCLI("client", "update", cimdURL, "--trusted=false")
+
+	// The database refuses it too, whatever path writes the row.
+	_, err = q.UpdateOAuthClient(ctx, db.UpdateOAuthClientParams{
+		ClientID: cimdURL,
+		Trusted:  sql.NullBool{Bool: true, Valid: true},
+	})
+	require.Error(t, err, "the CHECK constraint refuses a trusted metadata-document client")
+}
+
 // resetFlags returns every flag of cmd and its subcommands to its default and
 // marks it unchanged. The commands are package-level and keep flag values
 // between Execute calls, so without this one invocation's flags would leak

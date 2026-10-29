@@ -93,15 +93,24 @@ func (s *Server) HandleOauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	// Phase 4: Check consent. If user hasn't consented to these scopes for this
 	// resource, redirect to consent page. Consent is remembered per (user,
 	// client, resource): approving one resource does not approve another.
-	consent, err := s.datastore.Q.GetUserConsent(r.Context(), db.GetUserConsentParams{
-		UserID:   session.UserID,
-		ClientID: client.ID,
-		Resource: grant.Resource.uri(),
-	})
-	scopesOK, _ := containsAll(consent.Scopes, p.Scope)
-	if err != nil || !scopesOK {
-		http.Redirect(w, r, request.consentURL(), http.StatusFound)
-		return
+	//
+	// A trusted (first-party) client skips this phase and only this phase:
+	// consent is implied, so there is no screen and no consent row (README,
+	// "Trusted (first-party) clients"). Everything above -- client and
+	// redirect_uri validation, PKCE, resource and scope checks, the session
+	// (so login and MFA) and the active-account check -- has already run for
+	// it exactly as for any other client.
+	if !client.Trusted {
+		consent, err := s.datastore.Q.GetUserConsent(r.Context(), db.GetUserConsentParams{
+			UserID:   session.UserID,
+			ClientID: client.ID,
+			Resource: grant.Resource.uri(),
+		})
+		scopesOK, _ := containsAll(consent.Scopes, p.Scope)
+		if err != nil || !scopesOK {
+			http.Redirect(w, r, request.consentURL(), http.StatusFound)
+			return
+		}
 	}
 
 	// Phase 5: Generate authorization code and redirect.
@@ -1218,6 +1227,15 @@ func (s *Server) HandleConsentGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A trusted client has no consent screen. The authorize endpoint never
+	// sends one here, but a request that arrives anyway (an old link, a
+	// hand-typed URL) goes back to authorize, which issues the code after the
+	// same checks.
+	if client.Trusted {
+		http.Redirect(w, r, request.authorizeURL(), http.StatusFound)
+		return
+	}
+
 	data := consentView(client, p, grant.Resource)
 	data.AuthorizeQuery = string(request)
 	data.CSRFToken = s.ensureCSRFToken(w, r)
@@ -1279,17 +1297,23 @@ func (s *Server) HandleConsentPost(w http.ResponseWriter, r *http.Request) {
 	}
 	session := grant.Session
 
-	// Store consent, for this resource only.
-	err = s.datastore.Q.UpsertUserConsent(r.Context(), db.UpsertUserConsentParams{
-		UserID:   session.UserID,
-		ClientID: client.ID,
-		Resource: grant.Resource.uri(),
-		Scopes:   p.Scope,
-	})
-	if err != nil {
-		log.Printf("HandleConsentPost: failed to store consent: %v", err)
-		redirectError("server_error", "Failed to store consent")
-		return
+	// Store consent, for this resource only. Never for a trusted client:
+	// its consent is implied, and a row would only be noise (the Connected
+	// Apps page ignores it anyway). A POST for one is not reachable from the
+	// screen, which a trusted client never gets, but is harmless: the checks
+	// above are the authorize endpoint's.
+	if !client.Trusted {
+		err = s.datastore.Q.UpsertUserConsent(r.Context(), db.UpsertUserConsentParams{
+			UserID:   session.UserID,
+			ClientID: client.ID,
+			Resource: grant.Resource.uri(),
+			Scopes:   p.Scope,
+		})
+		if err != nil {
+			log.Printf("HandleConsentPost: failed to store consent: %v", err)
+			redirectError("server_error", "Failed to store consent")
+			return
+		}
 	}
 
 	// Generate authorization code and redirect to client

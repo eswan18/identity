@@ -55,3 +55,14 @@ func TestValidateAdminScopes(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateTrustable(t *testing.T) {
+	if err := ValidateTrustable("registered"); err != nil {
+		t.Fatalf("a registered client can be trusted: %v", err)
+	}
+	for _, kind := range []string{"cimd", "", "dynamic"} {
+		if err := ValidateTrustable(kind); err == nil {
+			t.Fatalf("a %q client must not be trustable", kind)
+		}
+	}
+}
