@@ -49,6 +49,10 @@ const (
 	// revokedUserDisconnected: the user disconnected the client from their
 	// account on the connected-apps page (connected_apps.go).
 	revokedUserDisconnected revocationReason = "user_disconnected"
+	// revokedClientRedirectsChanged: a metadata-document client's redirect_uris
+	// changed, so every grant users gave it, consents and tokens alike, is
+	// withdrawn (cimd_clients.go, storeCIMDClient).
+	revokedClientRedirectsChanged revocationReason = "client_redirects_changed"
 )
 
 // familyMaxLifetime caps a family: however regularly it is refreshed, it cannot

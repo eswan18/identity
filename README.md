@@ -137,9 +137,21 @@ http://localhost:8080/oauth/connected-apps
 ```
 (linked from account settings). Each app shows what it can access (resource and
 scope descriptions, as on the consent screen), when it was connected, and when it
-was last used (the latest token issued to it for that user). Disconnecting deletes
-the user's consents for the app, so using it again asks for consent again, and
-revokes every live token the user holds for it (`revoked_reason = 'user_disconnected'`).
+was last used (the latest token issued to it for that user). An app that still
+holds a live token for the user with no consent behind it is listed too, with what
+its tokens can access, so no app keeps access the user can't see and cut off.
+Disconnecting deletes the user's consents for the app, so using it again asks for
+consent again, revokes every live token the user holds for it
+(`revoked_reason = 'user_disconnected'`), and deletes its unexchanged codes; a code
+exchange that loses that race is refused (`invalid_grant`).
+
+What disconnecting does **not** do is end access tokens already issued: they are
+self-contained JWTs that resource servers (footstrike-api, for one) validate
+locally, so one keeps working until it expires, at most an hour
+(`accessTokenExpiresIn`) later. The app can't refresh, so it can't get new access.
+The page says exactly that ("anything it already holds expires within an hour");
+if the access-token lifetime changes, change that copy with it (a unit test fails
+until you do).
 
 The page is for apps the user explicitly let in. **Trusted (first-party) clients
 are never listed** (see [Trusted (first-party) clients](#trusted-first-party-clients)):

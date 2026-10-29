@@ -27,12 +27,29 @@ func contextWithUser(ctx context.Context, user db.AuthUser) context.Context {
 }
 
 // requireActiveUser is middleware that loads the active (non-deactivated) user
-// from the session cookie using the same logic as getUserFromSession. On failure
-// it redirects (302 Found) to /oauth/login, carrying the page asked for so
-// sign-in returns there (loginURLReturningTo); on success it stores the user in the request
-// context (retrievable via userFromContext) and calls next.
+// from the session cookie. With no signed-in user it redirects (302 Found) to
+// /oauth/login, carrying the page asked for so sign-in returns there
+// (loginURLReturningTo); on success it stores the user in the request context
+// (retrievable via userFromContext) and calls next.
+//
+// A signed-in user whose account is deactivated is sent to account settings
+// (where they can reactivate it) rather than to login: they are already signed
+// in, and login would only send them back here. That matters most right after
+// sign-in, when the page carried as return_to is one of these.
 func (s *Server) requireActiveUser(next http.Handler) http.Handler {
-	return s.requireUserWith(next, s.getUserFromSession)
+	return s.requireUserWith(requireActive(next), s.getUserFromSessionIncludingInactive)
+}
+
+// requireActive runs after requireUserWith has put the user in the context,
+// and lets only an active one through to next.
+func requireActive(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if user, ok := userFromContext(r.Context()); !ok || !user.IsActive {
+			http.Redirect(w, r, defaultAfterSignIn, http.StatusFound)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // requireUser is middleware identical to requireActiveUser except it also accepts

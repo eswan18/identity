@@ -21,12 +21,16 @@ import (
 //
 // An app is connected when the user has a remembered consent for it
 // (oauth_user_consents), one row per resource it was approved for (spec
-// section 8). A client the user never consented to is not listed, whatever
-// tokens exist. Disconnecting deletes those consents, so using the app again
-// asks for consent again, and revokes every live token the user holds for it
-// (revokedUserDisconnected), so it loses access at once rather than when its
-// access token expires: a refresh with a revoked refresh token is refused, and
-// the access token stops passing introspection.
+// section 8), or when it still holds a live token for the user without one: an
+// app must never hold access the user cannot see and cut off here.
+// Disconnecting deletes those consents, so using the app again asks for
+// consent again, and revokes every live token the user holds for it
+// (revokedUserDisconnected): a refresh with a revoked refresh token is refused,
+// and the access token stops passing introspection. An access token is a
+// self-contained JWT, though, and a resource server that validates it locally
+// (footstrike-api does) keeps accepting it until it expires, which is at most
+// accessTokenExpiresIn (an hour) later. The page says so; it must not promise
+// that access ends at once.
 //
 // Trusted (first-party) clients are never connected apps: they skip consent,
 // so they have no consent rows, and the page's query ignores any left over
@@ -51,7 +55,7 @@ func (s *Server) HandleConnectedAppsGet(w http.ResponseWriter, r *http.Request) 
 	data := views.ConnectedAppsView{}
 	switch r.URL.Query().Get("success") {
 	case "disconnected":
-		data.Success = "App disconnected. It can no longer access your account."
+		data.Success = "App disconnected. It can no longer refresh its access; anything it already holds expires within an hour."
 	}
 	switch r.URL.Query().Get("error") {
 	case "not_connected":
@@ -120,8 +124,9 @@ func (s *Server) HandleConnectedAppsDisconnectPost(w http.ResponseWriter, r *htt
 }
 
 // disconnectApp is the transaction behind HandleConnectedAppsDisconnectPost.
-// It reports false, having changed nothing, when the user had no consent for
-// the client.
+// It reports false, having changed nothing, when the user had neither a
+// consent for the client nor a live token held by it (the two ways an app is
+// listed), or when the client is trusted.
 func (s *Server) disconnectApp(ctx context.Context, userID, clientID uuid.UUID) (bool, error) {
 	tx, err := s.datastore.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -147,14 +152,17 @@ func (s *Server) disconnectApp(ctx context.Context, userID, clientID uuid.UUID) 
 	if err != nil {
 		return false, fmt.Errorf("deleting consents: %w", err)
 	}
-	if consents == 0 {
-		return false, nil
-	}
 	tokens, err := q.RevokeUserClientTokens(ctx, db.RevokeUserClientTokensParams{
 		UserID: userID, ClientID: clientID, Reason: string(revokedUserDisconnected),
 	})
 	if err != nil {
 		return false, fmt.Errorf("revoking tokens: %w", err)
+	}
+	// Connected by a consent or by a token it still holds without one; either
+	// way it is disconnected. Neither: nothing to do, and the rollback undoes
+	// nothing.
+	if consents == 0 && tokens == 0 {
+		return false, nil
 	}
 	codes, err := q.DeleteUnconsumedUserClientAuthorizationCodes(ctx, db.DeleteUnconsumedUserClientAuthorizationCodesParams{
 		UserID: userID, ClientID: clientID,
@@ -170,10 +178,13 @@ func (s *Server) disconnectApp(ctx context.Context, userID, clientID uuid.UUID) 
 	return true, nil
 }
 
-// connectedApps is the page's list: the user's consents grouped by client, in
-// the query's order (by name).
+// connectedApps is the page's list: the user's grants (consents, and live
+// tokens of apps without one) grouped by client, in the query's order (by
+// name).
 func (s *Server) connectedApps(ctx context.Context, userID uuid.UUID) ([]views.ConnectedApp, error) {
-	rows, err := s.datastore.Q.ListUserConnectedApps(ctx, userID)
+	rows, err := s.datastore.Q.ListUserConnectedApps(ctx, db.ListUserConnectedAppsParams{
+		UserID: userID, Issuer: s.config.JWTIssuer,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("listing consents: %w", err)
 	}

@@ -90,3 +90,41 @@ func TestRequireUserWith_InjectsUserIntoContext(t *testing.T) {
 		t.Fatalf("context user mismatch: got %+v, want %+v", gotUser, want)
 	}
 }
+
+// TestRequireActive_DeactivatedUserGoesToAccountSettings verifies that a
+// signed-in but deactivated user asking for an active-only page is sent to
+// account settings, not back to login (which would bounce them straight back
+// here after signing in with that page as return_to), and that an active user
+// passes through.
+func TestRequireActive_DeactivatedUserGoesToAccountSettings(t *testing.T) {
+	s := newHermeticTestServer(t)
+	for _, tc := range []struct {
+		name     string
+		active   bool
+		wantCode int
+		wantLoc  string
+	}{
+		{"deactivated", false, http.StatusFound, "/oauth/account-settings"},
+		{"active", true, http.StatusOK, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reached := false
+			user := db.AuthUser{ID: uuid.New(), Username: "alice", IsActive: tc.active}
+			lookup := func(r *http.Request) (db.AuthUser, error) { return user, nil }
+			h := s.requireUserWith(requireActive(okHandler(&reached)), lookup)
+
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/oauth/change-password", nil))
+
+			if rec.Code != tc.wantCode {
+				t.Fatalf("expected %d, got %d", tc.wantCode, rec.Code)
+			}
+			if loc := rec.Header().Get("Location"); loc != tc.wantLoc {
+				t.Fatalf("expected Location %q, got %q", tc.wantLoc, loc)
+			}
+			if reached != tc.active {
+				t.Fatalf("next reached = %v, want %v", reached, tc.active)
+			}
+		})
+	}
+}

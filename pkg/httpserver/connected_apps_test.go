@@ -195,3 +195,15 @@ func TestConnectedApps_SignedOutRedirectsToLogin(t *testing.T) {
 		t.Fatalf("Location = %q", loc)
 	}
 }
+
+// TestConnectedAppsCopyMatchesAccessTokenLifetime guards the Connected Apps
+// page's promise that, after a disconnect, "anything it already holds expires
+// within an hour": access tokens are self-contained JWTs that resource servers
+// validate locally, so a disconnect cannot end one early. If the lifetime
+// changes, change the copy (connected_apps.go, connected_apps.templ, README)
+// with it.
+func TestConnectedAppsCopyMatchesAccessTokenLifetime(t *testing.T) {
+	if accessTokenExpiresIn > time.Hour {
+		t.Fatalf("access tokens now live %v; the Connected Apps copy says within an hour", accessTokenExpiresIn)
+	}
+}

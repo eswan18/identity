@@ -27,6 +27,11 @@ const accessTokenExpiresIn = 1 * time.Hour
 const refreshTokenExpiresIn = 30 * 24 * time.Hour
 const serviceAccountTokenExpiresIn = 15 * time.Minute
 
+// errConsentWithdrawn: a code exchange for a client that asks for consent
+// found none when storing the tokens (the user disconnected the app after the
+// code was issued). Answered invalid_grant; nothing was stored.
+var errConsentWithdrawn = errors.New("consent withdrawn")
+
 // Sentinel errors for credential validation
 var (
 	ErrMissingCredentials = errors.New("username and password are required")
@@ -330,7 +335,15 @@ func (s *Server) storedResource(resource sql.NullString) sql.NullString {
 // family is the refresh-token family the row joins (a new one at code exchange,
 // the presented token's at refresh); the refresh token expires no later than
 // the family's absolute lifetime allows (see refresh_families.go).
-func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID uuid.UUID, scope []string, nonce string, resource sql.NullString, family uuid.UUID) (TokenPair, error) {
+//
+// requireConsent makes the row conditional on the user still having a consent
+// for the client and resource, checked atomically with the insert
+// (InsertTokenIfConsented); without one nothing is stored and the error is
+// errConsentWithdrawn. The code exchange sets it for a client that asks for
+// consent, closing the window between authorize finding a consent and the
+// tokens being stored, in which a disconnect could otherwise leave a live
+// token family with no consent behind it.
+func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID uuid.UUID, scope []string, nonce string, resource sql.NullString, family uuid.UUID, requireConsent bool) (TokenPair, error) {
 	// Fetch user information for JWT claims
 	user, err := s.datastore.Q.GetUserByID(ctx, userID)
 	if err != nil {
@@ -369,7 +382,7 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 
 	// Store token record in database
 	// Note: Store JTI (JWT ID) in access_token column for audit/revocation tracking
-	_, err = s.datastore.Q.InsertToken(ctx, db.InsertTokenParams{
+	row := db.InsertTokenParams{
 		AccessToken:      sql.NullString{String: jti, Valid: true}, // Store JTI, not full JWT
 		RefreshToken:     sql.NullString{String: refreshToken, Valid: true},
 		UserID:           uuid.NullUUID{UUID: userID, Valid: userID != uuid.Nil},
@@ -380,7 +393,32 @@ func (s *Server) generateTokens(ctx context.Context, clientID uuid.UUID, userID 
 		RefreshExpiresAt: sql.NullTime{Time: refreshExpiresAt, Valid: true},
 		Resource:         s.storedResource(resource),
 		FamilyID:         uuid.NullUUID{UUID: family, Valid: true},
-	})
+	}
+	if requireConsent {
+		_, err = s.datastore.Q.InsertTokenIfConsented(ctx, db.InsertTokenIfConsentedParams{
+			AccessToken:      row.AccessToken,
+			RefreshToken:     row.RefreshToken,
+			UserID:           userID,
+			ClientID:         row.ClientID,
+			Scope:            row.Scope,
+			TokenType:        row.TokenType,
+			ExpiresAt:        row.ExpiresAt,
+			RefreshExpiresAt: row.RefreshExpiresAt,
+			Resource:         row.Resource,
+			FamilyID:         row.FamilyID,
+			// Consent is keyed by the resource as authorize resolved it. The
+			// code recorded it as its aud, and the issuer reads back as none
+			// (grantedResource), which is ambiguous with a registered resource
+			// whose URI is the issuer; a consent under either key counts.
+			ConsentResource:    resource,
+			ConsentResourceAlt: s.storedResource(resource),
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return TokenPair{}, errConsentWithdrawn
+		}
+	} else {
+		_, err = s.datastore.Q.InsertToken(ctx, row)
+	}
 	if err != nil {
 		return TokenPair{}, err
 	}

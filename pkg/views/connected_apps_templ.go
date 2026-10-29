@@ -431,14 +431,14 @@ func connectedApp(app ConnectedApp, csrfToken string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "</strong> will be signed out and lose access to your account right away. If you use it again, it will have to ask for your permission again.</p><button type=\"submit\" name=\"confirm\" value=\"yes\" class=\"btn btn-error btn-sm w-full\">Yes, disconnect ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "</strong> will no longer be able to refresh its access to your account; anything it already holds expires within an hour. If you use it again, it will have to ask for your permission again.</p><button type=\"submit\" name=\"confirm\" value=\"yes\" class=\"btn btn-error btn-sm w-full\">Yes, disconnect ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var17 string
 		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(app.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/connected_apps.templ`, Line: 133, Col: 114}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/connected_apps.templ`, Line: 134, Col: 114}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 		if templ_7745c5c3_Err != nil {

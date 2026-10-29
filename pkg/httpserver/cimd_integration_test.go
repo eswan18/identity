@@ -386,13 +386,29 @@ func (s *OAuthFlowSuite) TestCIMDRefetchChangedRedirectURIsClearsConsent() {
 	s.Equal("Claude (renamed)", s.cimdClientRow(clientID).Name)
 	s.Equal(1, s.consentCount(clientID))
 
-	// Changed redirect URIs: consent is forgotten, the old URI is refused.
+	// Tokens issued under the old redirect URIs, and a code not yet exchanged.
+	code := s.requireRedirectTo(authorize(oldRedirect), oldRedirect).Get("code")
+	status, tokens := s.cimdExchange(clientID, oldRedirect, code, scv, nil)
+	s.Require().Equal(http.StatusOK, status, "%v", tokens)
+	pending := s.requireRedirectTo(authorize(oldRedirect), oldRedirect).Get("code")
+
+	// Changed redirect URIs: consent is forgotten, the old URI is refused,
+	// and every grant made under the old ones is withdrawn with it: the
+	// tokens are revoked (a refresh is refused) and the code is gone.
 	time.Sleep(2 * time.Millisecond)
 	s.cimd.serve(clientID, "Claude", newRedirect)
 	s.requireConsentRedirect(authorize(newRedirect))
 	s.Equal(0, s.consentCount(clientID))
 	s.Equal([]string{newRedirect}, s.cimdClientRow(clientID).RedirectUris)
 	s.requireErrorPage(authorize(oldRedirect))
+
+	row := s.tokenRow(tokens["refresh_token"].(string))
+	s.True(row.RevokedAt.Valid, "tokens issued under the old redirect URIs are revoked")
+	s.Equal("client_redirects_changed", row.RevokedReason.String)
+	s.requireInvalidGrant(s.cimdClientRow(clientID), tokens["refresh_token"].(string), "no refresh after the redirect URIs changed")
+	status, body := s.cimdExchange(clientID, oldRedirect, pending, scv, nil)
+	s.Equal(http.StatusBadRequest, status)
+	s.Equal("invalid_grant", body["error"], "an unexchanged code is gone")
 }
 
 // TestCIMDOlderFetchNeverOverwritesNewer: each pod caches documents on its

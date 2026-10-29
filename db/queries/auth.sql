@@ -263,6 +263,53 @@ INSERT INTO oauth_tokens (
 VALUES ($1, $2, $3, $4, $5, COALESCE(sqlc.narg(token_type)::text, 'bearer'), $6, $7, sqlc.narg(resource), sqlc.narg(family_id))
 RETURNING *;
 
+-- name: InsertTokenIfConsented :one
+-- InsertToken for a code exchange by a client that asks for consent: the row
+-- is written only while the user still has a consent for the client and the
+-- grant's resource (consent_resource: NULL for identity itself), else no row
+-- (sql.ErrNoRows). A grant for identity itself is recorded on codes and tokens
+-- as the issuer, which a registered resource could also be named, so the
+-- caller passes the issuer as consent_resource_alt for that case and a consent
+-- under either key counts. FOR SHARE makes this atomic with a disconnect
+-- (DeleteUserConsentsForUserClient, then RevokeUserClientTokens, in one
+-- transaction): if the disconnect deleted the consent first, this waits for it
+-- and finds none; if this locked it first, the disconnect waits for this
+-- insert to commit and then revokes the new token with the rest.
+WITH consent AS (
+  SELECT 1
+  FROM oauth_user_consents
+  WHERE user_id = sqlc.arg(user_id)::uuid
+    AND client_id = sqlc.arg(client_id)::uuid
+    AND (resource IS NOT DISTINCT FROM sqlc.narg(consent_resource)::text
+         OR resource IS NOT DISTINCT FROM sqlc.narg(consent_resource_alt)::text)
+  FOR SHARE
+)
+INSERT INTO oauth_tokens (
+  access_token,
+  refresh_token,
+  user_id,
+  client_id,
+  scope,
+  token_type,
+  expires_at,
+  refresh_expires_at,
+  resource,
+  family_id
+)
+SELECT
+  sqlc.narg(access_token)::text,
+  sqlc.narg(refresh_token)::text,
+  sqlc.arg(user_id)::uuid,
+  sqlc.arg(client_id)::uuid,
+  sqlc.arg(scope)::text[],
+  COALESCE(sqlc.narg(token_type)::text, 'bearer'),
+  sqlc.arg(expires_at)::timestamptz,
+  sqlc.narg(refresh_expires_at)::timestamptz,
+  sqlc.narg(resource)::text,
+  sqlc.narg(family_id)::uuid
+WHERE EXISTS (SELECT 1 FROM consent)
+RETURNING *;
+
 -- name: GetTokenByAccessToken :one
 SELECT *
 FROM oauth_tokens
@@ -579,32 +626,77 @@ DO UPDATE SET scopes = EXCLUDED.scopes, updated_at = now();
 DELETE FROM oauth_user_consents
 WHERE client_id = sqlc.arg(client_id);
 
+-- name: RevokeClientTokens :execrows
+-- Every live token, of every user, for one client. Used with
+-- DeleteUserConsentsForClient when a metadata-document client's redirect_uris
+-- change: the grants users gave were for the old ones. Returns how many.
+UPDATE oauth_tokens
+SET revoked_at = now(),
+    revoked_reason = sqlc.arg(reason)::text
+WHERE client_id = sqlc.arg(client_id)
+  AND revoked_at IS NULL;
+
+-- name: DeleteUnconsumedClientAuthorizationCodes :execrows
+-- Codes issued to one client, for any user, and not yet exchanged.
+DELETE FROM oauth_authorization_codes
+WHERE client_id = sqlc.arg(client_id)
+  AND consumed_at IS NULL;
+
 -- Connected apps (the account page that lists and disconnects them).
 
 -- name: ListUserConnectedApps :many
--- One row per remembered consent of one user: the client it was given to, and
--- the resource it was for (resource_name is NULL for a consent for identity
--- itself, or for a resource since removed from the registry). The page groups
--- rows by client. Trusted (first-party) clients are never listed: identity
--- writes no consent for them, and one left over from before a client was
--- trusted is ignored here rather than shown.
+-- One row per grant one user has given an app: each remembered consent (the
+-- client it was given to, and the resource it was for), and, for a client the
+-- user has no consent for but that still holds a live token for them, one row
+-- per resource those tokens are for, with their scopes. The second case is an
+-- app whose consents were cleared but whose tokens were not (they can be, by
+-- an older release), which must still be listed so it can be disconnected.
+-- resource is NULL for identity itself (a token records that as the issuer,
+-- passed in as issuer); resource_name is NULL for that, or for a resource since
+-- removed from the registry. The page groups rows by client.
+--
+-- A token is live when it is not revoked and either its access token or its
+-- refresh token has not expired (a NULL refresh_expires_at never expires).
+--
+-- Trusted (first-party) clients are never listed: identity writes no consent
+-- for them, and one left over from before a client was trusted is ignored here
+-- rather than shown, as are its tokens.
+WITH grants AS (
+  SELECT uc.client_id, uc.resource, uc.scopes, uc.created_at
+  FROM oauth_user_consents uc
+  WHERE uc.user_id = sqlc.arg(user_id)::uuid
+  UNION ALL
+  SELECT t.client_id,
+    NULLIF(t.resource, sqlc.arg(issuer)::text) AS resource,
+    array_remove(array_agg(DISTINCT sc.scope ORDER BY sc.scope), NULL)::text[] AS scopes,
+    min(t.created_at)::timestamptz AS created_at
+  FROM oauth_tokens t
+  LEFT JOIN LATERAL unnest(t.scope) AS sc(scope) ON true
+  WHERE t.user_id = sqlc.arg(user_id)::uuid
+    AND t.revoked_at IS NULL
+    AND (t.expires_at > now()
+         OR (t.refresh_token IS NOT NULL
+             AND (t.refresh_expires_at IS NULL OR t.refresh_expires_at > now())))
+    AND NOT EXISTS (
+          SELECT 1 FROM oauth_user_consents uc
+          WHERE uc.user_id = sqlc.arg(user_id)::uuid AND uc.client_id = t.client_id)
+  GROUP BY t.client_id, NULLIF(t.resource, sqlc.arg(issuer)::text)
+)
 SELECT
   c.id AS client_uuid,
   c.client_id,
   c.name AS client_name,
   c.kind AS client_kind,
-  uc.resource,
+  g.resource,
   r.name AS resource_name,
   COALESCE(r.scopes, '{}'::jsonb)::jsonb AS resource_scopes,
-  uc.scopes,
-  uc.created_at,
-  uc.updated_at
-FROM oauth_user_consents uc
-JOIN oauth_clients c ON c.id = uc.client_id
-LEFT JOIN oauth_resources r ON r.uri = uc.resource
-WHERE uc.user_id = sqlc.arg(user_id)
-  AND NOT c.trusted
-ORDER BY c.name, c.id, uc.resource NULLS FIRST;
+  g.scopes,
+  g.created_at
+FROM grants g
+JOIN oauth_clients c ON c.id = g.client_id
+LEFT JOIN oauth_resources r ON r.uri = g.resource
+WHERE NOT c.trusted
+ORDER BY c.name, c.id, g.resource NULLS FIRST;
 
 -- name: ListUserTokenLastIssued :many
 -- When a token was last issued to one user, per client: by a code exchange or

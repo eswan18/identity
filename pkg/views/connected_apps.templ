@@ -127,7 +127,8 @@ templ connectedApp(app ConnectedApp, csrfToken string) {
 			<input type="hidden" name="csrf_token" value={ csrfToken }/>
 			<input type="hidden" name="client" value={ app.ClientRef }/>
 			<p class="text-sm mb-3">
-				<strong>{ app.Name }</strong> will be signed out and lose access to your account right away.
+				<strong>{ app.Name }</strong> will no longer be able to refresh its access to your account;
+				anything it already holds expires within an hour.
 				If you use it again, it will have to ask for your permission again.
 			</p>
 			<button type="submit" name="confirm" value="yes" class="btn btn-error btn-sm w-full">Yes, disconnect { app.Name }</button>

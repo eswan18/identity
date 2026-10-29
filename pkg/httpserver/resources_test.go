@@ -182,6 +182,15 @@ func (s *OAuthFlowSuite) TestLegacyAudienceSurvivesMigration() {
 		CodeChallengeMethod: sql.NullString{String: "S256", Valid: true},
 		ExpiresAt:           time.Now().Add(5 * time.Minute),
 	}))
+	// And the consent it was issued under (000015 records it under the
+	// client's default resource): the code exchange stores tokens only while
+	// the user's consent is still there.
+	s.Require().NoError(ds.Q.UpsertUserConsent(ctx, db.UpsertUserConsentParams{
+		UserID:   uuid.MustParse(userUUID),
+		ClientID: client.ID,
+		Resource: client.DefaultResource,
+		Scopes:   []string{"openid", "profile", "email"},
+	}))
 
 	exchanged := s.mustPostTokenAt(ts.URL, url.Values{
 		"grant_type":    {"authorization_code"},

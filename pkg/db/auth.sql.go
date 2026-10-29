@@ -542,6 +542,21 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteUnconsumedClientAuthorizationCodes = `-- name: DeleteUnconsumedClientAuthorizationCodes :execrows
+DELETE FROM oauth_authorization_codes
+WHERE client_id = $1
+  AND consumed_at IS NULL
+`
+
+// Codes issued to one client, for any user, and not yet exchanged.
+func (q *Queries) DeleteUnconsumedClientAuthorizationCodes(ctx context.Context, clientID uuid.UUID) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteUnconsumedClientAuthorizationCodes, clientID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteUnconsumedUserClientAuthorizationCodes = `-- name: DeleteUnconsumedUserClientAuthorizationCodes :execrows
 DELETE FROM oauth_authorization_codes
 WHERE user_id = $1
@@ -1326,6 +1341,104 @@ func (q *Queries) InsertToken(ctx context.Context, arg InsertTokenParams) (Oauth
 	return i, err
 }
 
+const insertTokenIfConsented = `-- name: InsertTokenIfConsented :one
+WITH consent AS (
+  SELECT 1
+  FROM oauth_user_consents
+  WHERE user_id = $3::uuid
+    AND client_id = $4::uuid
+    AND (resource IS NOT DISTINCT FROM $11::text
+         OR resource IS NOT DISTINCT FROM $12::text)
+  FOR SHARE
+)
+INSERT INTO oauth_tokens (
+  access_token,
+  refresh_token,
+  user_id,
+  client_id,
+  scope,
+  token_type,
+  expires_at,
+  refresh_expires_at,
+  resource,
+  family_id
+)
+SELECT
+  $1::text,
+  $2::text,
+  $3::uuid,
+  $4::uuid,
+  $5::text[],
+  COALESCE($6::text, 'bearer'),
+  $7::timestamptz,
+  $8::timestamptz,
+  $9::text,
+  $10::uuid
+WHERE EXISTS (SELECT 1 FROM consent)
+RETURNING id, access_token, refresh_token, user_id, client_id, scope, token_type, expires_at, refresh_expires_at, revoked_at, created_at, resource, family_id, revoked_reason
+`
+
+type InsertTokenIfConsentedParams struct {
+	AccessToken        sql.NullString `json:"access_token"`
+	RefreshToken       sql.NullString `json:"refresh_token"`
+	UserID             uuid.UUID      `json:"user_id"`
+	ClientID           uuid.UUID      `json:"client_id"`
+	Scope              []string       `json:"scope"`
+	TokenType          sql.NullString `json:"token_type"`
+	ExpiresAt          time.Time      `json:"expires_at"`
+	RefreshExpiresAt   sql.NullTime   `json:"refresh_expires_at"`
+	Resource           sql.NullString `json:"resource"`
+	FamilyID           uuid.NullUUID  `json:"family_id"`
+	ConsentResource    sql.NullString `json:"consent_resource"`
+	ConsentResourceAlt sql.NullString `json:"consent_resource_alt"`
+}
+
+// InsertToken for a code exchange by a client that asks for consent: the row
+// is written only while the user still has a consent for the client and the
+// grant's resource (consent_resource: NULL for identity itself), else no row
+// (sql.ErrNoRows). A grant for identity itself is recorded on codes and tokens
+// as the issuer, which a registered resource could also be named, so the
+// caller passes the issuer as consent_resource_alt for that case and a consent
+// under either key counts. FOR SHARE makes this atomic with a disconnect
+// (DeleteUserConsentsForUserClient, then RevokeUserClientTokens, in one
+// transaction): if the disconnect deleted the consent first, this waits for it
+// and finds none; if this locked it first, the disconnect waits for this
+// insert to commit and then revokes the new token with the rest.
+func (q *Queries) InsertTokenIfConsented(ctx context.Context, arg InsertTokenIfConsentedParams) (OauthToken, error) {
+	row := q.db.QueryRowContext(ctx, insertTokenIfConsented,
+		arg.AccessToken,
+		arg.RefreshToken,
+		arg.UserID,
+		arg.ClientID,
+		pq.Array(arg.Scope),
+		arg.TokenType,
+		arg.ExpiresAt,
+		arg.RefreshExpiresAt,
+		arg.Resource,
+		arg.FamilyID,
+		arg.ConsentResource,
+		arg.ConsentResourceAlt,
+	)
+	var i OauthToken
+	err := row.Scan(
+		&i.ID,
+		&i.AccessToken,
+		&i.RefreshToken,
+		&i.UserID,
+		&i.ClientID,
+		pq.Array(&i.Scope),
+		&i.TokenType,
+		&i.ExpiresAt,
+		&i.RefreshExpiresAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.Resource,
+		&i.FamilyID,
+		&i.RevokedReason,
+	)
+	return i, err
+}
+
 const listClientResources = `-- name: ListClientResources :many
 SELECT r.id, r.uri, r.name, r.scopes, r.dynamic_clients, r.created_at
 FROM oauth_client_resources cr
@@ -1492,24 +1605,48 @@ func (q *Queries) ListOAuthResources(ctx context.Context) ([]OauthResource, erro
 
 const listUserConnectedApps = `-- name: ListUserConnectedApps :many
 
+WITH grants AS (
+  SELECT uc.client_id, uc.resource, uc.scopes, uc.created_at
+  FROM oauth_user_consents uc
+  WHERE uc.user_id = $1::uuid
+  UNION ALL
+  SELECT t.client_id,
+    NULLIF(t.resource, $2::text) AS resource,
+    array_remove(array_agg(DISTINCT sc.scope ORDER BY sc.scope), NULL)::text[] AS scopes,
+    min(t.created_at)::timestamptz AS created_at
+  FROM oauth_tokens t
+  LEFT JOIN LATERAL unnest(t.scope) AS sc(scope) ON true
+  WHERE t.user_id = $1::uuid
+    AND t.revoked_at IS NULL
+    AND (t.expires_at > now()
+         OR (t.refresh_token IS NOT NULL
+             AND (t.refresh_expires_at IS NULL OR t.refresh_expires_at > now())))
+    AND NOT EXISTS (
+          SELECT 1 FROM oauth_user_consents uc
+          WHERE uc.user_id = $1::uuid AND uc.client_id = t.client_id)
+  GROUP BY t.client_id, NULLIF(t.resource, $2::text)
+)
 SELECT
   c.id AS client_uuid,
   c.client_id,
   c.name AS client_name,
   c.kind AS client_kind,
-  uc.resource,
+  g.resource,
   r.name AS resource_name,
   COALESCE(r.scopes, '{}'::jsonb)::jsonb AS resource_scopes,
-  uc.scopes,
-  uc.created_at,
-  uc.updated_at
-FROM oauth_user_consents uc
-JOIN oauth_clients c ON c.id = uc.client_id
-LEFT JOIN oauth_resources r ON r.uri = uc.resource
-WHERE uc.user_id = $1
-  AND NOT c.trusted
-ORDER BY c.name, c.id, uc.resource NULLS FIRST
+  g.scopes,
+  g.created_at
+FROM grants g
+JOIN oauth_clients c ON c.id = g.client_id
+LEFT JOIN oauth_resources r ON r.uri = g.resource
+WHERE NOT c.trusted
+ORDER BY c.name, c.id, g.resource NULLS FIRST
 `
+
+type ListUserConnectedAppsParams struct {
+	UserID uuid.UUID `json:"user_id"`
+	Issuer string    `json:"issuer"`
+}
 
 type ListUserConnectedAppsRow struct {
 	ClientUuid     uuid.UUID       `json:"client_uuid"`
@@ -1521,18 +1658,27 @@ type ListUserConnectedAppsRow struct {
 	ResourceScopes json.RawMessage `json:"resource_scopes"`
 	Scopes         []string        `json:"scopes"`
 	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
 // Connected apps (the account page that lists and disconnects them).
-// One row per remembered consent of one user: the client it was given to, and
-// the resource it was for (resource_name is NULL for a consent for identity
-// itself, or for a resource since removed from the registry). The page groups
-// rows by client. Trusted (first-party) clients are never listed: identity
-// writes no consent for them, and one left over from before a client was
-// trusted is ignored here rather than shown.
-func (q *Queries) ListUserConnectedApps(ctx context.Context, userID uuid.UUID) ([]ListUserConnectedAppsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listUserConnectedApps, userID)
+// One row per grant one user has given an app: each remembered consent (the
+// client it was given to, and the resource it was for), and, for a client the
+// user has no consent for but that still holds a live token for them, one row
+// per resource those tokens are for, with their scopes. The second case is an
+// app whose consents were cleared but whose tokens were not (they can be, by
+// an older release), which must still be listed so it can be disconnected.
+// resource is NULL for identity itself (a token records that as the issuer,
+// passed in as issuer); resource_name is NULL for that, or for a resource since
+// removed from the registry. The page groups rows by client.
+//
+// A token is live when it is not revoked and either its access token or its
+// refresh token has not expired (a NULL refresh_expires_at never expires).
+//
+// Trusted (first-party) clients are never listed: identity writes no consent
+// for them, and one left over from before a client was trusted is ignored here
+// rather than shown, as are its tokens.
+func (q *Queries) ListUserConnectedApps(ctx context.Context, arg ListUserConnectedAppsParams) ([]ListUserConnectedAppsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUserConnectedApps, arg.UserID, arg.Issuer)
 	if err != nil {
 		return nil, err
 	}
@@ -1550,7 +1696,6 @@ func (q *Queries) ListUserConnectedApps(ctx context.Context, userID uuid.UUID) (
 			&i.ResourceScopes,
 			pq.Array(&i.Scopes),
 			&i.CreatedAt,
-			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1728,6 +1873,30 @@ type RevokeAllUserTokensParams struct {
 func (q *Queries) RevokeAllUserTokens(ctx context.Context, arg RevokeAllUserTokensParams) error {
 	_, err := q.db.ExecContext(ctx, revokeAllUserTokens, arg.UserID, arg.Reason)
 	return err
+}
+
+const revokeClientTokens = `-- name: RevokeClientTokens :execrows
+UPDATE oauth_tokens
+SET revoked_at = now(),
+    revoked_reason = $1::text
+WHERE client_id = $2
+  AND revoked_at IS NULL
+`
+
+type RevokeClientTokensParams struct {
+	Reason   string    `json:"reason"`
+	ClientID uuid.UUID `json:"client_id"`
+}
+
+// Every live token, of every user, for one client. Used with
+// DeleteUserConsentsForClient when a metadata-document client's redirect_uris
+// change: the grants users gave were for the old ones. Returns how many.
+func (q *Queries) RevokeClientTokens(ctx context.Context, arg RevokeClientTokensParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeClientTokens, arg.Reason, arg.ClientID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const revokeTokenByAccessToken = `-- name: RevokeTokenByAccessToken :exec
