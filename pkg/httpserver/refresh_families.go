@@ -46,6 +46,9 @@ const (
 	// revokedAdmin: revoked by an administrator. Nothing revokes tokens from an
 	// admin path yet; one that does records this.
 	revokedAdmin revocationReason = "admin"
+	// revokedUserDisconnected: the user disconnected the client from their
+	// account on the connected-apps page (connected_apps.go).
+	revokedUserDisconnected revocationReason = "user_disconnected"
 )
 
 // familyMaxLifetime caps a family: however regularly it is refreshed, it cannot

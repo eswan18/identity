@@ -190,6 +190,10 @@ func (s *Server) registerRoutes() {
 
 				// Account settings
 				r.Get("/account-settings", s.HandleAccountSettingsGet)
+				// Connected apps: list the apps the user has consented to,
+				// and disconnect one (revoke its tokens, forget the consent).
+				r.Get("/connected-apps", s.HandleConnectedAppsGet)
+				r.Post("/connected-apps/disconnect", s.HandleConnectedAppsDisconnectPost)
 				// Deactivate account
 				r.Post("/deactivate-account", s.HandleDeactivateAccountPost)
 				// Reactivate account

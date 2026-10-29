@@ -28,8 +28,8 @@ func contextWithUser(ctx context.Context, user db.AuthUser) context.Context {
 
 // requireActiveUser is middleware that loads the active (non-deactivated) user
 // from the session cookie using the same logic as getUserFromSession. On failure
-// it performs the same redirect the account handlers previously did inline
-// (302 Found to /oauth/login); on success it stores the user in the request
+// it redirects (302 Found) to /oauth/login, carrying the page asked for so
+// sign-in returns there (loginURLReturningTo); on success it stores the user in the request
 // context (retrievable via userFromContext) and calls next.
 func (s *Server) requireActiveUser(next http.Handler) http.Handler {
 	return s.requireUserWith(next, s.getUserFromSession)
@@ -50,7 +50,7 @@ func (s *Server) requireUserWith(next http.Handler, lookup func(*http.Request) (
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, err := lookup(r)
 		if err != nil {
-			http.Redirect(w, r, "/oauth/login", http.StatusFound)
+			http.Redirect(w, r, loginURLReturningTo(r), http.StatusFound)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(contextWithUser(r.Context(), user)))

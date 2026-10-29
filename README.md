@@ -129,6 +129,22 @@ When MFA is enabled:
 
 MFA is off by default. Users can enable/disable it themselves via account settings.
 
+### Connected Apps
+
+Users can see the apps they have given consent to, and disconnect them, at:
+```
+http://localhost:8080/oauth/connected-apps
+```
+(linked from account settings). Each app shows what it can access (resource and
+scope descriptions, as on the consent screen), when it was connected, and when it
+was last used (the latest token issued to it for that user). Disconnecting deletes
+the user's consents for the app, so using it again asks for consent again, and
+revokes every live token the user holds for it (`revoked_reason = 'user_disconnected'`).
+
+A signed-out visit to an account page goes through login (and MFA) and back to
+that page: the page travels as `return_to`, which only accepts a path on identity
+itself.
+
 ## Commands
 
 Build binary:

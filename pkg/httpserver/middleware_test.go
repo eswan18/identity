@@ -11,8 +11,8 @@ import (
 
 // TestRequireActiveUser_NoSessionRedirectsToLogin verifies that the
 // requireActiveUser middleware, when the request carries no session cookie,
-// redirects to /oauth/login with a 302 (the exact behavior the account handlers
-// previously implemented inline) and never invokes the wrapped handler. This is
+// redirects to /oauth/login with a 302, carrying the page asked for as return_to
+// so sign-in comes back to it, and never invokes the wrapped handler. This is
 // hermetic: doGetUserFromSession fails on the missing cookie before ever touching
 // the (unreachable) database.
 func TestRequireActiveUser_NoSessionRedirectsToLogin(t *testing.T) {
@@ -27,8 +27,8 @@ func TestRequireActiveUser_NoSessionRedirectsToLogin(t *testing.T) {
 	if rec.Code != http.StatusFound {
 		t.Fatalf("expected 302 Found, got %d", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); loc != "/oauth/login" {
-		t.Fatalf("expected redirect to /oauth/login, got %q", loc)
+	if loc := rec.Header().Get("Location"); loc != "/oauth/login?return_to=%2Foauth%2Fchange-password" {
+		t.Fatalf("expected redirect to /oauth/login returning to change-password, got %q", loc)
 	}
 	if reached {
 		t.Fatal("next handler must not be reached when unauthenticated")
@@ -36,7 +36,8 @@ func TestRequireActiveUser_NoSessionRedirectsToLogin(t *testing.T) {
 }
 
 // TestRequireUser_NoSessionRedirectsToLogin verifies the allow-inactive
-// middleware performs the same redirect on a missing session.
+// middleware performs the same redirect on a missing session. Account settings
+// is where a sign-in lands anyway, so it is not carried.
 func TestRequireUser_NoSessionRedirectsToLogin(t *testing.T) {
 	s := newHermeticTestServer(t)
 	reached := false

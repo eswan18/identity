@@ -24,11 +24,15 @@ const mfaPendingExpiresIn = 5 * time.Minute
 // already consumed it. Without this, a lost pending row strips the OAuth context and
 // the user is bounced to a context-free login (and, after re-authenticating, dumped
 // on the account page instead of the app).
-func mfaPageData(pendingID string, request authorizeRequest, errMsg, csrfToken string) views.MFAView {
+//
+// The page to return to after a direct sign-in (carriedReturnTo) rides along the
+// same way, read from the request each time.
+func mfaPageData(r *http.Request, pendingID string, request authorizeRequest, errMsg, csrfToken string) views.MFAView {
 	return views.MFAView{
 		Error:          errMsg,
 		PendingID:      pendingID,
 		AuthorizeQuery: string(request),
+		ReturnTo:       carriedReturnTo(r),
 		CSRFToken:      csrfToken,
 	}
 }
@@ -51,7 +55,7 @@ func (s *Server) HandleMFAGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := views.MFA(mfaPageData(pendingID, authorizeRequest(pending.AuthorizeQuery.String), "", s.ensureCSRFToken(w, r))).Render(r.Context(), w); err != nil {
+	if err := views.MFA(mfaPageData(r, pendingID, authorizeRequest(pending.AuthorizeQuery.String), "", s.ensureCSRFToken(w, r))).Render(r.Context(), w); err != nil {
 		log.Printf("[ERROR] HandleMFAGet: Failed to render MFA page: %v", err)
 	}
 }
@@ -129,7 +133,7 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 		// the most likely innocent cause: a device clock too far out of sync for
 		// the ±1 window totp.Validate allows.
 		http.Redirect(w, r,
-			pendingRequest.loginURL(url.Values{"error": {"mfa_throttled"}}),
+			withReturnTo(pendingRequest.loginURL(url.Values{"error": {"mfa_throttled"}}), carriedReturnTo(r)),
 			http.StatusFound)
 		return
 	}
@@ -178,17 +182,18 @@ func (s *Server) HandleMFAPost(w http.ResponseWriter, r *http.Request) {
 //     preserved, so a fresh password + OTP still lands them back on the app.
 //
 // For a direct (non-OAuth) login there is no app context to preserve, so the user goes
-// to account settings if already authenticated, or the login page if not.
+// to the page they asked for (or account settings) if already authenticated, or the
+// login page, still carrying that page, if not.
 func (s *Server) resumeMFAFlow(w http.ResponseWriter, r *http.Request, request authorizeRequest) {
 	if request.inFlow() {
 		http.Redirect(w, r, request.authorizeURL(), http.StatusFound)
 		return
 	}
 	if _, err := s.getSessionFromCookie(r); err == nil {
-		http.Redirect(w, r, "/oauth/account-settings", http.StatusFound)
+		http.Redirect(w, r, directSignInDestination(r), http.StatusFound)
 		return
 	}
-	http.Redirect(w, r, "/oauth/login", http.StatusFound)
+	http.Redirect(w, r, withReturnTo("/oauth/login", carriedReturnTo(r)), http.StatusFound)
 }
 
 // createMFAPendingSession creates a pending MFA session after password validation.
@@ -219,7 +224,7 @@ func (s *Server) createMFAPendingSession(r *http.Request, userID uuid.UUID, requ
 func (s *Server) renderMFAError(w http.ResponseWriter, r *http.Request, statusCode int, errorMsg string, pendingID string, request authorizeRequest) {
 	csrfToken := s.ensureCSRFToken(w, r)
 	w.WriteHeader(statusCode)
-	if err := views.MFA(mfaPageData(pendingID, request, errorMsg, csrfToken)).Render(r.Context(), w); err != nil {
+	if err := views.MFA(mfaPageData(r, pendingID, request, errorMsg, csrfToken)).Render(r.Context(), w); err != nil {
 		log.Printf("[ERROR] renderMFAError: Failed to render MFA page: %v", err)
 	}
 }

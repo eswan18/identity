@@ -15,9 +15,13 @@ const (
 // LoginView holds everything the login page renders. AuthorizeQuery is the
 // OAuth authorization request this sign-in belongs to (see
 // AuthorizeQueryField), empty for a direct sign-in.
+//
+// ReturnTo is the page to land on after a direct sign-in (see ReturnToField),
+// empty for the default.
 type LoginView struct {
 	Error          string
 	AuthorizeQuery string
+	ReturnTo       string
 	CSRFToken      string
 }
 
@@ -65,6 +69,9 @@ templ Login(data LoginView) {
 				/>
 			</fieldset>
 			<input type="hidden" name={ AuthorizeQueryField } value={ data.AuthorizeQuery }/>
+			if data.ReturnTo != "" {
+				<input type="hidden" name={ ReturnToField } value={ data.ReturnTo }/>
+			}
 			<button type="submit" class="btn btn-primary w-full">Sign In</button>
 		</form>
 		<div class="text-center mt-4 text-sm space-x-4">

@@ -537,6 +537,28 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteUnconsumedUserClientAuthorizationCodes = `-- name: DeleteUnconsumedUserClientAuthorizationCodes :execrows
+DELETE FROM oauth_authorization_codes
+WHERE user_id = $1
+  AND client_id = $2
+  AND consumed_at IS NULL
+`
+
+type DeleteUnconsumedUserClientAuthorizationCodesParams struct {
+	UserID   uuid.UUID `json:"user_id"`
+	ClientID uuid.UUID `json:"client_id"`
+}
+
+// Codes issued to one user for one client and not yet exchanged, so one in
+// flight cannot be redeemed for tokens after the user disconnected the client.
+func (q *Queries) DeleteUnconsumedUserClientAuthorizationCodes(ctx context.Context, arg DeleteUnconsumedUserClientAuthorizationCodesParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteUnconsumedUserClientAuthorizationCodes, arg.UserID, arg.ClientID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteUserConsentsForClient = `-- name: DeleteUserConsentsForClient :execrows
 DELETE FROM oauth_user_consents
 WHERE client_id = $1
@@ -547,6 +569,27 @@ WHERE client_id = $1
 // users approved was sending answers to the old ones.
 func (q *Queries) DeleteUserConsentsForClient(ctx context.Context, clientID uuid.UUID) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteUserConsentsForClient, clientID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteUserConsentsForUserClient = `-- name: DeleteUserConsentsForUserClient :execrows
+DELETE FROM oauth_user_consents
+WHERE user_id = $1
+  AND client_id = $2
+`
+
+type DeleteUserConsentsForUserClientParams struct {
+	UserID   uuid.UUID `json:"user_id"`
+	ClientID uuid.UUID `json:"client_id"`
+}
+
+// One user's remembered consents for one client, for every resource, so the
+// next sign-in to it asks again. Returns how many there were.
+func (q *Queries) DeleteUserConsentsForUserClient(ctx context.Context, arg DeleteUserConsentsForUserClientParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteUserConsentsForUserClient, arg.UserID, arg.ClientID)
 	if err != nil {
 		return 0, err
 	}
@@ -1438,6 +1481,116 @@ func (q *Queries) ListOAuthResources(ctx context.Context) ([]OauthResource, erro
 	return items, nil
 }
 
+const listUserConnectedApps = `-- name: ListUserConnectedApps :many
+
+SELECT
+  c.id AS client_uuid,
+  c.client_id,
+  c.name AS client_name,
+  c.kind AS client_kind,
+  uc.resource,
+  r.name AS resource_name,
+  COALESCE(r.scopes, '{}'::jsonb)::jsonb AS resource_scopes,
+  uc.scopes,
+  uc.created_at,
+  uc.updated_at
+FROM oauth_user_consents uc
+JOIN oauth_clients c ON c.id = uc.client_id
+LEFT JOIN oauth_resources r ON r.uri = uc.resource
+WHERE uc.user_id = $1
+ORDER BY c.name, c.id, uc.resource NULLS FIRST
+`
+
+type ListUserConnectedAppsRow struct {
+	ClientUuid     uuid.UUID       `json:"client_uuid"`
+	ClientID       string          `json:"client_id"`
+	ClientName     string          `json:"client_name"`
+	ClientKind     string          `json:"client_kind"`
+	Resource       sql.NullString  `json:"resource"`
+	ResourceName   sql.NullString  `json:"resource_name"`
+	ResourceScopes json.RawMessage `json:"resource_scopes"`
+	Scopes         []string        `json:"scopes"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+}
+
+// Connected apps (the account page that lists and disconnects them).
+// One row per remembered consent of one user: the client it was given to, and
+// the resource it was for (resource_name is NULL for a consent for identity
+// itself, or for a resource since removed from the registry). The page groups
+// rows by client.
+func (q *Queries) ListUserConnectedApps(ctx context.Context, userID uuid.UUID) ([]ListUserConnectedAppsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUserConnectedApps, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserConnectedAppsRow
+	for rows.Next() {
+		var i ListUserConnectedAppsRow
+		if err := rows.Scan(
+			&i.ClientUuid,
+			&i.ClientID,
+			&i.ClientName,
+			&i.ClientKind,
+			&i.Resource,
+			&i.ResourceName,
+			&i.ResourceScopes,
+			pq.Array(&i.Scopes),
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserTokenLastIssued = `-- name: ListUserTokenLastIssued :many
+SELECT client_id, max(created_at)::timestamptz AS last_issued_at
+FROM oauth_tokens
+WHERE user_id = $1::uuid
+GROUP BY client_id
+`
+
+type ListUserTokenLastIssuedRow struct {
+	ClientID     uuid.UUID `json:"client_id"`
+	LastIssuedAt time.Time `json:"last_issued_at"`
+}
+
+// When a token was last issued to one user, per client: by a code exchange or
+// a refresh, each of which inserts an oauth_tokens row. A client whose rows
+// are all gone (the cleanup sweep deletes dead ones) has no row here.
+func (q *Queries) ListUserTokenLastIssued(ctx context.Context, userID uuid.UUID) ([]ListUserTokenLastIssuedRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUserTokenLastIssued, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserTokenLastIssuedRow
+	for rows.Next() {
+		var i ListUserTokenLastIssuedRow
+		if err := rows.Scan(&i.ClientID, &i.LastIssuedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUsers = `-- name: ListUsers :many
 SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture
 FROM auth_users
@@ -1625,6 +1778,31 @@ type RevokeTokenFamilyParams struct {
 // they share the row). Returns how many were live.
 func (q *Queries) RevokeTokenFamily(ctx context.Context, arg RevokeTokenFamilyParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, revokeTokenFamily, arg.Reason, arg.FamilyID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const revokeUserClientTokens = `-- name: RevokeUserClientTokens :execrows
+UPDATE oauth_tokens
+SET revoked_at = now(),
+    revoked_reason = $1::text
+WHERE user_id = $2::uuid
+  AND client_id = $3
+  AND revoked_at IS NULL
+`
+
+type RevokeUserClientTokensParams struct {
+	Reason   string    `json:"reason"`
+	UserID   uuid.UUID `json:"user_id"`
+	ClientID uuid.UUID `json:"client_id"`
+}
+
+// Every live token (access and refresh: they share the row) one user holds for
+// one client. Returns how many were live.
+func (q *Queries) RevokeUserClientTokens(ctx context.Context, arg RevokeUserClientTokensParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeUserClientTokens, arg.Reason, arg.UserID, arg.ClientID)
 	if err != nil {
 		return 0, err
 	}

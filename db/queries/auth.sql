@@ -574,3 +574,61 @@ DO UPDATE SET scopes = EXCLUDED.scopes, updated_at = now();
 -- users approved was sending answers to the old ones.
 DELETE FROM oauth_user_consents
 WHERE client_id = sqlc.arg(client_id);
+
+-- Connected apps (the account page that lists and disconnects them).
+
+-- name: ListUserConnectedApps :many
+-- One row per remembered consent of one user: the client it was given to, and
+-- the resource it was for (resource_name is NULL for a consent for identity
+-- itself, or for a resource since removed from the registry). The page groups
+-- rows by client.
+SELECT
+  c.id AS client_uuid,
+  c.client_id,
+  c.name AS client_name,
+  c.kind AS client_kind,
+  uc.resource,
+  r.name AS resource_name,
+  COALESCE(r.scopes, '{}'::jsonb)::jsonb AS resource_scopes,
+  uc.scopes,
+  uc.created_at,
+  uc.updated_at
+FROM oauth_user_consents uc
+JOIN oauth_clients c ON c.id = uc.client_id
+LEFT JOIN oauth_resources r ON r.uri = uc.resource
+WHERE uc.user_id = sqlc.arg(user_id)
+ORDER BY c.name, c.id, uc.resource NULLS FIRST;
+
+-- name: ListUserTokenLastIssued :many
+-- When a token was last issued to one user, per client: by a code exchange or
+-- a refresh, each of which inserts an oauth_tokens row. A client whose rows
+-- are all gone (the cleanup sweep deletes dead ones) has no row here.
+SELECT client_id, max(created_at)::timestamptz AS last_issued_at
+FROM oauth_tokens
+WHERE user_id = sqlc.arg(user_id)::uuid
+GROUP BY client_id;
+
+-- name: DeleteUserConsentsForUserClient :execrows
+-- One user's remembered consents for one client, for every resource, so the
+-- next sign-in to it asks again. Returns how many there were.
+DELETE FROM oauth_user_consents
+WHERE user_id = sqlc.arg(user_id)
+  AND client_id = sqlc.arg(client_id);
+
+-- name: RevokeUserClientTokens :execrows
+-- Every live token (access and refresh: they share the row) one user holds for
+-- one client. Returns how many were live.
+UPDATE oauth_tokens
+SET revoked_at = now(),
+    revoked_reason = sqlc.arg(reason)::text
+WHERE user_id = sqlc.arg(user_id)::uuid
+  AND client_id = sqlc.arg(client_id)
+  AND revoked_at IS NULL;
+
+-- name: DeleteUnconsumedUserClientAuthorizationCodes :execrows
+-- Codes issued to one user for one client and not yet exchanged, so one in
+-- flight cannot be redeemed for tokens after the user disconnected the client.
+DELETE FROM oauth_authorization_codes
+WHERE user_id = sqlc.arg(user_id)
+  AND client_id = sqlc.arg(client_id)
+  AND consumed_at IS NULL;
