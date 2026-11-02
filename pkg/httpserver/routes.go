@@ -196,8 +196,13 @@ func (s *Server) registerRoutes() {
 				r.Post("/connected-apps/disconnect", s.HandleConnectedAppsDisconnectPost)
 				// Deactivate account
 				r.Post("/deactivate-account", s.HandleDeactivateAccountPost)
-				// Reactivate account
+				// Reactivate account (also cancels a pending deletion)
 				r.Post("/reactivate-account", s.HandleReactivateAccountPost)
+				// Delete account (deactivate now, erase after the grace
+				// period). Reachable while deactivated, so a deactivated
+				// user can still delete.
+				r.Get("/delete-account", s.HandleDeleteAccountGet)
+				r.Post("/delete-account", s.HandleDeleteAccountPost)
 			})
 		})
 	})

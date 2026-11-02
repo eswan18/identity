@@ -1,0 +1,80 @@
+package views
+
+// DeleteAccountView holds everything the delete-account page renders.
+// ClientID/RedirectURI are set only when an app sent the user here with a
+// valid return address (see httpserver.resolveDeletionReturn); they ride
+// along as hidden fields so the POST can send the user back to that app.
+type DeleteAccountView struct {
+	Username            string
+	Email               string
+	ErasureDate         string
+	AlreadyScheduledFor string
+	AppName             string
+	ClientID            string
+	RedirectURI         string
+	Error               string
+	CSRFToken           string
+}
+
+// DeleteAccount asks for the password before deleting the account, and says
+// plainly what deletion does: every app signed in with this account loses
+// access now, and the account is erased for good after the grace period.
+templ DeleteAccount(data DeleteAccountView) {
+	@Layout("Delete Account") {
+		<div class="text-center mb-8">
+			<h1 class="card-title justify-center text-2xl">Delete Account</h1>
+			<p class="text-sm text-base-content/60">{ data.Username } · { data.Email }</p>
+		</div>
+		if data.Error != "" {
+			@alertError(data.Error)
+		}
+		if data.AlreadyScheduledFor != "" {
+			<div class="alert alert-warning mb-6">
+				<span>This account is already scheduled for permanent deletion on { data.AlreadyScheduledFor }.</span>
+			</div>
+		}
+		<div class="mb-6">
+			<p class="text-sm mb-3">Deleting your sign-in account:</p>
+			<ul class="list-disc pl-5 text-sm text-base-content/70 flex flex-col gap-2">
+				<li>signs you out everywhere and stops every app that uses this account from signing you in, starting now;</li>
+				<li>permanently erases your username, email, password, profile and avatar on { data.ErasureDate };</li>
+				<li>does not by itself delete what you stored inside those apps. Delete that in each app.</li>
+			</ul>
+			<p class="text-sm text-base-content/60 mt-3">Changed your mind? Sign in here before { data.ErasureDate } and reactivate your account to cancel.</p>
+		</div>
+		<form method="POST" action="/oauth/delete-account">
+			<input type="hidden" name="csrf_token" value={ data.CSRFToken }/>
+			if data.ClientID != "" {
+				<input type="hidden" name="client_id" value={ data.ClientID }/>
+				<input type="hidden" name="redirect_uri" value={ data.RedirectURI }/>
+			}
+			<fieldset class="fieldset mb-4">
+				<label class="fieldset-label" for="password">Confirm your password to delete</label>
+				<input type="password" id="password" name="password" placeholder="Enter your password" required autocomplete="current-password" class="input input-bordered w-full"/>
+			</fieldset>
+			<button type="submit" class="btn btn-error w-full">Delete My Account</button>
+		</form>
+		if data.ClientID == "" {
+			<a href="/oauth/account-settings" class="btn btn-ghost w-full mt-3">Back to Account Settings</a>
+		}
+		@footer()
+	}
+}
+
+// AccountDeletedView holds the date the deleted account is erased.
+type AccountDeletedView struct {
+	ErasureDate string
+}
+
+// AccountDeleted confirms a deletion for a user who didn't come from an app.
+templ AccountDeleted(data AccountDeletedView) {
+	@Layout("Account Deleted") {
+		<div class="text-center mb-8">
+			<h1 class="card-title justify-center text-2xl">Account Deleted</h1>
+		</div>
+		@alertSuccess("Your account has been deleted and you have been signed out.")
+		<p class="text-sm text-base-content/70 mb-6">It will be permanently erased on { data.ErasureDate }. Until then you can sign in and reactivate it to cancel the deletion.</p>
+		<a href="/oauth/login" class="btn btn-ghost w-full">Sign In</a>
+		@footer()
+	}
+}

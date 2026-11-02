@@ -438,9 +438,35 @@ SET is_active = false, updated_at = now()
 WHERE id = $1;
 
 -- name: ReactivateUser :exec
+-- Reactivating also cancels a pending self-service deletion.
 UPDATE auth_users
-SET is_active = true, updated_at = now()
+SET is_active = true, deletion_requested_at = NULL, updated_at = now()
 WHERE id = $1;
+
+-- name: RequestUserDeletion :exec
+-- Deactivates the user and schedules them for erasure. A repeat request keeps
+-- the original stamp, so it never pushes the erasure date back.
+UPDATE auth_users
+SET is_active = false,
+    deletion_requested_at = COALESCE(deletion_requested_at, now()),
+    updated_at = now()
+WHERE id = $1;
+
+-- name: ListUsersDueForErasure :many
+SELECT id, username, picture
+FROM auth_users
+WHERE deletion_requested_at IS NOT NULL
+  AND deletion_requested_at < sqlc.arg(cutoff)::timestamptz
+ORDER BY deletion_requested_at
+LIMIT 100;
+
+-- name: EraseUser :execrows
+-- Permanently deletes a user whose deletion is due; every user-owned table
+-- cascades. Re-checks the stamp so a reactivation that raced the sweep wins.
+DELETE FROM auth_users
+WHERE id = sqlc.arg(id)
+  AND deletion_requested_at IS NOT NULL
+  AND deletion_requested_at < sqlc.arg(cutoff)::timestamptz;
 
 -- name: GetUserByIDIncludingInactive :one
 SELECT *

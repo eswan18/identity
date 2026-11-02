@@ -45,23 +45,24 @@ type AuthSession struct {
 }
 
 type AuthUser struct {
-	ID                uuid.UUID      `json:"id"`
-	Username          string         `json:"username"`
-	PasswordHash      string         `json:"password_hash"`
-	Email             string         `json:"email"`
-	IsActive          bool           `json:"is_active"`
-	CreatedAt         time.Time      `json:"created_at"`
-	UpdatedAt         time.Time      `json:"updated_at"`
-	MfaEnabled        bool           `json:"mfa_enabled"`
-	MfaSecret         sql.NullString `json:"mfa_secret"`
-	MfaVerifiedAt     sql.NullTime   `json:"mfa_verified_at"`
-	EmailVerified     bool           `json:"email_verified"`
-	EmailVerifiedAt   sql.NullTime   `json:"email_verified_at"`
-	LastLoginAt       sql.NullTime   `json:"last_login_at"`
-	PasswordChangedAt sql.NullTime   `json:"password_changed_at"`
-	GivenName         sql.NullString `json:"given_name"`
-	FamilyName        sql.NullString `json:"family_name"`
-	Picture           sql.NullString `json:"picture"`
+	ID                  uuid.UUID      `json:"id"`
+	Username            string         `json:"username"`
+	PasswordHash        string         `json:"password_hash"`
+	Email               string         `json:"email"`
+	IsActive            bool           `json:"is_active"`
+	CreatedAt           time.Time      `json:"created_at"`
+	UpdatedAt           time.Time      `json:"updated_at"`
+	MfaEnabled          bool           `json:"mfa_enabled"`
+	MfaSecret           sql.NullString `json:"mfa_secret"`
+	MfaVerifiedAt       sql.NullTime   `json:"mfa_verified_at"`
+	EmailVerified       bool           `json:"email_verified"`
+	EmailVerifiedAt     sql.NullTime   `json:"email_verified_at"`
+	LastLoginAt         sql.NullTime   `json:"last_login_at"`
+	PasswordChangedAt   sql.NullTime   `json:"password_changed_at"`
+	GivenName           sql.NullString `json:"given_name"`
+	FamilyName          sql.NullString `json:"family_name"`
+	Picture             sql.NullString `json:"picture"`
+	DeletionRequestedAt sql.NullTime   `json:"deletion_requested_at"`
 }
 
 type OauthAuthorizationCode struct {

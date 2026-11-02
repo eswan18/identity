@@ -22,6 +22,9 @@ type AccountSettingsView struct {
 	MfaEnabled    bool
 	EmailVerified bool
 	CSRFToken     string
+	// DeletionScheduledFor is the erasure date of a pending self-service
+	// deletion ("" when none is pending).
+	DeletionScheduledFor string
 }
 
 // AccountSettings renders the account settings page. Compare
@@ -95,7 +98,7 @@ func AccountSettings(data AccountSettingsView) templ.Component {
 				var templ_7745c5c3_Var3 string
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.AvatarURL)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 44, Col: 33}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 47, Col: 33}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 				if templ_7745c5c3_Err != nil {
@@ -133,7 +136,7 @@ func AccountSettings(data AccountSettingsView) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(data.Username)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 72, Col: 54}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 75, Col: 54}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -146,7 +149,7 @@ func AccountSettings(data AccountSettingsView) templ.Component {
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(data.Email)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 82, Col: 52}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 85, Col: 52}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
@@ -175,7 +178,7 @@ func AccountSettings(data AccountSettingsView) templ.Component {
 				var templ_7745c5c3_Var6 string
 				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(data.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 99, Col: 18}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 102, Col: 18}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 				if templ_7745c5c3_Err != nil {
@@ -199,7 +202,7 @@ func AccountSettings(data AccountSettingsView) templ.Component {
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.CSRFToken)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 114, Col: 68}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 117, Col: 68}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 				if templ_7745c5c3_Err != nil {
@@ -217,7 +220,7 @@ func AccountSettings(data AccountSettingsView) templ.Component {
 			var templ_7745c5c3_Var8 string
 			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.CSRFToken)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 123, Col: 65}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 126, Col: 65}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var8)
 			if templ_7745c5c3_Err != nil {
@@ -235,7 +238,7 @@ func AccountSettings(data AccountSettingsView) templ.Component {
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.CSRFToken)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 146, Col: 68}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 149, Col: 68}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
 				if templ_7745c5c3_Err != nil {
@@ -256,43 +259,81 @@ func AccountSettings(data AccountSettingsView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if data.IsInactive {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<div class=\"mt-8 pt-6\"><h2 class=\"text-base font-semibold text-warning mb-4 pb-2 border-b border-warning\">Account Deactivated</h2><p class=\"text-sm text-base-content/60 mb-4\">Your account is deactivated. You cannot log in to applications until you reactivate your account.</p><form method=\"POST\" action=\"/oauth/reactivate-account\" class=\"mt-4\"><input type=\"hidden\" name=\"csrf_token\" value=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<div class=\"mt-8 pt-6\"><h2 class=\"text-base font-semibold text-warning mb-4 pb-2 border-b border-warning\">Account Deactivated</h2>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var10 string
-				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.CSRFToken)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 168, Col: 66}
+				if data.DeletionScheduledFor != "" {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "<p class=\"text-sm text-base-content/60 mb-4\">Your account is scheduled for permanent deletion on ")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var10 string
+					templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(data.DeletionScheduledFor)
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 170, Col: 129}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, ". Reactivate it before then to cancel the deletion.</p>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				} else {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<p class=\"text-sm text-base-content/60 mb-4\">Your account is deactivated. You cannot log in to applications until you reactivate your account.</p>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "\"><fieldset class=\"fieldset mb-4\"><label class=\"fieldset-label\" for=\"password\">Confirm your password to reactivate</label> <input type=\"password\" id=\"password\" name=\"password\" placeholder=\"Enter your password\" required autocomplete=\"off\" class=\"input input-bordered w-full\"></fieldset><button type=\"submit\" class=\"btn btn-success w-full\">Reactivate Account</button></form></div>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<div class=\"mt-8 pt-6\"><h2 class=\"text-base font-semibold text-error mb-4 pb-2 border-b border-error\">Danger Zone</h2><p class=\"text-sm text-base-content/60 mb-4\">Deactivating your account will prevent you from logging in to any applications. You will only be able to access this settings page.</p><form method=\"POST\" action=\"/oauth/deactivate-account\" class=\"mt-4\"><input type=\"hidden\" name=\"csrf_token\" value=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<form method=\"POST\" action=\"/oauth/reactivate-account\" class=\"mt-4\"><input type=\"hidden\" name=\"csrf_token\" value=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var11 string
 				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.CSRFToken)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 181, Col: 66}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 175, Col: 66}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var11)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "\"><fieldset class=\"fieldset mb-4\"><label class=\"fieldset-label\" for=\"password\">Confirm your password to deactivate</label> <input type=\"password\" id=\"password\" name=\"password\" placeholder=\"Enter your password\" required autocomplete=\"off\" class=\"input input-bordered w-full\"></fieldset><button type=\"submit\" class=\"btn btn-error w-full\">Deactivate Account</button></form></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "\"><fieldset class=\"fieldset mb-4\"><label class=\"fieldset-label\" for=\"password\">Confirm your password to reactivate</label> <input type=\"password\" id=\"password\" name=\"password\" placeholder=\"Enter your password\" required autocomplete=\"off\" class=\"input input-bordered w-full\"></fieldset><button type=\"submit\" class=\"btn btn-success w-full\">Reactivate Account</button></form>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				if data.DeletionScheduledFor == "" {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "<a href=\"/oauth/delete-account\" class=\"btn btn-ghost text-error w-full mt-3\">Delete Account</a>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "</div>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			} else {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "<div class=\"mt-8 pt-6\"><h2 class=\"text-base font-semibold text-error mb-4 pb-2 border-b border-error\">Danger Zone</h2><p class=\"text-sm text-base-content/60 mb-4\">Deactivating your account will prevent you from logging in to any applications. You will only be able to access this settings page.</p><form method=\"POST\" action=\"/oauth/deactivate-account\" class=\"mt-4\"><input type=\"hidden\" name=\"csrf_token\" value=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var12 string
+				templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.ResolveAttributeValue(data.CSRFToken)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pkg/views/account_settings.templ`, Line: 191, Col: 66}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var12)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "\"><fieldset class=\"fieldset mb-4\"><label class=\"fieldset-label\" for=\"password\">Confirm your password to deactivate</label> <input type=\"password\" id=\"password\" name=\"password\" placeholder=\"Enter your password\" required autocomplete=\"off\" class=\"input input-bordered w-full\"></fieldset><button type=\"submit\" class=\"btn btn-error w-full\">Deactivate Account</button></form><p class=\"text-sm text-base-content/60 mt-6 mb-3\">Deleting your account signs you out of every app and permanently erases it after 30 days.</p><a href=\"/oauth/delete-account\" class=\"btn btn-outline btn-error w-full\">Delete Account</a></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

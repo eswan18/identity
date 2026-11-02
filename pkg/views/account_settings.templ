@@ -14,6 +14,9 @@ type AccountSettingsView struct {
 	MfaEnabled    bool
 	EmailVerified bool
 	CSRFToken     string
+	// DeletionScheduledFor is the erasure date of a pending self-service
+	// deletion ("" when none is pending).
+	DeletionScheduledFor string
 }
 
 // AccountSettings renders the account settings page. Compare
@@ -163,7 +166,11 @@ templ AccountSettings(data AccountSettingsView) {
 		if data.IsInactive {
 			<div class="mt-8 pt-6">
 				<h2 class="text-base font-semibold text-warning mb-4 pb-2 border-b border-warning">Account Deactivated</h2>
-				<p class="text-sm text-base-content/60 mb-4">Your account is deactivated. You cannot log in to applications until you reactivate your account.</p>
+				if data.DeletionScheduledFor != "" {
+					<p class="text-sm text-base-content/60 mb-4">Your account is scheduled for permanent deletion on { data.DeletionScheduledFor }. Reactivate it before then to cancel the deletion.</p>
+				} else {
+					<p class="text-sm text-base-content/60 mb-4">Your account is deactivated. You cannot log in to applications until you reactivate your account.</p>
+				}
 				<form method="POST" action="/oauth/reactivate-account" class="mt-4">
 					<input type="hidden" name="csrf_token" value={ data.CSRFToken }/>
 					<fieldset class="fieldset mb-4">
@@ -172,6 +179,9 @@ templ AccountSettings(data AccountSettingsView) {
 					</fieldset>
 					<button type="submit" class="btn btn-success w-full">Reactivate Account</button>
 				</form>
+				if data.DeletionScheduledFor == "" {
+					<a href="/oauth/delete-account" class="btn btn-ghost text-error w-full mt-3">Delete Account</a>
+				}
 			</div>
 		} else {
 			<div class="mt-8 pt-6">
@@ -185,6 +195,8 @@ templ AccountSettings(data AccountSettingsView) {
 					</fieldset>
 					<button type="submit" class="btn btn-error w-full">Deactivate Account</button>
 				</form>
+				<p class="text-sm text-base-content/60 mt-6 mb-3">Deleting your account signs you out of every app and permanently erases it after 30 days.</p>
+				<a href="/oauth/delete-account" class="btn btn-outline btn-error w-full">Delete Account</a>
 			</div>
 		}
 		@footer()
