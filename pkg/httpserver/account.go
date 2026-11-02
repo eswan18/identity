@@ -80,16 +80,22 @@ func (s *Server) HandleAccountSettingsGet(w http.ResponseWriter, r *http.Request
 	}
 	displayName := strings.Join(nameParts, " ")
 
+	var deletionScheduledFor string
+	if user.DeletionRequestedAt.Valid {
+		deletionScheduledFor = erasureDateFor(user.DeletionRequestedAt.Time)
+	}
+
 	s.renderAccountSettings(w, r, views.AccountSettingsView{
-		Username:      user.Username,
-		Email:         user.Email,
-		Name:          displayName,
-		AvatarURL:     user.Picture.String,
-		IsInactive:    !user.IsActive,
-		MfaEnabled:    user.MfaEnabled,
-		EmailVerified: user.EmailVerified,
-		Success:       success,
-		Error:         errorMsg,
+		DeletionScheduledFor: deletionScheduledFor,
+		Username:             user.Username,
+		Email:                user.Email,
+		Name:                 displayName,
+		AvatarURL:            user.Picture.String,
+		IsInactive:           !user.IsActive,
+		MfaEnabled:           user.MfaEnabled,
+		EmailVerified:        user.EmailVerified,
+		Success:              success,
+		Error:                errorMsg,
 	})
 }
 

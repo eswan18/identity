@@ -624,6 +624,28 @@ for legacy_user in legacy_users:
         print(f"Failed to migrate {legacy_user.username}: {result}")
 ```
 
+## Letting Users Delete Their Identity Account
+
+Users can delete their identity account themselves at `/oauth/delete-account`
+(also linked from Account Settings). It asks for the password, then
+deactivates the account at once (every token revoked, every session ended)
+and erases it 30 days later; signing in and reactivating before then cancels
+the deletion. Erasure cascades through identity's own tables only. **Your
+app's data about the user is yours to delete**, so delete it first, in your
+own account-deletion flow.
+
+To send the user there from your app and get them back, add your `client_id`
+and one of your registered `redirect_uri`s (exact match, as registered):
+
+```
+/oauth/delete-account?client_id=<id>&redirect_uri=<registered redirect URI>
+```
+
+After deletion identity redirects to that URI with `account_deleted=true`
+(a native app opening the page in `ASWebAuthenticationSession` sees the sheet
+close with that callback). An unknown client or unregistered URI is ignored
+and the user sees identity's "Account Deleted" page instead.
+
 ## FAQ
 
 ### Should I store the access token?

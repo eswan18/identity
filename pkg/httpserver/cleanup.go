@@ -92,6 +92,7 @@ func (s *Server) startCleanupWorker(ctx context.Context) {
 	interval := effectiveCleanupInterval(s.config.CleanupInterval)
 	cleanupLoop(ctx, interval, func(sweepCtx context.Context) {
 		s.runExpiryCleanup(sweepCtx)
+		s.runAccountErasure(sweepCtx, time.Now())
 	})
 }
 

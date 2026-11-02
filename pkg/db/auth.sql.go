@@ -346,7 +346,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) er
 const createUser = `-- name: CreateUser :one
 INSERT INTO auth_users (username, email, password_hash)
 VALUES ($1, $2, $3)
-RETURNING id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture
+RETURNING id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture, deletion_requested_at
 `
 
 type CreateUserParams struct {
@@ -376,6 +376,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (AuthUse
 		&i.GivenName,
 		&i.FamilyName,
 		&i.Picture,
+		&i.DeletionRequestedAt,
 	)
 	return i, err
 }
@@ -655,6 +656,28 @@ type EnableMFAParams struct {
 func (q *Queries) EnableMFA(ctx context.Context, arg EnableMFAParams) error {
 	_, err := q.db.ExecContext(ctx, enableMFA, arg.ID, arg.MfaSecret)
 	return err
+}
+
+const eraseUser = `-- name: EraseUser :execrows
+DELETE FROM auth_users
+WHERE id = $1
+  AND deletion_requested_at IS NOT NULL
+  AND deletion_requested_at < $2::timestamptz
+`
+
+type EraseUserParams struct {
+	ID     uuid.UUID `json:"id"`
+	Cutoff time.Time `json:"cutoff"`
+}
+
+// Permanently deletes a user whose deletion is due; every user-owned table
+// cascades. Re-checks the stamp so a reactivation that raced the sweep wins.
+func (q *Queries) EraseUser(ctx context.Context, arg EraseUserParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, eraseUser, arg.ID, arg.Cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const getAuthorizationCode = `-- name: GetAuthorizationCode :one
@@ -1019,7 +1042,7 @@ func (q *Queries) GetTokenByRefreshTokenIncludingRevoked(ctx context.Context, re
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture, deletion_requested_at
 FROM auth_users
 WHERE email = $1
   AND is_active = true
@@ -1046,12 +1069,13 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (AuthUser, e
 		&i.GivenName,
 		&i.FamilyName,
 		&i.Picture,
+		&i.DeletionRequestedAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture, deletion_requested_at
 FROM auth_users
 WHERE id = $1
   AND is_active = true
@@ -1078,12 +1102,13 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (AuthUser, erro
 		&i.GivenName,
 		&i.FamilyName,
 		&i.Picture,
+		&i.DeletionRequestedAt,
 	)
 	return i, err
 }
 
 const getUserByIDIncludingInactive = `-- name: GetUserByIDIncludingInactive :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture, deletion_requested_at
 FROM auth_users
 WHERE id = $1
 `
@@ -1109,12 +1134,13 @@ func (q *Queries) GetUserByIDIncludingInactive(ctx context.Context, id uuid.UUID
 		&i.GivenName,
 		&i.FamilyName,
 		&i.Picture,
+		&i.DeletionRequestedAt,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture, deletion_requested_at
 FROM auth_users
 WHERE username = $1
   AND is_active = true
@@ -1141,12 +1167,13 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (AuthU
 		&i.GivenName,
 		&i.FamilyName,
 		&i.Picture,
+		&i.DeletionRequestedAt,
 	)
 	return i, err
 }
 
 const getUserByUsernameIncludingInactive = `-- name: GetUserByUsernameIncludingInactive :one
-SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture, deletion_requested_at
 FROM auth_users
 WHERE username = $1
 `
@@ -1172,6 +1199,7 @@ func (q *Queries) GetUserByUsernameIncludingInactive(ctx context.Context, userna
 		&i.GivenName,
 		&i.FamilyName,
 		&i.Picture,
+		&i.DeletionRequestedAt,
 	)
 	return i, err
 }
@@ -1749,7 +1777,7 @@ func (q *Queries) ListUserTokenLastIssued(ctx context.Context, userID uuid.UUID)
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture
+SELECT id, username, password_hash, email, is_active, created_at, updated_at, mfa_enabled, mfa_secret, mfa_verified_at, email_verified, email_verified_at, last_login_at, password_changed_at, given_name, family_name, picture, deletion_requested_at
 FROM auth_users
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2
@@ -1787,7 +1815,46 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]AuthUse
 			&i.GivenName,
 			&i.FamilyName,
 			&i.Picture,
+			&i.DeletionRequestedAt,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUsersDueForErasure = `-- name: ListUsersDueForErasure :many
+SELECT id, username, picture
+FROM auth_users
+WHERE deletion_requested_at IS NOT NULL
+  AND deletion_requested_at < $1::timestamptz
+ORDER BY deletion_requested_at
+LIMIT 100
+`
+
+type ListUsersDueForErasureRow struct {
+	ID       uuid.UUID      `json:"id"`
+	Username string         `json:"username"`
+	Picture  sql.NullString `json:"picture"`
+}
+
+func (q *Queries) ListUsersDueForErasure(ctx context.Context, cutoff time.Time) ([]ListUsersDueForErasureRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUsersDueForErasure, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUsersDueForErasureRow
+	for rows.Next() {
+		var i ListUsersDueForErasureRow
+		if err := rows.Scan(&i.ID, &i.Username, &i.Picture); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1830,10 +1897,11 @@ func (q *Queries) MarkPasswordResetTokenUsed(ctx context.Context, tokenHash stri
 
 const reactivateUser = `-- name: ReactivateUser :exec
 UPDATE auth_users
-SET is_active = true, updated_at = now()
+SET is_active = true, deletion_requested_at = NULL, updated_at = now()
 WHERE id = $1
 `
 
+// Reactivating also cancels a pending self-service deletion.
 func (q *Queries) ReactivateUser(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.ExecContext(ctx, reactivateUser, id)
 	return err
@@ -1855,6 +1923,21 @@ func (q *Queries) RemoveClientResource(ctx context.Context, arg RemoveClientReso
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const requestUserDeletion = `-- name: RequestUserDeletion :exec
+UPDATE auth_users
+SET is_active = false,
+    deletion_requested_at = COALESCE(deletion_requested_at, now()),
+    updated_at = now()
+WHERE id = $1
+`
+
+// Deactivates the user and schedules them for erasure. A repeat request keeps
+// the original stamp, so it never pushes the erasure date back.
+func (q *Queries) RequestUserDeletion(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, requestUserDeletion, id)
+	return err
 }
 
 const revokeAllUserTokens = `-- name: RevokeAllUserTokens :exec
