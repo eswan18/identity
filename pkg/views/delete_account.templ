@@ -48,6 +48,10 @@ templ DeleteAccount(data DeleteAccountView) {
 				<input type="hidden" name="client_id" value={ data.ClientID }/>
 				<input type="hidden" name="redirect_uri" value={ data.RedirectURI }/>
 			}
+			// The account's username, invisible, so password managers read this form as
+			// "confirm your existing password". A lone password field makes iOS AutoFill
+			// offer to generate and save a new password instead. The handler ignores it.
+			<input type="text" name="username" value={ data.Username } autocomplete="username" readonly tabindex="-1" aria-hidden="true" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none"/>
 			<fieldset class="fieldset mb-4">
 				<label class="fieldset-label" for="password">Confirm your password to delete</label>
 				<input type="password" id="password" name="password" placeholder="Enter your password" required autocomplete="current-password" class="input input-bordered w-full"/>
