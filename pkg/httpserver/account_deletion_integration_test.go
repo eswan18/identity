@@ -66,6 +66,9 @@ func (s *OAuthFlowSuite) TestDeleteAccount_DeactivatesRevokesAndSignsOut() {
 	page := s.mustGetPage(browser, deleteAccountURL)
 	s.Contains(page, "Delete My Account")
 	s.Contains(page, "Back to Account Settings")
+	// A username beside the lone password field, so iOS AutoFill treats the form as
+	// confirming an existing password instead of offering to generate a new one.
+	s.Contains(page, `name="username" value="`+user.Username+`" autocomplete="username"`)
 
 	resp, body := s.postDelete(browser, url.Values{"password": {user.Password}})
 	s.Require().Equal(http.StatusOK, resp.StatusCode)
