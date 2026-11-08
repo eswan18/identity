@@ -123,6 +123,7 @@ func (s *OAuthFlowSuite) TearDownTest() {
 }
 
 func (s *OAuthFlowSuite) TearDownSuite() {
+	closeClientConnections(s.httpClient)
 	s.NoError(s.server.Close())
 	s.NoError(s.datastore.DB.Close())
 }
@@ -578,10 +579,35 @@ func generateCodeChallenge(codeVerifier string) string {
 // (Path=/) when their GET handler renders, so this performs the "GET the form page
 // first" half of the double-submit handshake. When the client already holds the
 // cookie in its jar, the server does not resend it, so we fall back to the jar.
+// closeClientConnections drops the test clients' pooled keep-alive connections
+// before the server shuts down. http.Transport can dial a connection it then
+// never sends a request on (a dial that loses the race to a connection freed
+// mid-request). The server sees it as StateNew, and Shutdown only reaps those
+// once they are 5s old, polling with up to 500ms backoff -- so it races
+// Close's own 5s deadline and fails intermittently with "context deadline
+// exceeded". Closing them client-side lets Shutdown return immediately.
+// Cookie-jar clients built in the tests use http.DefaultTransport, so that is
+// closed too.
+func closeClientConnections(clients ...*http.Client) {
+	for _, c := range clients {
+		if c != nil {
+			c.CloseIdleConnections()
+		}
+	}
+	if t, ok := http.DefaultTransport.(*http.Transport); ok {
+		t.CloseIdleConnections()
+	}
+}
+
 func fetchCSRFToken(t *testing.T, client *http.Client, getURL string) (string, *http.Cookie) {
 	t.Helper()
 	resp, err := client.Get(getURL)
 	require.NoError(t, err)
+	// Drain before closing so the connection goes straight back to the idle
+	// pool. Closing an unread body leaves the connection busy for a moment; a
+	// request made in that window dials a second connection that is then never
+	// used, and the server's Shutdown waits on it (see closeClientConnections).
+	_, _ = io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 	for _, c := range resp.Cookies() {
 		if c.Name == csrfCookieName {

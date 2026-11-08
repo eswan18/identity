@@ -1,6 +1,6 @@
 module github.com/eswan18/identity
 
-go 1.26.10
+go 1.27.3
 
 require (
 	github.com/a-h/templ v0.3.1100

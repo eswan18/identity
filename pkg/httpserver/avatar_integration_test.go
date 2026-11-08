@@ -131,6 +131,7 @@ func (s *AvatarFlowSuite) TearDownTest() {
 
 func (s *AvatarFlowSuite) TearDownSuite() {
 	ctx := context.Background()
+	closeClientConnections(s.httpClient)
 	s.NoError(s.server.Close())
 	s.NoError(s.datastore.DB.Close())
 	if s.pgContainer != nil {

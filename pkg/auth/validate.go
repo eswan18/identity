@@ -14,9 +14,9 @@ const (
 
 // Password validation errors
 var (
-	ErrPasswordTooShort    = errors.New("password must be at least 8 characters")
-	ErrPasswordTooLong     = errors.New("password must be at most 128 characters")
-	ErrPasswordTooCommon   = errors.New("password is too common")
+	ErrPasswordTooShort       = errors.New("password must be at least 8 characters")
+	ErrPasswordTooLong        = errors.New("password must be at most 128 characters")
+	ErrPasswordTooCommon      = errors.New("password is too common")
 	ErrPasswordSameAsUsername = errors.New("password cannot be the same as username")
 )
 
