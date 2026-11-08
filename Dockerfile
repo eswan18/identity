@@ -1,5 +1,5 @@
 # Tailwind CSS build stage
-FROM node:22-alpine AS tailwind
+FROM node:24-alpine AS tailwind
 
 WORKDIR /build
 
@@ -37,12 +37,12 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     github.com/jackc/pgx/v5/stdlib \
     github.com/golang-migrate/migrate/v4 \
     github.com/swaggo/swag \
-    github.com/swaggo/http-swagger \
+    github.com/swaggo/http-swagger/v2 \
     github.com/disintegration/imaging \
     github.com/golang-jwt/jwt/v5 \
     github.com/go-chi/chi/v5 \
     github.com/pquerna/otp/totp \
-    github.com/resend/resend-go/v2 \
+    github.com/resend/resend-go/v3 \
     github.com/spf13/cobra \
     github.com/lib/pq \
     golang.org/x/crypto/argon2

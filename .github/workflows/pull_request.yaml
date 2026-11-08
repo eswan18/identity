@@ -23,10 +23,10 @@ jobs:
       JWT_ISSUER: http://localhost:8080
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -40,7 +40,7 @@ jobs:
       # generator output matches what produced the committed files.
       - name: Verify templ generation is up to date
         run: |
-          go install github.com/a-h/templ/cmd/templ@v0.3.1070
+          go install github.com/a-h/templ/cmd/templ@v0.3.1100
           templ generate
           # Stage first: git diff alone ignores untracked files, so a NEW
           # component's generated file would leave this green while
