@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/resend/resend-go/v2"
+	"github.com/resend/resend-go/v3"
 )
 
 // ResendSender sends emails using the Resend API.

@@ -71,7 +71,7 @@ lint:
 # release regenerates identical code with a different version banner, CI reports
 # the tree as stale, and re-running `make sqlc` -- which is what the error tells
 # them to do -- changes nothing.
-SQLC_VERSION := v1.30.0
+SQLC_VERSION := v1.31.1
 SQLC := go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
 
 .PHONY: sqlc

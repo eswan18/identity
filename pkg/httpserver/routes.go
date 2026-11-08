@@ -6,7 +6,7 @@ import (
 	_ "github.com/eswan18/identity/docs"
 	"github.com/eswan18/identity/pkg/views"
 	"github.com/go-chi/chi/v5"
-	httpSwagger "github.com/swaggo/http-swagger"
+	httpSwagger "github.com/swaggo/http-swagger/v2"
 )
 
 // newCorsMiddleware creates a CORS middleware with the given allowed methods and headers.

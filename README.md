@@ -23,7 +23,7 @@ This project requires a few CLI tools:
 # swaggo/swag for generating openapi docs
 go install github.com/swaggo/swag/cmd/swag@latest
 # sqlc-dev/sqlc for generating type-safe database code
-go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0  # or just use `make sqlc`, which pins this
+go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1  # or just use `make sqlc`, which pins this
 # golang-migrate/migrate for migrations
 go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
 # a-h/templ for the server-rendered HTML pages (pkg/views/*.templ)
