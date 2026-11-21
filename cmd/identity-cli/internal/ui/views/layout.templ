@@ -12,6 +12,9 @@ type Page struct {
 	Title string
 	Env   EnvBanner
 	CSRF  string
+	// Base is the panel's secret path prefix (/s/<secret>/). Every link and
+	// form in the views is relative and resolves against it via <base>.
+	Base string
 }
 
 func (p Page) docTitle() string {
@@ -40,7 +43,8 @@ templ Layout(p Page) {
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			<title>{ p.docTitle() }</title>
-			<link rel="stylesheet" href="/assets/style.css"/>
+			<base href={ p.Base }/>
+			<link rel="stylesheet" href="assets/style.css"/>
 		</head>
 		<body class="min-h-screen bg-base-200 text-base-content">
 			<div class={ "w-full text-center font-bold tracking-widest py-1 text-sm", p.Env.badgeClass() }>
@@ -51,11 +55,11 @@ templ Layout(p Page) {
 			</div>
 			<div class="navbar bg-base-100 shadow-sm px-6">
 				<div class="flex-1">
-					<a href="/clients" class="text-lg font-semibold">identity admin</a>
+					<a href="clients" class="text-lg font-semibold">identity admin</a>
 				</div>
 				<ul class="menu menu-horizontal gap-1">
-					<li><a href="/clients">Clients</a></li>
-					<li><a href="/resources">Resources</a></li>
+					<li><a href="clients">Clients</a></li>
+					<li><a href="resources">Resources</a></li>
 				</ul>
 			</div>
 			<main class="max-w-5xl mx-auto p-6">

@@ -2,6 +2,9 @@ package ui
 
 import (
 	"database/sql"
+	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/eswan18/identity/cmd/identity-cli/internal/ops"
@@ -109,4 +112,22 @@ func TestBuildResourceUpdateUnchanged(t *testing.T) {
 	u := buildResourceUpdate(cur, resourceForm{Name: "R", Scopes: map[string]string{"r:write": "Write R", "r:read": "Read R"}})
 	require.Empty(t, DiffResource(cur, u))
 	require.Equal(t, ops.Keep, u.Scopes.Mode)
+}
+
+func TestParseResourceFormKeepsInputOnError(t *testing.T) {
+	req := httptest.NewRequest("POST", "/", strings.NewReader(url.Values{
+		"name":            {"My API"},
+		"scope_name":      {"a:read", "a:read"},
+		"scope_desc":      {"Read A", "Read A again"},
+		"dynamic_clients": {"on"},
+		"fingerprint":     {"fp"},
+	}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	require.NoError(t, req.ParseForm())
+	f, err := parseResourceForm(req)
+	require.ErrorContains(t, err, "listed twice")
+	require.Equal(t, "My API", f.Name, "the operator's input survives the error")
+	require.True(t, f.DynamicClients)
+	require.Equal(t, "fp", f.Fingerprint)
+	require.Equal(t, map[string]string{"a:read": "Read A"}, f.Scopes)
 }

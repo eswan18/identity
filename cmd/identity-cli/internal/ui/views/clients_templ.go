@@ -70,9 +70,9 @@ func ClientHref(path, clientID string) string {
 
 func (v ClientFormView) action() string {
 	if v.New {
-		return "/clients/new"
+		return "clients/new"
 	}
-	return ClientHref("/client/review", v.ClientID)
+	return ClientHref("client/review", v.ClientID)
 }
 
 func defaultOr(uri, fallback string) string {
@@ -111,7 +111,7 @@ func ClientList(p Page, clients []db.OauthClient) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"mb-4\"><a class=\"btn btn-primary btn-sm\" href=\"/clients/new\">New client</a></div><div class=\"overflow-x-auto bg-base-100 rounded-box shadow\"><table class=\"table\"><thead><tr><th>Name</th><th>Client ID</th><th>Kind</th><th>Type</th><th>Trusted</th><th>Default resource</th></tr></thead> <tbody>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"mb-4\"><a class=\"btn btn-primary btn-sm\" href=\"clients/new\">New client</a></div><div class=\"overflow-x-auto bg-base-100 rounded-box shadow\"><table class=\"table\"><thead><tr><th>Name</th><th>Client ID</th><th>Kind</th><th>Type</th><th>Trusted</th><th>Default resource</th></tr></thead> <tbody>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -121,9 +121,9 @@ func ClientList(p Page, clients []db.OauthClient) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var3 string
-				templ_7745c5c3_Var3, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(ClientHref("/client", c.ClientID))).ResolveURL(ctx)
+				templ_7745c5c3_Var3, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(ClientHref("client", c.ClientID))).ResolveURL(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/identity-cli/internal/ui/views/clients.templ`, Line: 87, Col: 107}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/identity-cli/internal/ui/views/clients.templ`, Line: 87, Col: 106}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 				if templ_7745c5c3_Err != nil {
@@ -136,7 +136,7 @@ func ClientList(p Page, clients []db.OauthClient) templ.Component {
 				var templ_7745c5c3_Var4 string
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(c.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/identity-cli/internal/ui/views/clients.templ`, Line: 87, Col: 118}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/identity-cli/internal/ui/views/clients.templ`, Line: 87, Col: 117}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 				if templ_7745c5c3_Err != nil {
@@ -576,9 +576,9 @@ func ClientForm(p Page, v ClientFormView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var23 string
-				templ_7745c5c3_Var23, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(ClientHref("/client/delete", v.ClientID))).ResolveURL(ctx)
+				templ_7745c5c3_Var23, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(ClientHref("client/delete", v.ClientID))).ResolveURL(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/identity-cli/internal/ui/views/clients.templ`, Line: 189, Col: 92}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/identity-cli/internal/ui/views/clients.templ`, Line: 189, Col: 91}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var23)
 				if templ_7745c5c3_Err != nil {
@@ -1087,9 +1087,9 @@ func ClientCreated(p Page, c db.OauthClient, secret string) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var48 string
-			templ_7745c5c3_Var48, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(ClientHref("/client", c.ClientID))).ResolveURL(ctx)
+			templ_7745c5c3_Var48, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(ClientHref("client", c.ClientID))).ResolveURL(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/identity-cli/internal/ui/views/clients.templ`, Line: 262, Col: 80}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/identity-cli/internal/ui/views/clients.templ`, Line: 262, Col: 79}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var48)
 			if templ_7745c5c3_Err != nil {
@@ -1147,9 +1147,9 @@ func ClientDelete(p Page, c db.OauthClient, errMsg string) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var51 string
-			templ_7745c5c3_Var51, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(ClientHref("/client/delete", c.ClientID))).ResolveURL(ctx)
+			templ_7745c5c3_Var51, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(ClientHref("client/delete", c.ClientID))).ResolveURL(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/identity-cli/internal/ui/views/clients.templ`, Line: 270, Col: 86}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/identity-cli/internal/ui/views/clients.templ`, Line: 270, Col: 85}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var51)
 			if templ_7745c5c3_Err != nil {
@@ -1204,9 +1204,9 @@ func ClientDelete(p Page, c db.OauthClient, errMsg string) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var54 string
-			templ_7745c5c3_Var54, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(ClientHref("/client", c.ClientID))).ResolveURL(ctx)
+			templ_7745c5c3_Var54, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(ClientHref("client", c.ClientID))).ResolveURL(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/identity-cli/internal/ui/views/clients.templ`, Line: 281, Col: 84}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/identity-cli/internal/ui/views/clients.templ`, Line: 281, Col: 83}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var54)
 			if templ_7745c5c3_Err != nil {
@@ -1259,7 +1259,7 @@ func Message(p Page, msg string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 105, "<a class=\"btn btn-sm\" href=\"/clients\">Back to clients</a>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 105, "<a class=\"btn btn-sm\" href=\"clients\">Back to clients</a>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

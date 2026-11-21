@@ -173,7 +173,7 @@ func (s *Server) renderClientReview(w http.ResponseWriter, r *http.Request, stat
 	id := cur.Client.ClientID
 	s.render(w, r, status, views.Review(s.page("Review changes"), views.ReviewView{
 		Kind: "client", Key: id, Name: cur.Client.Name, Changes: changes, Hidden: hidden, Notice: notice,
-		ApplyHref: views.ClientHref("/client/apply", id), BackHref: views.ClientHref("/client", id),
+		ApplyHref: views.ClientHref("client/apply", id), BackHref: views.ClientHref("client", id),
 	}))
 }
 
@@ -205,7 +205,7 @@ func (s *Server) handleClientApply(w http.ResponseWriter, r *http.Request) {
 		s.renderEditForm(w, r, http.StatusUnprocessableEntity, cur, f, err.Error(), "")
 		return
 	}
-	http.Redirect(w, r, views.ClientHref("/client", id)+"&saved=1", http.StatusSeeOther)
+	http.Redirect(w, r, s.url(views.ClientHref("client", id)+"&saved=1"), http.StatusSeeOther)
 }
 
 func (s *Server) handleClientDeleteForm(w http.ResponseWriter, r *http.Request) {
@@ -221,7 +221,7 @@ func (s *Server) handleClientDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if s.target.IsProd() && strings.TrimSpace(r.PostFormValue("confirm_name")) != d.Client.Name {
+	if s.target.IsProd() && strings.TrimSpace(r.PostFormValue("confirm_name")) != strings.TrimSpace(d.Client.Name) {
 		s.render(w, r, http.StatusUnprocessableEntity,
 			views.ClientDelete(s.page("Delete client"), d.Client, "Type the client's name exactly to delete it from prod."))
 		return
@@ -230,5 +230,5 @@ func (s *Server) handleClientDelete(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, http.StatusUnprocessableEntity, views.ClientDelete(s.page("Delete client"), d.Client, err.Error()))
 		return
 	}
-	http.Redirect(w, r, "/clients", http.StatusSeeOther)
+	http.Redirect(w, r, s.url("clients"), http.StatusSeeOther)
 }

@@ -139,10 +139,19 @@ type resourceForm struct {
 
 // parseResourceForm reads the scope rows (paired scope_name/scope_desc
 // fields; rows with both blank are ignored). A row with only one half is
-// kept, so the shared validation refuses it with a clear message.
+// kept, so the shared validation refuses it with a clear message. On error
+// the form is still returned, as far as it was read, so the page can show
+// the operator's input back to them.
 func parseResourceForm(r *http.Request) (resourceForm, error) {
+	f := resourceForm{
+		URI:            strings.TrimSpace(r.PostFormValue("uri")),
+		Name:           strings.TrimSpace(r.PostFormValue("name")),
+		Scopes:         map[string]string{},
+		DynamicClients: r.PostFormValue("dynamic_clients") == "on",
+		Fingerprint:    r.PostFormValue("fingerprint"),
+	}
 	names, descs := r.PostForm["scope_name"], r.PostForm["scope_desc"]
-	scopes := map[string]string{}
+	scopes := f.Scopes
 	for i := 0; i < max(len(names), len(descs)); i++ {
 		var name, desc string
 		if i < len(names) {
@@ -155,17 +164,11 @@ func parseResourceForm(r *http.Request) (resourceForm, error) {
 			continue
 		}
 		if _, dup := scopes[name]; dup {
-			return resourceForm{}, fmt.Errorf("scope %q is listed twice", name)
+			return f, fmt.Errorf("scope %q is listed twice", name)
 		}
 		scopes[name] = desc
 	}
-	return resourceForm{
-		URI:            strings.TrimSpace(r.PostFormValue("uri")),
-		Name:           strings.TrimSpace(r.PostFormValue("name")),
-		Scopes:         scopes,
-		DynamicClients: r.PostFormValue("dynamic_clients") == "on",
-		Fingerprint:    r.PostFormValue("fingerprint"),
-	}, nil
+	return f, nil
 }
 
 func formFromResource(d ops.ResourceDetail) resourceForm {

@@ -4,18 +4,24 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 // protect is the panel's whole access control. The panel edits OAuth clients
-// with the operator's database credentials, so a localhost server that any
-// web page could drive would be a hole. It requires, on every request:
+// with the operator's database credentials, so a localhost server that
+// anything else could drive would be a hole. It requires, on every request:
 //
 //   - a Host of 127.0.0.1:<port> or localhost:<port>, which defeats DNS
 //     rebinding (a hostile name resolving to 127.0.0.1 still sends its own
 //     Host);
-//   - the session cookie, which only the holder of the start URL's one-time
-//     token can obtain (the Jupyter model). It is SameSite=Strict, so other
-//     sites' requests never carry it;
+//   - a path under /s/<pathSecret>/. Anything else is a 404. Browsers send
+//     cookies to every port on a host, so the session cookie is scoped to this
+//     path: another local server the operator visits is never asked for it,
+//     so never receives the cookie;
+//   - the session cookie, which only the first holder of the start URL's
+//     token can obtain (the token is exchanged once; the cookie holds a
+//     separate value). It is SameSite=Strict, so other sites' requests never
+//     carry it;
 //   - on POST, the csrf form field as well.
 func (s *Server) protect(next http.Handler) http.Handler {
 	port := strconv.Itoa(s.port)
@@ -31,25 +37,35 @@ func (s *Server) protect(next http.Handler) http.Handler {
 			http.Error(w, "forbidden host", http.StatusForbidden)
 			return
 		}
-
-		if tok := r.URL.Query().Get("token"); tok != "" {
-			if !equal(tok, s.token) {
-				http.Error(w, "wrong token: use the URL identity-cli ui printed", http.StatusForbidden)
-				return
-			}
-			http.SetCookie(w, &http.Cookie{
-				Name:     s.cookieName(),
-				Value:    s.token,
-				Path:     "/",
-				HttpOnly: true,
-				SameSite: http.SameSiteStrictMode,
-			})
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+		if !strings.HasPrefix(r.URL.Path, s.base()) {
+			http.NotFound(w, r)
 			return
 		}
 
-		c, err := r.Cookie(s.cookieName())
-		if err != nil || !equal(c.Value, s.token) {
+		signedIn := false
+		if c, err := r.Cookie(s.cookieName()); err == nil && equal(c.Value, s.session) {
+			signedIn = true
+		}
+
+		if tok := r.URL.Query().Get("token"); tok != "" {
+			if !signedIn {
+				if !s.useToken(tok) {
+					http.Error(w, "this link has already been used or is wrong: restart identity-cli ui for a new one", http.StatusForbidden)
+					return
+				}
+				http.SetCookie(w, &http.Cookie{
+					Name:     s.cookieName(),
+					Value:    s.session,
+					Path:     s.base(),
+					HttpOnly: true,
+					SameSite: http.SameSiteStrictMode,
+				})
+			}
+			http.Redirect(w, r, s.base(), http.StatusSeeOther)
+			return
+		}
+
+		if !signedIn {
 			http.Error(w, "not signed in: open the URL identity-cli ui printed", http.StatusForbidden)
 			return
 		}
@@ -65,6 +81,18 @@ func (s *Server) protect(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// useToken reports whether tok is the start token and has not been used,
+// and marks it used.
+func (s *Server) useToken(tok string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.tokenUsed || !equal(tok, s.token) {
+		return false
+	}
+	s.tokenUsed = true
+	return true
 }
 
 // cookieName includes the port, so two panels (staging and prod) on different

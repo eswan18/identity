@@ -45,9 +45,9 @@ func ScopeRows(scopes map[string]string, blanks int) []ScopeRow {
 
 func (v ResourceFormView) action() string {
 	if v.New {
-		return "/resources/new"
+		return "resources/new"
 	}
-	return ResourceHref("/resource/review", v.URI)
+	return ResourceHref("resource/review", v.URI)
 }
 
 func referenceKind(c db.ListClientsReferencingResourceRow) string {
@@ -59,7 +59,7 @@ func referenceKind(c db.ListClientsReferencingResourceRow) string {
 
 templ ResourceList(p Page, resources []db.OauthResource) {
 	@Layout(p) {
-		<div class="mb-4"><a class="btn btn-primary btn-sm" href="/resources/new">New resource</a></div>
+		<div class="mb-4"><a class="btn btn-primary btn-sm" href="resources/new">New resource</a></div>
 		<div class="overflow-x-auto bg-base-100 rounded-box shadow">
 			<table class="table">
 				<thead>
@@ -68,7 +68,7 @@ templ ResourceList(p Page, resources []db.OauthResource) {
 				<tbody>
 					for _, r := range resources {
 						<tr class="hover">
-							<td><a class="link link-primary font-medium" href={ templ.SafeURL(ResourceHref("/resource", r.Uri)) }>{ r.Name }</a></td>
+							<td><a class="link link-primary font-medium" href={ templ.SafeURL(ResourceHref("resource", r.Uri)) }>{ r.Name }</a></td>
 							<td class="font-mono text-xs break-all">{ r.Uri }</td>
 							<td>
 								if r.DynamicClients {
@@ -127,7 +127,7 @@ templ ResourceForm(p Page, v ResourceFormView) {
 					}
 					<ul class="list-disc ml-6 text-sm">
 						for _, c := range v.UsedBy {
-							<li><a class="link" href={ templ.SafeURL(ClientHref("/client", c.ClientID)) }>{ c.Name }</a> ({ referenceKind(c) })</li>
+							<li><a class="link" href={ templ.SafeURL(ClientHref("client", c.ClientID)) }>{ c.Name }</a> ({ referenceKind(c) })</li>
 						}
 					</ul>
 				</div>
@@ -137,7 +137,7 @@ templ ResourceForm(p Page, v ResourceFormView) {
 					<button class="btn btn-primary" type="submit">Create resource</button>
 				} else {
 					<button class="btn btn-primary" type="submit">Review changes</button>
-					<a class="btn btn-ghost" href={ templ.SafeURL(ResourceHref("/resource/delete", v.URI)) }>Delete…</a>
+					<a class="btn btn-ghost" href={ templ.SafeURL(ResourceHref("resource/delete", v.URI)) }>Delete…</a>
 				}
 			</div>
 		</form>
@@ -147,7 +147,7 @@ templ ResourceForm(p Page, v ResourceFormView) {
 templ ResourceDelete(p Page, r db.OauthResource, errMsg string) {
 	@Layout(p) {
 		@ErrorAlert(errMsg)
-		<form method="post" action={ templ.SafeURL(ResourceHref("/resource/delete", r.Uri)) } class="bg-base-100 rounded-box shadow p-6 space-y-4 max-w-xl">
+		<form method="post" action={ templ.SafeURL(ResourceHref("resource/delete", r.Uri)) } class="bg-base-100 rounded-box shadow p-6 space-y-4 max-w-xl">
 			@CSRFField(p)
 			<p>Delete <span class="font-semibold">{ r.Name }</span> (<span class="font-mono text-xs break-all">{ r.Uri }</span>)? Tokens already issued for it keep working until they expire.</p>
 			if p.Env.Prod {
@@ -158,7 +158,7 @@ templ ResourceDelete(p Page, r db.OauthResource, errMsg string) {
 			}
 			<div class="flex gap-2">
 				<button class="btn btn-error" type="submit">Delete</button>
-				<a class="btn btn-ghost" href={ templ.SafeURL(ResourceHref("/resource", r.Uri)) }>Cancel</a>
+				<a class="btn btn-ghost" href={ templ.SafeURL(ResourceHref("resource", r.Uri)) }>Cancel</a>
 			</div>
 		</form>
 	}
