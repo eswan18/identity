@@ -645,6 +645,94 @@
                 }
             }
         },
+        "/delete-account": {
+            "get": {
+                "description": "Explains what deleting the account does and asks for the password. Optional client_id and redirect_uri name an app (and one of its registered redirect URIs) to return to afterwards.",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "account"
+                ],
+                "summary": "Show delete account page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Client to return to after deletion",
+                        "name": "client_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Registered redirect URI of that client",
+                        "name": "redirect_uri",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "HTML delete account page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Deactivates the account immediately and schedules it for permanent erasure after 30 days. Reactivating within that window cancels the deletion.",
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "account"
+                ],
+                "summary": "Delete user account",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Password for verification",
+                        "name": "password",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Client to return to after deletion",
+                        "name": "client_id",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Registered redirect URI of that client",
+                        "name": "redirect_uri",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Account deleted page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "302": {
+                        "description": "Redirect to the app's redirect URI with account_deleted=true",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Invalid password",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/delete-avatar": {
             "post": {
                 "description": "Removes the user's avatar",
@@ -1045,6 +1133,12 @@
                         "description": "PKCE challenge method (must be 'S256'). Required for OAuth flow.",
                         "name": "code_challenge_method",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC 8707 resource indicator: the API the token is for. At most one; must be a registered resource the client may request. Defaults to the client's default resource.",
+                        "name": "resource",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -1256,6 +1350,12 @@
                         "description": "Refresh token (required for refresh_token grant)",
                         "name": "refresh_token",
                         "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC 8707 resource indicator. authorization_code and refresh_token: optional, and must name the resource the grant is for. client_credentials: a resource the client may request (defaults to its default resource).",
+                        "name": "resource",
+                        "in": "formData"
                     }
                 ],
                 "responses": {
@@ -1267,7 +1367,7 @@
                         }
                     },
                     "400": {
-                        "description": "OAuth2 error response (invalid_request, invalid_grant, unsupported_grant_type, etc.)",
+                        "description": "OAuth2 error response (invalid_request, invalid_grant, invalid_target, unsupported_grant_type, etc.)",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
