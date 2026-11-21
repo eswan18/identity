@@ -2,13 +2,12 @@ package cmd
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/eswan18/identity/cmd/identity-cli/internal"
-	"github.com/eswan18/identity/pkg/db"
+	"github.com/eswan18/identity/cmd/identity-cli/internal/ops"
 	"github.com/spf13/cobra"
 )
 
@@ -104,185 +103,54 @@ func init() {
 
 func runClientUpdate(cmd *cobra.Command, args []string) error {
 	clientID := args[0]
-
-	datastore := getDatastore()
-
-	ctx := context.Background()
-
-	// Get current client to preserve values
-	currentClient, err := datastore.Q.GetOAuthClientByClientID(ctx, clientID)
-	if err != nil {
-		return fmt.Errorf("failed to get OAuth client: %w", err)
-	}
-
-	// Build update params - only include fields that were provided
-	params := db.UpdateOAuthClientParams{
-		ClientID: clientID,
-	}
-
-	// Check which flags were set
 	flags := cmd.Flags()
-	nameSet := flags.Changed("name")
-	redirectURIsSet := flags.Changed("redirect-uris")
-	addRedirectURIsSet := flags.Changed("add-redirect-uris")
-	removeRedirectURIsSet := flags.Changed("remove-redirect-uris")
-	scopesSet := flags.Changed("scopes")
-	confidentialSet := flags.Changed("confidential")
+	var u ops.ClientUpdate
 
-	if nameSet {
-		params.Name = sql.NullString{String: updateName, Valid: true}
-	} else {
-		params.Name = sql.NullString{String: currentClient.Name, Valid: true}
+	if flags.Changed("name") {
+		u.Name = &updateName
 	}
-
-	if redirectURIsSet {
-		params.RedirectUris = internal.ParseList(updateRedirectURIs)
-	} else if addRedirectURIsSet {
-		params.RedirectUris = internal.AppendUnique(
-			currentClient.RedirectUris, internal.ParseList(updateAddRedirectURIs),
-		)
-	} else if removeRedirectURIsSet {
-		remaining, notFound := internal.RemoveValues(
-			currentClient.RedirectUris, internal.ParseList(updateRemoveRedirectURIs),
-		)
-		if len(notFound) > 0 {
-			return fmt.Errorf(
-				"client %s has no such redirect URI: %s - nothing was changed",
-				clientID, strings.Join(notFound, ", "),
-			)
-		}
-		params.RedirectUris = remaining
-	} else {
-		params.RedirectUris = currentClient.RedirectUris
+	switch {
+	case flags.Changed("redirect-uris"):
+		u.RedirectURIs = ops.ListEdit{Mode: ops.Replace, Values: internal.ParseList(updateRedirectURIs)}
+	case flags.Changed("add-redirect-uris"):
+		u.RedirectURIs = ops.ListEdit{Mode: ops.Add, Values: internal.ParseList(updateAddRedirectURIs)}
+	case flags.Changed("remove-redirect-uris"):
+		u.RedirectURIs = ops.ListEdit{Mode: ops.Remove, Values: internal.ParseList(updateRemoveRedirectURIs)}
 	}
-
-	if scopesSet {
-		params.AllowedScopes = internal.ParseList(updateAllowedScopes)
-	} else {
-		params.AllowedScopes = currentClient.AllowedScopes
+	if flags.Changed("scopes") {
+		scopes := internal.ParseList(updateAllowedScopes)
+		u.Scopes = &scopes
 	}
-
-	if confidentialSet {
-		params.IsConfidential = sql.NullBool{Bool: updateIsConfidential, Valid: true}
-	} else {
-		params.IsConfidential = sql.NullBool{Bool: currentClient.IsConfidential, Valid: true}
+	if flags.Changed("confidential") {
+		u.Confidential = &updateIsConfidential
 	}
-
-	// Trust is left alone unless asked. Whenever the result is a trusted
-	// client -- trusting one, or changing the redirect URIs of one already
-	// trusted -- it must pass ValidateTrustable against the redirect URIs it
-	// will have: only a client registered here (never a metadata-document
-	// one, whose code and redirect URIs belong to whoever publishes the
-	// document; the table's CHECK refuses that too), and only exact,
-	// non-loopback redirect URIs, since it skips the consent screen.
-	trusted := currentClient.Trusted
 	if flags.Changed("trusted") {
-		trusted = updateTrusted
-		params.Trusted = sql.NullBool{Bool: updateTrusted, Valid: true}
+		u.Trusted = &updateTrusted
 	}
-	if trusted {
-		if err := internal.ValidateTrustable(currentClient.Kind, params.RedirectUris); err != nil {
-			if currentClient.Trusted && !flags.Changed("trusted") {
-				return fmt.Errorf("client %s is trusted: %w - nothing was changed", clientID, err)
-			}
-			return err
-		}
-	}
-
-	// The default resource is left alone unless asked; clearing it sets NULL,
-	// which is why the query takes an explicit "set" flag rather than treating
-	// NULL as "unchanged" like the fields above.
 	switch {
 	case flags.Changed("clear-default-resource") && updateClearDefaultRes:
-		params.SetDefaultResource = true
-		params.DefaultResource = sql.NullString{}
+		clear := ""
+		u.DefaultResource = &clear
 	case flags.Changed("default-resource"):
 		if updateDefaultResource == "" {
 			return errors.New("--default-resource cannot be empty; use --clear-default-resource to remove the default")
 		}
-		defaultResource, err := resolveDefaultResource(ctx, updateDefaultResource)
-		if err != nil {
-			return err
-		}
-		params.SetDefaultResource = true
-		params.DefaultResource = defaultResource
+		u.DefaultResource = &updateDefaultResource
 	}
-
-	// Apply the same admin-scope rule as create, against the effective values
-	// (a flag that was not passed keeps the client's current setting), so an
-	// update cannot arrive at a combination create would have refused.
-	if err := internal.ValidateAdminScopes(params.AllowedScopes, params.IsConfidential.Bool); err != nil {
-		return err
-	}
-
-	// Validate: confidential clients must have secrets
-	if params.IsConfidential.Bool && !currentClient.ClientSecret.Valid {
-		// Note: We can't update the secret with the current UpdateOAuthClient query
-		// This would require a separate query or updating the SQL
-		return errors.New("cannot make a public client confidential - secret generation not yet supported in update")
-	}
-
-	// Validate redirect URIs if they were modified
-	if redirectURIsSet || addRedirectURIsSet {
-		if err := internal.ValidateRedirectURIs(params.RedirectUris); err != nil {
-			return err
-		}
-	}
-
-	// The allow-list edit is resolved before anything is written, so an
-	// unknown URI changes nothing.
-	var resourcesFlag, resourcesList string
 	switch {
 	case flags.Changed("resources"):
-		resourcesFlag, resourcesList = "--resources", updateResources
+		u.Resources = ops.ListEdit{Mode: ops.Replace, Values: internal.ParseList(updateResources)}
 	case flags.Changed("add-resources"):
-		resourcesFlag, resourcesList = "--add-resources", updateAddResources
+		u.Resources = ops.ListEdit{Mode: ops.Add, Values: internal.ParseList(updateAddResources)}
 	case flags.Changed("remove-resources"):
-		resourcesFlag, resourcesList = "--remove-resources", updateRemoveResources
-	}
-	var resources []db.OauthResource
-	if resourcesFlag != "" {
-		if resources, err = resolveResourceList(ctx, datastore.Q, resourcesFlag, resourcesList); err != nil {
-			return err
-		}
+		u.Resources = ops.ListEdit{Mode: ops.Remove, Values: internal.ParseList(updateRemoveResources)}
 	}
 
-	// The client row and its allow-list change together or not at all.
-	tx, err := datastore.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to start a transaction: %w", err)
-	}
-	defer tx.Rollback()
-	q := datastore.Q.WithTx(tx)
-
-	updatedClient, err := q.UpdateOAuthClient(ctx, params)
-	if err != nil {
-		return fmt.Errorf("failed to update OAuth client: %w", err)
-	}
-
-	switch resourcesFlag {
-	case "--resources":
-		err = replaceClientResources(ctx, q, updatedClient.ID, resources)
-	case "--add-resources":
-		err = addClientResources(ctx, q, updatedClient.ID, resources)
-	case "--remove-resources":
-		var notFound []string
-		notFound, err = removeClientResources(ctx, q, updatedClient.ID, resources)
-		if err == nil && len(notFound) > 0 {
-			err = fmt.Errorf("client %s does not have resource %s on its allow-list - nothing was changed",
-				clientID, strings.Join(notFound, ", "))
-		}
-	}
+	detail, err := ops.UpdateClient(context.Background(), getDatastore(), clientID, u)
 	if err != nil {
 		return err
 	}
-	allowed, err := q.ListClientResources(ctx, updatedClient.ID)
-	if err != nil {
-		return fmt.Errorf("reading the client's allowed resources: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit: %w", err)
-	}
+	updatedClient := detail.Client
 
 	fmt.Println("\n✅ OAuth client updated successfully!")
 	fmt.Println("\nUpdated Client Details:")
@@ -291,7 +159,7 @@ func runClientUpdate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Redirect URIs:  %s\n", strings.Join(updatedClient.RedirectUris, ", "))
 	fmt.Printf("  Allowed Scopes: %s\n", strings.Join(updatedClient.AllowedScopes, ", "))
 	fmt.Printf("  Default Resource: %s\n", internal.DefaultResourceValue(updatedClient.DefaultResource))
-	fmt.Printf("  Allowed Resources: %s\n", allowedResourcesValue(allowed))
+	fmt.Printf("  Allowed Resources: %s\n", allowedResourcesValue(detail.Resources))
 	fmt.Printf("  Confidential:   %v\n", updatedClient.IsConfidential)
 	fmt.Printf("  Trusted:        %v\n", updatedClient.Trusted)
 	fmt.Printf("  Updated:        %s\n", updatedClient.UpdatedAt.Format("2006-01-02 15:04:05"))

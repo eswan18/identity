@@ -39,3 +39,23 @@ func TestParseScopes(t *testing.T) {
 		t.Error("ParseScopes accepted a non-object")
 	}
 }
+
+func TestValidateResourceScopes(t *testing.T) {
+	if err := ValidateResourceScopes(map[string]string{"a:read": "Read A"}); err != nil {
+		t.Errorf("valid scopes refused: %v", err)
+	}
+	if err := ValidateResourceScopes(nil); err != nil {
+		t.Errorf("no scopes refused: %v", err)
+	}
+	for name, scopes := range map[string]map[string]string{
+		"whitespace in name": {"a read": "Read A"},
+		"empty name":         {"": "Read A"},
+		"empty description":  {"a:read": "  "},
+		"identity's scope":   {"openid": "Sign in"},
+		"admin scope":        {"admin:users:read": "Users"},
+	} {
+		if err := ValidateResourceScopes(scopes); err == nil {
+			t.Errorf("%s: accepted %v", name, scopes)
+		}
+	}
+}

@@ -2,9 +2,7 @@ package cmd
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -12,8 +10,8 @@ import (
 	"text/tabwriter"
 
 	"github.com/eswan18/identity/cmd/identity-cli/internal"
+	"github.com/eswan18/identity/cmd/identity-cli/internal/ops"
 	"github.com/eswan18/identity/pkg/db"
-	"github.com/eswan18/identity/pkg/resourceuri"
 	"github.com/spf13/cobra"
 )
 
@@ -73,34 +71,17 @@ func init() {
 }
 
 func runResourceCreate(cmd *cobra.Command, args []string) error {
-	uri, err := resourceuri.ValidateNew(resourceCreateURI)
-	if err != nil {
-		return fmt.Errorf("--uri %q: %w", resourceCreateURI, err)
-	}
-	if strings.TrimSpace(resourceCreateName) == "" {
-		return errors.New("--name cannot be empty")
-	}
 	scopes, err := internal.ParseResourceScopes(resourceCreateScopes)
 	if err != nil {
 		return err
 	}
-	scopesJSON, err := internal.ScopesJSON(scopes)
+	detail, err := ops.CreateResource(context.Background(), getDatastore(),
+		resourceCreateURI, resourceCreateName, scopes, resourceCreateDynamicClients)
 	if err != nil {
 		return err
 	}
-
-	resource, err := getDatastore().Q.CreateOAuthResource(context.Background(), db.CreateOAuthResourceParams{
-		Uri:            uri,
-		Name:           strings.TrimSpace(resourceCreateName),
-		Scopes:         scopesJSON,
-		DynamicClients: resourceCreateDynamicClients,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create resource: %w", err)
-	}
-
 	fmt.Println("\n✅ Resource registered successfully!")
-	printResource(resource)
+	printResource(detail.Resource)
 	return nil
 }
 
@@ -157,44 +138,4 @@ func scopeNames(raw json.RawMessage) []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-// resolveDefaultResource turns a --default-resource value into the URI of a
-// registered resource (see findResource). The foreign key would refuse an
-// unknown URI anyway, but not with a message that says what to do.
-func resolveDefaultResource(ctx context.Context, raw string) (sql.NullString, error) {
-	resource, err := findResource(ctx, getDatastore().Q, "--default-resource", raw)
-	if err != nil {
-		return sql.NullString{}, err
-	}
-	return sql.NullString{String: resource.Uri, Valid: true}, nil
-}
-
-// findResource looks up a registered resource by a URI an operator typed. The
-// value as typed is tried first, so a resource registered before the
-// canonical form existed (the 000012 backfill keeps URIs byte for byte) is
-// found as listed; then its canonical form, so any spelling of a registered
-// https URI finds it. what names the flag or argument, for the error.
-func findResource(ctx context.Context, q *db.Queries, what, raw string) (db.OauthResource, error) {
-	resource, err := q.GetOAuthResourceByURI(ctx, raw)
-	if err == nil {
-		return resource, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return db.OauthResource{}, fmt.Errorf("looking up resource %s: %w", raw, err)
-	}
-	uri, err := resourceuri.Canonicalize(raw)
-	if err != nil {
-		return db.OauthResource{}, fmt.Errorf("%s %q: %w", what, raw, err)
-	}
-	resource, err = q.GetOAuthResourceByURI(ctx, uri)
-	if errors.Is(err, sql.ErrNoRows) {
-		return db.OauthResource{}, fmt.Errorf(
-			"%s %q: no resource is registered with URI %s - register it first with `identity-cli resource create` (see `identity-cli resource list`)",
-			what, raw, uri)
-	}
-	if err != nil {
-		return db.OauthResource{}, fmt.Errorf("looking up resource %s: %w", uri, err)
-	}
-	return resource, nil
 }

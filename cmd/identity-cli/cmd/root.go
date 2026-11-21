@@ -23,7 +23,18 @@ func Execute() error {
 	return nil
 }
 
+// The database every subcommand works on (see internal.ResolveTarget).
+var (
+	flagEnv         string
+	flagDatabaseURL string
+)
+
 func init() {
+	rootCmd.PersistentFlags().StringVar(&flagEnv, "env", "",
+		"Database to use: staging or prod (reads identity_<env>_database_url from Secret Manager with your gcloud login)")
+	rootCmd.PersistentFlags().StringVar(&flagDatabaseURL, "database-url", "",
+		"Database URL to use instead of --env (default: DATABASE_URL, after loading .env.<ENV>)")
+
 	// Add client command
 	rootCmd.AddCommand(clientCmd)
 	rootCmd.AddCommand(resourceCmd)

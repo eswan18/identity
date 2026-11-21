@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/eswan18/identity/cmd/identity-cli/internal/ops"
 	"github.com/spf13/cobra"
 )
 
@@ -33,16 +34,14 @@ func init() {
 
 func runClientDelete(cmd *cobra.Command, args []string) error {
 	clientID := args[0]
-
-	datastore := getDatastore()
-
 	ctx := context.Background()
 
 	// Get client to show what we're deleting
-	client, err := datastore.Q.GetOAuthClientByClientID(ctx, clientID)
+	detail, err := ops.GetClient(ctx, getDatastore(), clientID)
 	if err != nil {
-		return fmt.Errorf("failed to get OAuth client: %w", err)
+		return err
 	}
+	client := detail.Client
 
 	// Confirm deletion unless --force
 	if !deleteForce {
@@ -59,10 +58,8 @@ func runClientDelete(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Delete the client
-	err = datastore.Q.DeleteOAuthClient(ctx, clientID)
-	if err != nil {
-		return fmt.Errorf("failed to delete OAuth client: %w", err)
+	if err := ops.DeleteClient(ctx, getDatastore(), clientID); err != nil {
+		return err
 	}
 
 	fmt.Printf("\n✅ OAuth client '%s' (%s) deleted successfully!\n\n", client.Name, clientID)

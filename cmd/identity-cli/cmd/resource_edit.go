@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/eswan18/identity/cmd/identity-cli/internal"
-	"github.com/eswan18/identity/pkg/db"
+	"github.com/eswan18/identity/cmd/identity-cli/internal/ops"
 	"github.com/spf13/cobra"
 )
 
@@ -80,126 +80,71 @@ func init() {
 }
 
 func runResourceGet(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
-	q := getDatastore().Q
-	resource, err := findResource(ctx, q, "resource", args[0])
+	detail, err := ops.GetResource(context.Background(), getDatastore(), args[0])
 	if err != nil {
 		return err
 	}
-	printResource(resource)
-
-	clients, err := q.ListClientsReferencingResource(ctx, resource.Uri)
-	if err != nil {
-		return fmt.Errorf("listing the clients that use %s: %w", resource.Uri, err)
-	}
-	if len(clients) == 0 {
+	printResource(detail.Resource)
+	if len(detail.UsedBy) == 0 {
 		fmt.Println("  Used by:         (no client)")
 	} else {
 		fmt.Println("  Used by:")
-		for _, c := range clients {
-			fmt.Printf("    %s (%s), %s\n", c.Name, c.ClientID, referenceKind(c))
+		for _, c := range detail.UsedBy {
+			fmt.Printf("    %s (%s), %s\n", c.Name, c.ClientID, ops.ReferenceKind(c))
 		}
 	}
 	fmt.Println()
 	return nil
 }
 
-// referenceKind says how a client names a resource.
-func referenceKind(c db.ListClientsReferencingResourceRow) string {
-	if c.IsDefault {
-		return "as its default resource"
-	}
-	return "on its allow-list"
-}
-
 func runResourceUpdate(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
-	q := getDatastore().Q
-	current, err := findResource(ctx, q, "resource", args[0])
+	flags := cmd.Flags()
+	var u ops.ResourceUpdate
+	if flags.Changed("name") {
+		if strings.TrimSpace(resourceUpdateName) == "" {
+			return errors.New("--name cannot be empty")
+		}
+		u.Name = &resourceUpdateName
+	}
+	switch {
+	case flags.Changed("scope"):
+		scopes, err := internal.ParseResourceScopes(resourceUpdateScopes)
+		if err != nil {
+			return err
+		}
+		u.Scopes = ops.ScopeEdit{Mode: ops.Replace, Set: scopes}
+	case flags.Changed("add-scope"):
+		additions, err := internal.ParseResourceScopes(resourceUpdateAddScopes)
+		if err != nil {
+			return err
+		}
+		u.Scopes = ops.ScopeEdit{Mode: ops.Add, Set: additions}
+	case flags.Changed("remove-scope"):
+		u.Scopes = ops.ScopeEdit{Mode: ops.Remove, Remove: resourceUpdateRemoveScopes}
+	}
+	if flags.Changed("dynamic-clients") {
+		u.DynamicClients = &resourceUpdateDynamicClients
+	}
+
+	updated, err := ops.UpdateResource(context.Background(), getDatastore(), args[0], u)
 	if err != nil {
 		return err
 	}
-	flags := cmd.Flags()
-
-	params := db.UpdateOAuthResourceParams{
-		Uri:            current.Uri,
-		Name:           current.Name,
-		Scopes:         current.Scopes,
-		DynamicClients: current.DynamicClients,
-	}
-
-	if flags.Changed("name") {
-		name := strings.TrimSpace(resourceUpdateName)
-		if name == "" {
-			return errors.New("--name cannot be empty")
-		}
-		params.Name = name
-	}
-
-	if flags.Changed("scope") || flags.Changed("add-scope") || flags.Changed("remove-scope") {
-		scopes, err := internal.ParseScopes(current.Scopes)
-		if err != nil {
-			return fmt.Errorf("resource %s: %w", current.Uri, err)
-		}
-		switch {
-		case flags.Changed("scope"):
-			if scopes, err = internal.ParseResourceScopes(resourceUpdateScopes); err != nil {
-				return err
-			}
-		case flags.Changed("add-scope"):
-			additions, err := internal.ParseResourceScopes(resourceUpdateAddScopes)
-			if err != nil {
-				return err
-			}
-			scopes = internal.MergeScopes(scopes, additions)
-		case flags.Changed("remove-scope"):
-			var notFound []string
-			scopes, notFound = internal.RemoveScopes(scopes, resourceUpdateRemoveScopes)
-			if len(notFound) > 0 {
-				return fmt.Errorf("resource %s has no such scope: %s - nothing was changed",
-					current.Uri, strings.Join(notFound, ", "))
-			}
-		}
-		if params.Scopes, err = internal.ScopesJSON(scopes); err != nil {
-			return err
-		}
-	}
-
-	if flags.Changed("dynamic-clients") {
-		params.DynamicClients = resourceUpdateDynamicClients
-	}
-
-	updated, err := q.UpdateOAuthResource(ctx, params)
-	if err != nil {
-		return fmt.Errorf("failed to update resource: %w", err)
-	}
 	fmt.Println("\n✅ Resource updated successfully!")
-	printResource(updated)
+	printResource(updated.Resource)
 	return nil
 }
 
 func runResourceDelete(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
-	q := getDatastore().Q
-	resource, err := findResource(ctx, q, "resource", args[0])
+	detail, err := ops.GetResource(ctx, getDatastore(), args[0])
 	if err != nil {
 		return err
 	}
-
-	clients, err := q.ListClientsReferencingResource(ctx, resource.Uri)
-	if err != nil {
-		return fmt.Errorf("listing the clients that use %s: %w", resource.Uri, err)
-	}
-	if len(clients) > 0 {
-		var users []string
-		for _, c := range clients {
-			users = append(users, fmt.Sprintf("%s (%s) %s", c.Name, c.ClientID, referenceKind(c)))
-		}
-		return fmt.Errorf("resource %s is still used by: %s - change those clients first; nothing was deleted",
-			resource.Uri, strings.Join(users, "; "))
-	}
-
-	if !resourceDeleteForce {
+	resource := detail.Resource
+	// ops.DeleteResource refuses while any client names it; checking here too
+	// means the operator is not asked to confirm a delete that will be refused.
+	if len(detail.UsedBy) == 0 && !resourceDeleteForce {
 		fmt.Printf("Are you sure you want to delete resource '%s' (%s)? [y/N]: ", resource.Name, resource.Uri)
 		response, err := bufio.NewReader(os.Stdin).ReadString('\n')
 		if err != nil {
@@ -211,13 +156,8 @@ func runResourceDelete(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 	}
-
-	// A client could have started naming it since the check above; the
-	// default-resource foreign key still refuses then. An allow-list entry
-	// added in that window would be removed with the resource (ON DELETE
-	// CASCADE), which is the one race this does not close.
-	if _, err := q.DeleteOAuthResource(ctx, resource.Uri); err != nil {
-		return fmt.Errorf("failed to delete resource: %w", err)
+	if err := ops.DeleteResource(ctx, getDatastore(), resource.Uri); err != nil {
+		return err
 	}
 	fmt.Printf("\n✅ Resource %s deleted.\n\n", resource.Uri)
 	return nil

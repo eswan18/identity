@@ -1,0 +1,10 @@
+/* The admin panel's stylesheet (identity-cli ui). Separate from
+   static/input.css: the panel is a full-width admin layout, not the
+   centred auth card, and it is embedded in the identity-cli binary.
+   Rebuild with `make css`; style.css is committed. */
+@import "tailwindcss";
+@plugin "daisyui" {
+  themes: light --default, dark --prefersdark;
+}
+
+@source "../views";

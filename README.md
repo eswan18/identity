@@ -251,7 +251,7 @@ migrate: ["/app/auth-service", "migrate"]
 
 2. **Create a public client** (for SPAs like React apps):
    ```shell
-   ENV=dev ./identity-cli client create \
+   ./identity-cli --env staging client create \
      --name "My App (Dev)" \
      --redirect-uris "http://localhost:5173/oauth/callback" \
      --scopes "openid,profile,email"
@@ -259,7 +259,7 @@ migrate: ["/app/auth-service", "migrate"]
 
    Or **create a confidential client** (for backend services):
    ```shell
-   ENV=dev ./identity-cli client create \
+   ./identity-cli --env staging client create \
      --name "My Service" \
      --redirect-uris "https://myservice.com/callback" \
      --scopes "openid,profile,email" \
@@ -267,6 +267,40 @@ migrate: ["/app/auth-service", "migrate"]
    ```
 
    Save the returned `client_id` (and `client_secret` if confidential).
+
+### Choosing the database
+
+Every `identity-cli` command takes `--env staging` or `--env prod`, which reads
+`identity_<env>_database_url` from Secret Manager with your own gcloud login
+(`gcloud auth login` first), so there is no connection string to copy. Each
+command prints which database it is using before it does anything. Without
+`--env`, the CLI uses `--database-url` or, as before, `DATABASE_URL` (after
+loading `.env.<ENV>`). Clients and resources belong in **both** databases
+(staging's is periodically replaced by a copy of prod's).
+
+### Admin panel
+
+```shell
+./identity-cli ui                          # staging, http://127.0.0.1:8765
+./identity-cli ui --env prod --port 8766   # prod, alongside it
+```
+
+`identity-cli ui` serves a local admin panel for clients and resources and
+opens it in your browser. It makes the same changes, through the same code and
+rules, as the `client` and `resource` commands (including every
+trusted-client rule below). Every edit is shown as a before/after review
+before anything is written, and if the record changes between review and
+confirm (the CLI in another terminal, say), the confirm is refused and you
+review again. Metadata-document (CIMD) clients are shown read-only.
+
+It works on one database per run and puts the environment on every page (a
+red **PROD** bar in prod, where deletes also ask you to type the name). It
+ignores `ENV`, `.env` files and `DATABASE_URL`: only `--env` (default
+staging) or an explicit `--database-url` (shown as CUSTOM) choose the
+database, so a prod session can't run unlabelled. It listens on 127.0.0.1
+only, and only the browser that opens the printed URL can use it: the URL's
+one-time token becomes a session cookie, and every form carries a CSRF token.
+The identity server itself still has no endpoint that edits clients.
 
 ### Other Client Commands
 

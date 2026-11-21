@@ -1,0 +1,292 @@
+package views
+
+import (
+	"net/url"
+	"slices"
+	"strings"
+
+	"github.com/eswan18/identity/pkg/db"
+)
+
+const trustedDocsURL = "https://github.com/eswan18/identity#trusted-first-party-clients"
+
+// Change is one line of a review: a value's before and after, or a list's
+// additions and removals.
+type Change struct {
+	Field   string
+	Before  string
+	After   string
+	Added   []string
+	Removed []string
+}
+
+// Hidden is one hidden form field.
+type Hidden struct {
+	Name  string
+	Value string
+}
+
+// ClientFormView is the create or edit form.
+type ClientFormView struct {
+	New             bool
+	ClientID        string
+	Confidential    bool
+	Name            string
+	RedirectURIs    []string
+	Scopes          []string
+	Resources       []string
+	DefaultResource string
+	Trusted         bool
+	Fingerprint     string
+	AllResources    []db.OauthResource
+	Error           string
+	Notice          string
+}
+
+// ReviewView is the confirm-before-writing page.
+type ReviewView struct {
+	Kind     string // "client" or "resource"
+	Key      string // the client_id or resource URI
+	Name     string
+	Changes  []Change
+	Hidden   []Hidden
+	Notice    string
+	ApplyHref string
+	BackHref  string
+}
+
+func ClientHref(path, clientID string) string {
+	return path + "?id=" + url.QueryEscape(clientID)
+}
+
+func (v ClientFormView) action() string {
+	if v.New {
+		return "/clients/new"
+	}
+	return ClientHref("/client/review", v.ClientID)
+}
+
+func defaultOr(uri, fallback string) string {
+	if uri == "" {
+		return fallback
+	}
+	return uri
+}
+
+templ ClientList(p Page, clients []db.OauthClient) {
+	@Layout(p) {
+		<div class="mb-4"><a class="btn btn-primary btn-sm" href="/clients/new">New client</a></div>
+		<div class="overflow-x-auto bg-base-100 rounded-box shadow">
+			<table class="table">
+				<thead>
+					<tr><th>Name</th><th>Client ID</th><th>Kind</th><th>Type</th><th>Trusted</th><th>Default resource</th></tr>
+				</thead>
+				<tbody>
+					for _, c := range clients {
+						<tr class="hover">
+							<td><a class="link link-primary font-medium" href={ templ.SafeURL(ClientHref("/client", c.ClientID)) }>{ c.Name }</a></td>
+							<td class="font-mono text-xs break-all max-w-xs">{ c.ClientID } @CopyButton(c.ClientID)</td>
+							<td>{ c.Kind }</td>
+							<td>
+								if c.IsConfidential {
+									confidential
+								} else {
+									public
+								}
+							</td>
+							<td>
+								if c.Trusted {
+									<span class="badge badge-warning">trusted</span>
+								}
+							</td>
+							<td class="text-xs break-all">{ defaultOr(c.DefaultResource.String, "(identity)") }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	}
+}
+
+templ ClientForm(p Page, v ClientFormView) {
+	@Layout(p) {
+		@ErrorAlert(v.Error)
+		@NoticeAlert(v.Notice)
+		<form method="post" action={ templ.SafeURL(v.action()) } class="bg-base-100 rounded-box shadow p-6 space-y-4 max-w-3xl">
+			@CSRFField(p)
+			<input type="hidden" name="fingerprint" value={ v.Fingerprint }/>
+			if !v.New {
+				<div class="text-sm"><span class="font-semibold">Client ID:</span> <span class="font-mono break-all">{ v.ClientID }</span> @CopyButton(v.ClientID)</div>
+			}
+			<label class="form-control w-full">
+				<div class="label"><span class="label-text font-semibold">Name</span></div>
+				<input class="input input-bordered w-full" name="name" value={ v.Name } required/>
+			</label>
+			<label class="form-control w-full">
+				<div class="label"><span class="label-text font-semibold">Redirect URIs</span><span class="label-text-alt">one per line</span></div>
+				<textarea class="textarea textarea-bordered w-full font-mono text-sm" rows="4" name="redirect_uris">{ strings.Join(v.RedirectURIs, "\n") }</textarea>
+			</label>
+			<label class="form-control w-full">
+				<div class="label"><span class="label-text font-semibold">Allowed scopes</span><span class="label-text-alt">space-separated</span></div>
+				<input class="input input-bordered w-full font-mono text-sm" name="scopes" value={ strings.Join(v.Scopes, " ") }/>
+			</label>
+			<div>
+				<div class="label"><span class="label-text font-semibold">Type</span></div>
+				if v.New {
+					<label class="label cursor-pointer justify-start gap-3">
+						<input type="checkbox" class="checkbox" name="confidential"/>
+						<span class="label-text">Confidential (backend client with a secret; required for admin scopes)</span>
+					</label>
+				} else {
+					<p class="text-sm">
+						if v.Confidential {
+							Confidential
+						} else {
+							Public
+						}
+						<span class="opacity-60">(can't be changed here)</span>
+					</p>
+				}
+			</div>
+			<label class="form-control w-full">
+				<div class="label"><span class="label-text font-semibold">Default resource</span><span class="label-text-alt">what its tokens are for when a request names none</span></div>
+				<select class="select select-bordered w-full" name="default_resource">
+					<option value="" selected?={ v.DefaultResource == "" }>(identity itself)</option>
+					for _, r := range v.AllResources {
+						<option value={ r.Uri } selected?={ v.DefaultResource == r.Uri }>{ r.Name }: { r.Uri }</option>
+					}
+				</select>
+			</label>
+			<div>
+				<div class="label"><span class="label-text font-semibold">Allowed resources</span><span class="label-text-alt">others it may request by name</span></div>
+				if len(v.AllResources) == 0 {
+					<p class="text-sm opacity-60">No resources registered.</p>
+				}
+				for _, r := range v.AllResources {
+					<label class="label cursor-pointer justify-start gap-3">
+						<input type="checkbox" class="checkbox checkbox-sm" name="resources" value={ r.Uri } checked?={ slices.Contains(v.Resources, r.Uri) }/>
+						<span class="label-text">{ r.Name } <span class="font-mono text-xs opacity-70">{ r.Uri }</span></span>
+					</label>
+				}
+			</div>
+			<div class="border border-warning rounded-box p-4">
+				<label class="label cursor-pointer justify-start gap-3">
+					<input type="checkbox" class="checkbox checkbox-warning" name="trusted" checked?={ v.Trusted }/>
+					<span class="label-text font-semibold">Trusted (first-party)</span>
+				</label>
+				<p class="text-sm mt-1">
+					Skips the consent screen and hides the client from users' Connected Apps.
+					Only for apps you build and control, with exact, non-loopback redirect URIs.
+					Never MCP/AI or third-party clients.
+					<a class="link" href={ templ.SafeURL(trustedDocsURL) } target="_blank" rel="noreferrer">Read the rules</a>.
+				</p>
+			</div>
+			<div class="flex gap-2">
+				if v.New {
+					<button class="btn btn-primary" type="submit">Create client</button>
+				} else {
+					<button class="btn btn-primary" type="submit">Review changes</button>
+					<a class="btn btn-ghost" href={ templ.SafeURL(ClientHref("/client/delete", v.ClientID)) }>Delete…</a>
+				}
+			</div>
+		</form>
+	}
+}
+
+// ClientReadOnly shows a client the panel does not edit (a metadata-document
+// client: its details come from the document it publishes).
+templ ClientReadOnly(p Page, c db.OauthClient) {
+	@Layout(p) {
+		@NoticeAlert("This is a " + c.Kind + " client: its details come from its published metadata document, so the panel does not edit it.")
+		<div class="bg-base-100 rounded-box shadow p-6 space-y-2 text-sm">
+			<div><span class="font-semibold">Client ID:</span> <span class="font-mono break-all">{ c.ClientID }</span> @CopyButton(c.ClientID)</div>
+			<div><span class="font-semibold">Name:</span> { c.Name }</div>
+			<div><span class="font-semibold">Redirect URIs:</span></div>
+			<ul class="list-disc ml-6 font-mono">
+				for _, u := range c.RedirectUris {
+					<li>{ u }</li>
+				}
+			</ul>
+		</div>
+	}
+}
+
+templ Review(p Page, v ReviewView) {
+	@Layout(p) {
+		@NoticeAlert(v.Notice)
+		<p class="mb-4">Review the changes to <span class="font-semibold">{ v.Name }</span>. Nothing has been written yet.</p>
+		<div class="bg-base-100 rounded-box shadow p-6 space-y-4 max-w-3xl">
+			for _, c := range v.Changes {
+				<div>
+					<div class="font-semibold">{ c.Field }</div>
+					if len(c.Added) == 0 && len(c.Removed) == 0 {
+						<div class="text-sm"><span class="line-through opacity-70">{ c.Before }</span> → <span class="font-medium">{ c.After }</span></div>
+					}
+					for _, v := range c.Removed {
+						<div class="text-sm font-mono text-error">− { v }</div>
+					}
+					for _, v := range c.Added {
+						<div class="text-sm font-mono text-success">+ { v }</div>
+					}
+				</div>
+			}
+			<form method="post" action={ templ.SafeURL(v.ApplyHref) } class="flex gap-2 pt-2">
+				@CSRFField(p)
+				for _, h := range v.Hidden {
+					<input type="hidden" name={ h.Name } value={ h.Value }/>
+				}
+				<button class={ "btn", templ.KV("btn-error", p.Env.Prod), templ.KV("btn-primary", !p.Env.Prod) } type="submit">
+					if p.Env.Prod {
+						Apply to PROD
+					} else {
+						Apply
+					}
+				</button>
+				<a class="btn btn-ghost" href={ templ.SafeURL(v.BackHref) }>Cancel</a>
+			</form>
+		</div>
+	}
+}
+
+templ ClientCreated(p Page, c db.OauthClient, secret string) {
+	@Layout(p) {
+		<div class="bg-base-100 rounded-box shadow p-6 space-y-3 max-w-3xl">
+			<p>Client <span class="font-semibold">{ c.Name }</span> registered.</p>
+			<div><span class="font-semibold">Client ID:</span> <code class="font-mono break-all select-all">{ c.ClientID }</code> @CopyButton(c.ClientID)</div>
+			if secret != "" {
+				<div><span class="font-semibold">Client secret:</span> <code class="font-mono break-all select-all">{ secret }</code> @CopyButton(secret)</div>
+				<div role="alert" class="alert alert-warning"><span>Save this secret now: it cannot be retrieved later. Only its hash is stored.</span></div>
+			} else {
+				<div class="text-sm opacity-70">Public client: no secret.</div>
+			}
+			<a class="btn btn-sm" href={ templ.SafeURL(ClientHref("/client", c.ClientID)) }>View client</a>
+		</div>
+	}
+}
+
+templ ClientDelete(p Page, c db.OauthClient, errMsg string) {
+	@Layout(p) {
+		@ErrorAlert(errMsg)
+		<form method="post" action={ templ.SafeURL(ClientHref("/client/delete", c.ClientID)) } class="bg-base-100 rounded-box shadow p-6 space-y-4 max-w-xl">
+			@CSRFField(p)
+			<p>Delete <span class="font-semibold">{ c.Name }</span> (<span class="font-mono text-xs break-all">{ c.ClientID }</span>)? Apps using it stop being able to sign in.</p>
+			if p.Env.Prod {
+				<label class="form-control w-full">
+					<div class="label"><span class="label-text">Type the client's name to confirm</span></div>
+					<input class="input input-bordered w-full" name="confirm_name" autocomplete="off"/>
+				</label>
+			}
+			<div class="flex gap-2">
+				<button class="btn btn-error" type="submit">Delete</button>
+				<a class="btn btn-ghost" href={ templ.SafeURL(ClientHref("/client", c.ClientID)) }>Cancel</a>
+			</div>
+		</form>
+	}
+}
+
+templ Message(p Page, msg string) {
+	@Layout(p) {
+		@ErrorAlert(msg)
+		<a class="btn btn-sm" href="/clients">Back to clients</a>
+	}
+}

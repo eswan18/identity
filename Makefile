@@ -18,10 +18,17 @@ docs/docs.go docs/swagger.json docs/swagger.yaml: $(GO_SOURCES)
 templ:
 	templ generate
 
-css: static/style.css
+UI_DIR := cmd/identity-cli/internal/ui
+UI_TEMPL_SOURCES := $(wildcard $(UI_DIR)/views/*.templ)
+
+css: static/style.css $(UI_DIR)/assets/style.css
 
 static/style.css: static/input.css $(TEMPL_SOURCES)
 	npx @tailwindcss/cli -i static/input.css -o static/style.css --minify
+
+# identity-cli ui's own stylesheet, embedded in the binary (see its input.css).
+$(UI_DIR)/assets/style.css: $(UI_DIR)/assets/input.css $(UI_TEMPL_SOURCES)
+	npx @tailwindcss/cli -i $(UI_DIR)/assets/input.css -o $(UI_DIR)/assets/style.css --minify
 
 css-watch:
 	npx @tailwindcss/cli -i static/input.css -o static/style.css --watch

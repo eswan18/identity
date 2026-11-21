@@ -50,4 +50,10 @@ integration tests to match one of those.
   (`pkg/httpserver/code_issuance.go`), shared by authorize and consent; never
   add one to just a handler.
 - OAuth clients are created and edited only with `identity-cli`
-  (`cmd/identity-cli`); no HTTP endpoint edits them.
+  (`cmd/identity-cli`); no HTTP endpoint on the identity server edits them.
+  `identity-cli ui` is a local admin panel (127.0.0.1, token + CSRF) and part
+  of the CLI, not the server. Both the commands and the panel go through
+  `cmd/identity-cli/internal/ops`: put a new client or resource rule there,
+  never in a cobra handler or a panel handler. The panel's pages are templ in
+  `cmd/identity-cli/internal/ui/views` with their own stylesheet
+  (`ui/assets`, rebuilt by `make css`).
