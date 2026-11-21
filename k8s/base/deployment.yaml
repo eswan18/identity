@@ -12,6 +12,9 @@ spec:
       labels:
         app: identity
     spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
@@ -52,6 +55,7 @@ spec:
             runAsNonRoot: true
             runAsUser: 1000
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
@@ -59,7 +63,14 @@ spec:
             - name: secrets-store
               mountPath: "/mnt/secrets"
               readOnly: true
+            # The root filesystem is read-only. /tmp is the one writable path:
+            # multipart parsing (avatar uploads) may spill a file part there.
+            - name: tmp
+              mountPath: /tmp
       volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 32Mi
         - name: secrets-store
           csi:
             driver: secrets-store.csi.k8s.io
