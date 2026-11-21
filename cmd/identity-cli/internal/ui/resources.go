@@ -48,7 +48,7 @@ func (s *Server) handleResourceCreate(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		var d ops.ResourceDetail
 		if d, err = ops.CreateResource(r.Context(), s.store, f.URI, f.Name, f.Scopes, f.DynamicClients); err == nil {
-			http.Redirect(w, r, views.ResourceHref("/resource", d.Resource.Uri)+"&saved=1", http.StatusSeeOther)
+			http.Redirect(w, r, s.url(views.ResourceHref("resource", d.Resource.Uri)+"&saved=1"), http.StatusSeeOther)
 			return
 		}
 	}
@@ -115,7 +115,7 @@ func (s *Server) renderResourceReview(w http.ResponseWriter, r *http.Request, st
 	uri := cur.Resource.Uri
 	s.render(w, r, status, views.Review(s.page("Review changes"), views.ReviewView{
 		Kind: "resource", Key: uri, Name: cur.Resource.Name, Changes: changes, Hidden: hidden, Notice: notice,
-		ApplyHref: views.ResourceHref("/resource/apply", uri), BackHref: views.ResourceHref("/resource", uri),
+		ApplyHref: views.ResourceHref("resource/apply", uri), BackHref: views.ResourceHref("resource", uri),
 	}))
 }
 
@@ -149,7 +149,7 @@ func (s *Server) handleResourceApply(w http.ResponseWriter, r *http.Request) {
 		s.renderResourceForm(w, r, http.StatusUnprocessableEntity, cur, f, err.Error(), "")
 		return
 	}
-	http.Redirect(w, r, views.ResourceHref("/resource", uri)+"&saved=1", http.StatusSeeOther)
+	http.Redirect(w, r, s.url(views.ResourceHref("resource", uri)+"&saved=1"), http.StatusSeeOther)
 }
 
 func (s *Server) handleResourceDeleteForm(w http.ResponseWriter, r *http.Request) {
@@ -165,7 +165,7 @@ func (s *Server) handleResourceDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if s.target.IsProd() && strings.TrimSpace(r.PostFormValue("confirm_name")) != d.Resource.Name {
+	if s.target.IsProd() && strings.TrimSpace(r.PostFormValue("confirm_name")) != strings.TrimSpace(d.Resource.Name) {
 		s.render(w, r, http.StatusUnprocessableEntity,
 			views.ResourceDelete(s.page("Delete resource"), d.Resource, "Type the resource's name exactly to delete it from prod."))
 		return
@@ -174,5 +174,5 @@ func (s *Server) handleResourceDelete(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, http.StatusUnprocessableEntity, views.ResourceDelete(s.page("Delete resource"), d.Resource, err.Error()))
 		return
 	}
-	http.Redirect(w, r, "/resources", http.StatusSeeOther)
+	http.Redirect(w, r, s.url("resources"), http.StatusSeeOther)
 }

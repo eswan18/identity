@@ -56,7 +56,9 @@ func newPanel(t *testing.T, s *store.Store, env string) *panel {
 	srv, err := New(s, internal.Target{Name: env, Source: "test", URL: "postgres://h.example/db"}, 8765)
 	require.NoError(t, err)
 	p := &panel{t: t, srv: srv, h: srv.Handler()}
-	rec := p.send("GET", "/?token="+url.QueryEscape(srv.token), nil)
+	start, err := url.Parse(srv.StartURL())
+	require.NoError(t, err)
+	rec := p.send("GET", start.RequestURI(), nil)
 	require.Equal(t, http.StatusSeeOther, rec.Code)
 	p.cookie = rec.Result().Cookies()[0]
 	return p
@@ -68,6 +70,10 @@ func (p *panel) send(method, target string, form url.Values) *httptest.ResponseR
 	if form != nil {
 		form.Set("csrf", p.srv.csrf)
 		body = strings.NewReader(form.Encode())
+	}
+	// Panel paths are given relative to its base ("clients", "client?id=").
+	if !strings.HasPrefix(target, "/s/") {
+		target = p.srv.url(strings.TrimPrefix(target, "/"))
 	}
 	req := httptest.NewRequest(method, target, body)
 	req.Host = "127.0.0.1:8765"
@@ -163,7 +169,7 @@ func TestCLIUI(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "Edit Me", got.Client.Name, "review writes nothing")
 
-		rec = p.send("POST", clientURL("/client/apply", id), hiddenFields(t, review, "/client/apply"))
+		rec = p.send("POST", clientURL("/client/apply", id), hiddenFields(t, review, "client/apply"))
 		require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
 		got, err = ops.GetClient(ctx, s, id)
 		require.NoError(t, err)
@@ -183,7 +189,7 @@ func TestCLIUI(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, s.Q.AddClientResource(ctx, db.AddClientResourceParams{ClientID: c.Client.ID, ResourceID: res.ID}))
 
-		rec := p.send("POST", clientURL("/client/apply", id), hiddenFields(t, review, "/client/apply"))
+		rec := p.send("POST", clientURL("/client/apply", id), hiddenFields(t, review, "client/apply"))
 		require.Equal(t, http.StatusConflict, rec.Code)
 		require.Contains(t, rec.Body.String(), "changed since you reviewed it")
 		got, err := ops.GetClient(ctx, s, id)
@@ -197,7 +203,7 @@ func TestCLIUI(t *testing.T) {
 		form := editForm(c)
 		form.Set("trusted", "on")
 		review := p.send("POST", clientURL("/client/review", c.Client.ClientID), form).Body.String()
-		rec := p.send("POST", clientURL("/client/apply", c.Client.ClientID), hiddenFields(t, review, "/client/apply"))
+		rec := p.send("POST", clientURL("/client/apply", c.Client.ClientID), hiddenFields(t, review, "client/apply"))
 		require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 		require.Contains(t, rec.Body.String(), "wildcard")
 	})
@@ -231,7 +237,7 @@ func TestCLIUI(t *testing.T) {
 		require.NoError(t, err)
 		page := p.get(clientURL("/client", cimd))
 		require.Contains(t, page, "Claude")
-		require.NotContains(t, page, `action="/client/review`)
+		require.NotContains(t, page, `action="client/review`)
 		rec := p.send("POST", clientURL("/client/review", cimd), url.Values{"name": {"Sneaky"}})
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 	})
@@ -253,6 +259,14 @@ func TestCLIUI(t *testing.T) {
 		require.Equal(t, http.StatusSeeOther, rec.Code)
 		_, err = ops.GetClient(ctx, s, id)
 		require.Error(t, err, "deleted")
+
+		// The old CLI stored names untrimmed; such a client can still be
+		// deleted by typing its name.
+		spacey, err := s.Q.CreateOAuthClient(ctx, db.CreateOAuthClientParams{ClientID: "spacey-client",
+			Name: "Spacey ", RedirectUris: []string{"https://sp.example/cb"}, AllowedScopes: []string{}})
+		require.NoError(t, err)
+		rec = prod.send("POST", clientURL("/client/delete", spacey.ClientID), url.Values{"confirm_name": {"Spacey"}})
+		require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
 	})
 
 	t.Run("ResourceEditFlow", func(t *testing.T) {
@@ -279,7 +293,7 @@ func TestCLIUI(t *testing.T) {
 		require.Contains(t, review, "n:read: Read N", "the removed scope is shown")
 		require.Contains(t, review, "n:write: Write N")
 
-		rec = p.send("POST", "/resource/apply?uri="+url.QueryEscape(uri), hiddenFields(t, review, "/resource/apply"))
+		rec = p.send("POST", "/resource/apply?uri="+url.QueryEscape(uri), hiddenFields(t, review, "resource/apply"))
 		require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
 		r, err = ops.GetResource(ctx, s, uri)
 		require.NoError(t, err)

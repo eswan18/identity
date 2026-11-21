@@ -47,7 +47,7 @@ one-time token that becomes a session cookie.`,
 }
 
 func init() {
-	uiCmd.Flags().IntVar(&uiPort, "port", 8765, "Port to listen on (127.0.0.1 only)")
+	uiCmd.Flags().IntVar(&uiPort, "port", 8765, "Port to listen on (127.0.0.1 only; 0 picks a free one)")
 	uiCmd.Flags().BoolVar(&uiNoBrowser, "no-browser", false, "Print the URL without opening a browser")
 	rootCmd.AddCommand(uiCmd)
 }
@@ -74,13 +74,16 @@ func runUI(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("connecting to the database: %w", err)
 	}
 
-	panel, err := ui.New(ds, t, uiPort)
-	if err != nil {
-		return err
-	}
 	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(uiPort)))
 	if err != nil {
 		return fmt.Errorf("listening on 127.0.0.1:%d (try --port): %w", uiPort, err)
+	}
+	// The panel needs the real port (--port 0 picks one): it is in the
+	// allowed Host and the start URL.
+	panel, err := ui.New(ds, t, ln.Addr().(*net.TCPAddr).Port)
+	if err != nil {
+		ln.Close()
+		return err
 	}
 	srv := &http.Server{Handler: panel.Handler(), ReadHeaderTimeout: 10 * time.Second}
 

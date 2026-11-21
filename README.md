@@ -299,7 +299,12 @@ ignores `ENV`, `.env` files and `DATABASE_URL`: only `--env` (default
 staging) or an explicit `--database-url` (shown as CUSTOM) choose the
 database, so a prod session can't run unlabelled. It listens on 127.0.0.1
 only, and only the browser that opens the printed URL can use it: the URL's
-one-time token becomes a session cookie, and every form carries a CSRF token.
+token works once and gets that browser a session cookie, and every form
+carries a CSRF token. Every page lives under a random per-run path
+(`/s/<secret>/`) and the cookie is scoped to it. Browsers send cookies to every
+port on a host, so without that, any other local server you visit (a dev
+server, a container's published port) would be handed the session. To open
+the panel in a second browser, restart it.
 The identity server itself still has no endpoint that edits clients.
 
 ### Other Client Commands
