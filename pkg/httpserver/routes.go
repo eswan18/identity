@@ -111,6 +111,8 @@ func (s *Server) registerRoutes() {
 		// first. See maxAvatarUploadBytes in middleware.go for the full
 		// explanation. The GET variant has no body to bound, so it stays in the
 		// CSRF group below like every other account route.
+		// The path must match avatarUploadPath: it is the one route
+		// limitRequestBody leaves to its own, larger cap.
 		r.With(s.maxAvatarUploadBytes, s.csrfMiddleware, s.requireActiveUser).
 			Post("/change-avatar", s.HandleChangeAvatarPost)
 

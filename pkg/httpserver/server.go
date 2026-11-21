@@ -70,6 +70,8 @@ func New(config *config.Config, datastore *store.Store, emailSender email.Sender
 	r.Use(requestLoggingMiddleware)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(handlerTimeout))
+	// Cap request bodies before anything reads one (see limitRequestBody).
+	r.Use(limitRequestBody)
 
 	// Per-IP rate limiting on every route but static assets: the protocol
 	// endpoints (metadata, JWKS, token) get their own, higher budget, and

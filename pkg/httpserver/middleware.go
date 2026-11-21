@@ -116,3 +116,31 @@ func (s *Server) maxAvatarUploadBytes(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// maxRequestBodyBytes caps the body of every request except the avatar
+// upload. Every other form identity accepts is a few fields, and its JSON
+// APIs take small objects, so 1MB is far above anything legitimate.
+const maxRequestBodyBytes = 1 << 20
+
+// avatarUploadPath is the one route whose body may be larger; it has its own
+// cap, maxAvatarUploadBytes. routes.go registers the route at this path.
+const avatarUploadPath = "/oauth/change-avatar"
+
+// limitRequestBody caps every request body but the avatar upload's at
+// maxRequestBodyBytes.
+//
+// Without it, a multipart body of any size sent to any form route is parsed
+// in full by csrfMiddleware's FormValue call, with Go's defaults: 32MB in
+// memory and the rest spooled to temporary files in /tmp. In the cluster /tmp
+// is a size-limited emptyDir (the root filesystem is read-only), and
+// overflowing it gets the pod evicted, so one large request could take a
+// replica down. With the cap, a body that fits is parsed entirely in memory
+// and one that does not fails to parse (the CSRF check then refuses it).
+func limitRequestBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != avatarUploadPath {
+			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
