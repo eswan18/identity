@@ -8,14 +8,13 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/eswan18/identity/pkg/config"
 	"github.com/eswan18/identity/pkg/store"
 )
 
-// GetDatastore connects to the database and returns a store instance
-func GetDatastore() (*store.Store, error) {
-	cfg := config.NewFromEnv()
-	datastore, err := store.New(cfg.DatabaseURL)
+// GetDatastore connects to the target's database. It reads nothing else: the
+// CLI needs no server configuration (JWT keys, HTTP address) to edit rows.
+func GetDatastore(t Target) (*store.Store, error) {
+	datastore, err := store.New(t.URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}

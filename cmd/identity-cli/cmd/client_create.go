@@ -2,13 +2,11 @@ package cmd
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 
 	"github.com/eswan18/identity/cmd/identity-cli/internal"
-	"github.com/eswan18/identity/pkg/auth"
-	"github.com/eswan18/identity/pkg/db"
+	"github.com/eswan18/identity/cmd/identity-cli/internal/ops"
 	"github.com/spf13/cobra"
 )
 
@@ -73,94 +71,19 @@ func init() {
 }
 
 func runClientCreate(cmd *cobra.Command, args []string) error {
-	// Parse comma-separated lists
-	redirectURIList := internal.ParseList(createRedirectURIs)
-	scopeList := internal.ParseList(createAllowedScopes)
-
-	// Validate redirect URIs
-	if err := internal.ValidateRedirectURIs(redirectURIList); err != nil {
-		return err
-	}
-
-	// Refuse to register admin scopes against a public client. --confidential
-	// defaults to false, so this is the check that keeps an otherwise
-	// reasonable-looking command from producing a silently unusable client.
-	if err := internal.ValidateAdminScopes(scopeList, createIsConfidential); err != nil {
-		return err
-	}
-
-	// A trusted client skips consent, so it may only have exact, non-loopback
-	// redirect URIs (README, "Trusted (first-party) clients").
-	if createTrusted {
-		if err := internal.ValidateTrustable("registered", redirectURIList); err != nil {
-			return err
-		}
-	}
-
-	// Get shared datastore
-	datastore := getDatastore()
-	ctx := context.Background()
-
-	var defaultResource sql.NullString
-	if createDefaultRes != "" {
-		var err error
-		defaultResource, err = resolveDefaultResource(ctx, createDefaultRes)
-		if err != nil {
-			return err
-		}
-	}
-	allowedResources, err := resolveResourceList(ctx, datastore.Q, "--resources", createResources)
-	if err != nil {
-		return err
-	}
-
-	// Generate client_id (random 32-byte string, base64 encoded = 44 chars)
-	clientID, err := internal.GenerateRandomString(32)
-	if err != nil {
-		return fmt.Errorf("failed to generate client_id: %w", err)
-	}
-
-	// Generate client_secret if confidential. The plaintext is shown to the
-	// operator once below, but only a SHA-256 hash of it is persisted so that a
-	// database dump does not disclose usable client credentials.
-	var clientSecret sql.NullString
-	var plaintextSecret string
-	if createIsConfidential {
-		secret, err := internal.GenerateRandomString(32)
-		if err != nil {
-			return fmt.Errorf("failed to generate client_secret: %w", err)
-		}
-		plaintextSecret = secret
-		clientSecret = sql.NullString{String: auth.HashClientSecret(secret), Valid: true}
-	}
-
-	// Create the client and its allow-list together, so a failure can't leave
-	// a client that is missing resources the operator asked for.
-	tx, err := datastore.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to start a transaction: %w", err)
-	}
-	defer tx.Rollback()
-	q := datastore.Q.WithTx(tx)
-	client, err := q.CreateOAuthClient(ctx, db.CreateOAuthClientParams{
-		ClientID:        clientID,
-		ClientSecret:    clientSecret,
+	detail, plaintextSecret, err := ops.CreateClient(context.Background(), getDatastore(), ops.ClientCreate{
 		Name:            createName,
-		RedirectUris:    redirectURIList,
-		AllowedScopes:   scopeList,
-		IsConfidential:  createIsConfidential,
-		DefaultResource: defaultResource,
+		RedirectURIs:    internal.ParseList(createRedirectURIs),
+		Scopes:          internal.ParseList(createAllowedScopes),
+		Resources:       internal.ParseList(createResources),
+		Confidential:    createIsConfidential,
 		Trusted:         createTrusted,
+		DefaultResource: createDefaultRes,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create OAuth client: %w", err)
-	}
-	if err := addClientResources(ctx, q, client.ID, allowedResources); err != nil {
 		return err
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit: %w", err)
-	}
+	client := detail.Client
 
 	// Output credentials
 	fmt.Println("\n✅ OAuth client registered successfully!")
@@ -177,7 +100,7 @@ func runClientCreate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Redirect URIs:  %s\n", strings.Join(client.RedirectUris, ", "))
 	fmt.Printf("  Allowed Scopes: %s\n", strings.Join(client.AllowedScopes, ", "))
 	fmt.Printf("  Default Resource: %s\n", internal.DefaultResourceValue(client.DefaultResource))
-	fmt.Printf("  Allowed Resources: %s\n", allowedResourcesValue(allowedResources))
+	fmt.Printf("  Allowed Resources: %s\n", allowedResourcesValue(detail.Resources))
 	fmt.Printf("  Confidential:   %v\n", client.IsConfidential)
 	fmt.Printf("  Trusted:        %v\n", client.Trusted)
 	fmt.Printf("  Created:        %s\n", client.CreatedAt.Format("2006-01-02 15:04:05"))

@@ -98,3 +98,25 @@ func ScopesJSON(scopes map[string]string) (json.RawMessage, error) {
 	}
 	return json.Marshal(scopes)
 }
+
+// ValidateResourceScopes applies ParseResourceScopes's rules to a scope map
+// that did not come from --scope flags (the admin panel's form, or a merge):
+// a non-empty name without whitespace that is not one of identity's own
+// scopes, and a non-empty description.
+func ValidateResourceScopes(scopes map[string]string) error {
+	for name, description := range scopes {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("a scope needs a name (description %q)", description)
+		}
+		if strings.ContainsAny(name, " \t\r\n") {
+			return fmt.Errorf("scope %q: a scope name cannot contain whitespace", name)
+		}
+		if strings.TrimSpace(description) == "" {
+			return fmt.Errorf("scope %s: a description is required (the consent screen shows it)", name)
+		}
+		if auth.IsIdentityScope(name) {
+			return fmt.Errorf("scope %s is one of identity's own scopes and cannot belong to a resource", name)
+		}
+	}
+	return nil
+}

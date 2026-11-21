@@ -1,15 +1,21 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"os"
 
 	"github.com/eswan18/identity/cmd/identity-cli/internal"
 	"github.com/eswan18/identity/pkg/store"
 	"github.com/spf13/cobra"
 )
 
-// datastore is shared across all client and resource subcommands
-var datastore *store.Store
+// datastore is shared across all client and resource subcommands, and target
+// is the database it is connected to.
+var (
+	datastore *store.Store
+	target    internal.Target
+)
 
 var clientCmd = &cobra.Command{
 	Use:                "client",
@@ -21,8 +27,17 @@ var clientCmd = &cobra.Command{
 
 // openDatastore connects the shared datastore before a subcommand runs.
 func openDatastore(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var err error
-	datastore, err = internal.GetDatastore()
+	target, err = internal.ResolveTarget(ctx, flagEnv, flagDatabaseURL, true)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stderr, target.Describe())
+	datastore, err = internal.GetDatastore(target)
 	if err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
