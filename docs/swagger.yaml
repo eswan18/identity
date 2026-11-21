@@ -488,6 +488,67 @@ paths:
       summary: Deactivate user account
       tags:
       - account
+  /delete-account:
+    get:
+      description: Explains what deleting the account does and asks for the password.
+        Optional client_id and redirect_uri name an app (and one of its registered
+        redirect URIs) to return to afterwards.
+      parameters:
+      - description: Client to return to after deletion
+        in: query
+        name: client_id
+        type: string
+      - description: Registered redirect URI of that client
+        in: query
+        name: redirect_uri
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML delete account page
+          schema:
+            type: string
+      summary: Show delete account page
+      tags:
+      - account
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Deactivates the account immediately and schedules it for permanent
+        erasure after 30 days. Reactivating within that window cancels the deletion.
+      parameters:
+      - description: Password for verification
+        in: formData
+        name: password
+        required: true
+        type: string
+      - description: Client to return to after deletion
+        in: formData
+        name: client_id
+        type: string
+      - description: Registered redirect URI of that client
+        in: formData
+        name: redirect_uri
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: Account deleted page
+          schema:
+            type: string
+        "302":
+          description: Redirect to the app's redirect URI with account_deleted=true
+          schema:
+            type: string
+        "401":
+          description: Invalid password
+          schema:
+            type: string
+      summary: Delete user account
+      tags:
+      - account
   /delete-avatar:
     post:
       consumes:
@@ -760,6 +821,12 @@ paths:
         in: query
         name: code_challenge_method
         type: string
+      - description: 'RFC 8707 resource indicator: the API the token is for. At most
+          one; must be a registered resource the client may request. Defaults to the
+          client''s default resource.'
+        in: query
+        name: resource
+        type: string
       produces:
       - text/html
       responses:
@@ -908,6 +975,12 @@ paths:
         in: formData
         name: refresh_token
         type: string
+      - description: 'RFC 8707 resource indicator. authorization_code and refresh_token:
+          optional, and must name the resource the grant is for. client_credentials:
+          a resource the client may request (defaults to its default resource).'
+        in: formData
+        name: resource
+        type: string
       produces:
       - application/json
       responses:
@@ -918,8 +991,8 @@ paths:
             additionalProperties: true
             type: object
         "400":
-          description: OAuth2 error response (invalid_request, invalid_grant, unsupported_grant_type,
-            etc.)
+          description: OAuth2 error response (invalid_request, invalid_grant, invalid_target,
+            unsupported_grant_type, etc.)
           schema:
             additionalProperties:
               type: string
