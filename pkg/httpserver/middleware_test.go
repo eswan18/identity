@@ -1,6 +1,8 @@
 package httpserver
 
 import (
+	"bytes"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -126,5 +128,72 @@ func TestRequireActive_DeactivatedUserGoesToAccountSettings(t *testing.T) {
 				t.Fatalf("next reached = %v, want %v", reached, tc.active)
 			}
 		})
+	}
+}
+
+// multipartBody returns a multipart/form-data body with one file part of n bytes.
+func multipartBody(t *testing.T, n int) (*bytes.Buffer, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	part, err := w.CreateFormFile("avatar", "big.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(bytes.Repeat([]byte{'x'}, n)); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return &buf, w.FormDataContentType()
+}
+
+// parseStatus is a handler that parses the form the way csrfMiddleware's
+// FormValue does (Go's default 32MB in memory, the rest spooled to disk) and
+// reports whether that succeeded.
+var parseStatus = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+})
+
+// A body on any route but the avatar upload is capped, so a large multipart
+// body can't be spooled to /tmp (a size-limited emptyDir in the cluster,
+// whose overflow evicts the pod) by the parse csrfMiddleware triggers.
+func TestLimitRequestBody_CapsOrdinaryRoutes(t *testing.T) {
+	h := limitRequestBody(parseStatus)
+
+	body, ct := multipartBody(t, maxRequestBodyBytes+1)
+	req := httptest.NewRequest(http.MethodPost, "/oauth/change-password", body)
+	req.Header.Set("Content-Type", ct)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("over-limit body: status %d, want the parse to fail (413)", rec.Code)
+	}
+
+	body, ct = multipartBody(t, 1024)
+	req = httptest.NewRequest(http.MethodPost, "/oauth/change-password", body)
+	req.Header.Set("Content-Type", ct)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("small body: status %d, want 200", rec.Code)
+	}
+}
+
+// The avatar upload keeps its own, larger cap (maxAvatarUploadBytes).
+func TestLimitRequestBody_LeavesAvatarUploadToItsOwnCap(t *testing.T) {
+	h := limitRequestBody(parseStatus)
+	body, ct := multipartBody(t, 2*maxRequestBodyBytes)
+	req := httptest.NewRequest(http.MethodPost, avatarUploadPath, body)
+	req.Header.Set("Content-Type", ct)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("avatar upload over the general cap: status %d, want 200", rec.Code)
 	}
 }
